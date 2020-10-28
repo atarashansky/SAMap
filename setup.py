@@ -11,7 +11,7 @@ setup(
     keywords="scrnaseq analysis manifold reconstruction cross-species mapping",
     python_requires=">=3.6",    
     install_requires=[
-        "sam-algorithm==0.7.5",
+        "sam-algorithm==0.7.6",
         "scanpy==1.5.1",
         "hnswlib==0.3.4",
         "matplotlib==3.1.3",
