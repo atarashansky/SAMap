@@ -5,7 +5,7 @@ This demonstration was run on zebrafish and xenopus cell atlases, both of which 
 
 ## Requirements
 SAMap was developed and tested in an Anaconda python environment with the following dependencies:
- - `sam-algorithm==0.7.5`
+ - `sam-algorithm==0.7.6`
  - `scanpy==1.5.1`
  - `hnswlib==0.3.4`
  - `matplotlib==3.1.3`
