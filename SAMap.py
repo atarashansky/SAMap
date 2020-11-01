@@ -200,7 +200,15 @@ def SAMAP(data1: typing.Union[str,SAM],
     samap.adata.uns['homology_graph'] = gnnm
     samap.adata.uns['homology_gene_names'] = gn
 
-    _, clu1, clu2, CSIMth = compute_csim(samap,'celltypes')
+    return samap, sam1, sam2, ITER_DATA
+
+def get_mapping_scores(sam1,sam2,samap,key1,key2):
+    
+    cl1 = np.array(list(sam1.adata.obs[key1]))
+    cl2 = np.array(list(sam2.adata.obs[key2]))
+    
+    samap['mapping_score_labels'] = pd.Categorical(np.append(cl1,cl2))
+    _, clu1, clu2, CSIMth = compute_csim(samap,'mapping_score_labels')
 
     A = pd.DataFrame(data = CSIMth,index = clu1, columns = clu2)
     i = np.argsort(-A.values.max(0).flatten())
@@ -224,10 +232,8 @@ def SAMAP(data1: typing.Union[str,SAM],
         C.append(A.columns[i[I]])
         C.append(A.columns[i[I]])
     H=np.hstack(H)
-    D2 = pd.DataFrame(data=H,columns=[C, np.arange(H.shape[1])])
-
-    return samap, D1, D2, sam1, sam2, ITER_DATA
-
+    D2 = pd.DataFrame(data=H,columns=[C, np.arange(H.shape[1])])    
+    return D1,D2
 
 def _united_proj(wpca1,wpca2,k=20, metric='correlation', sigma=500, ef = 200, M = 48):
 
