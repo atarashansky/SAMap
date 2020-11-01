@@ -347,7 +347,7 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
     output_dict['G_avg1'] = avg1.tocsr()
     output_dict['G_avg2'] = avg2.tocsr()
     output_dict['G_avg'] = avg.tocsr()
-    output_dict['edge_weights'] = pd.Series(index=to_vn(ortholog_pairs),values=corr)
+    output_dict['edge_weights'] = pd.Series(index=to_vn(ortholog_pairs),data=corr)
     return output_dict
 
 def _sparse_knn(D,k):
