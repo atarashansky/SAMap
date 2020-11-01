@@ -209,7 +209,7 @@ def get_mapping_scores(sam1,sam2,samap,key1,key2):
     cl2 = np.array(list(sam2.adata.obs[key2]))
     cl = np.array(list(samap.adata.obs['species'])).astype('object') +'_'+ np.append(cl1,cl2).astype('str').astype('object')
     
-    samap['mapping_score_labels'] = pd.Categorical(cl)
+    samap.adata.obs['mapping_score_labels'] = pd.Categorical(cl)
     _, clu1, clu2, CSIMth = compute_csim(samap,'mapping_score_labels')
 
     A = pd.DataFrame(data = CSIMth,index = clu1, columns = clu2)
