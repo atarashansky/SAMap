@@ -731,17 +731,17 @@ def calculate_blast_graph(sam1,sam2,fA,fB,id1='A',id2='B', thr=0.25):
     A.columns=A.columns.astype('<U100')
     B.columns=B.columns.astype('<U100')
 
-    A.index = id1+'_'+ut.extract_annotation(A.index,1,'|').astype('object')
-    B.iloc[:,0] = id1 +'_'+ut.extract_annotation(B.iloc[:,0].values.flatten(),1,'|').astype('object')
+    A.index = id1+'_'+A.index.astype('str').astype('object')
+    B.iloc[:,0] = id1 +'_'+B.iloc[:,0].values.flatten().astype('str').astype('object')
     sam1.adata.var_names = id1+'_'+sam1.adata.var_names
 
-    B.index = id2+'_'+ut.extract_annotation(B.index,1,'|').astype('object')
-    A.iloc[:,0] = id2+'_' + ut.extract_annotation(A.iloc[:,0].values.flatten(),1,'|').astype('object')
+    B.index = id2+'_'+B.index.astype('str').astype('object')
+    A.iloc[:,0] = id2+'_' + A.iloc[:,0].values.flatten().astype('str').astype('object')
     sam2.adata.var_names = id2+'_'+sam2.adata.var_names
 
     gnnm,gn1,gn2 = _map_features_un(A,B,sam1,sam2)
     gn=np.append(gn1,gn2)
-    gnnm = filter_gnnm(gnnm,thr=thr)
+    gnnm = _filter_gnnm(gnnm,thr=thr)
     return gnnm,gn1,gn2,gn
 
 def get_pairs(sam1,sam2,gnnm,gn1,gn2,NOPs1=2,NOPs2=5):
