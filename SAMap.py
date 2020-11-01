@@ -200,14 +200,16 @@ def SAMAP(data1: typing.Union[str,SAM],
     samap.adata.uns['homology_graph'] = gnnm
     samap.adata.uns['homology_gene_names'] = gn
 
+    samap.adata.obs['species'] = pd.Categorical([id1]*sam1.adata.shape[0]+[id2]*sam2.adata.shape[0])
     return samap, sam1, sam2, ITER_DATA
 
 def get_mapping_scores(sam1,sam2,samap,key1,key2):
     
     cl1 = np.array(list(sam1.adata.obs[key1]))
     cl2 = np.array(list(sam2.adata.obs[key2]))
+    cl = np.array(list(samap.adata.obs['species'])).astype('object') +'_'+ np.append(cl1,cl2).astype('str').astype('object')
     
-    samap['mapping_score_labels'] = pd.Categorical(np.append(cl1,cl2))
+    samap['mapping_score_labels'] = pd.Categorical(cl)
     _, clu1, clu2, CSIMth = compute_csim(samap,'mapping_score_labels')
 
     A = pd.DataFrame(data = CSIMth,index = clu1, columns = clu2)
