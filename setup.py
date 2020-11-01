@@ -9,7 +9,8 @@ setup(
     author="Alexander J. Tarashansky",
     author_email="tarashan@stanford.edu",
     keywords="scrnaseq analysis manifold reconstruction cross-species mapping",
-    python_requires=">=3.6",    
+    python_requires=">=3.6",
+    py_modules=["SAMap.py"],    
     install_requires=[
         "sam-algorithm==0.7.6",
         "scanpy==1.5.1",
