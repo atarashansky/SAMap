@@ -145,6 +145,8 @@ def SAMAP(data1: typing.Union[str,SAM],
         f1n = '.'.join(data1.split('.')[:-1])+'_pr.h5ad'
         print('Saving processed data to:\n{}'.format(f1n))
         sam1.save_anndata(f1n)
+    else:
+        sam1 = data1
 
     if isinstance(data2,str):
         print('Processing data 2 from:\n{}'.format(data2))
@@ -155,6 +157,8 @@ def SAMAP(data1: typing.Union[str,SAM],
         f2n = '.'.join(data2.split('.')[:-1])+'_pr.h5ad'
         print('Saving processed data to:\n{}'.format(f2n))
         sam2.save_anndata(f2n)
+    else:
+        sam2 = data2
 
 
     print('Preparing data 1 for SAMap.')
