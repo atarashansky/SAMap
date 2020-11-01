@@ -1049,7 +1049,7 @@ class Samap(object):
 
             gc.collect()
 
-            sam4 = sm.samap([sam1,sam2],gnnm2,gn,umap=False,K=K,NH1=NH1,NH2=NH2,coarsen=coarsen)
+            sam4 = samap([sam1,sam2],gnnm2,gn,umap=False,K=K,NH1=NH1,NH2=NH2,coarsen=coarsen)
             self.samap = sam4
             self.GNNMS_nnm.append(sam4.adata.uns['nnm'])
 
