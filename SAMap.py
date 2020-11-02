@@ -1154,15 +1154,15 @@ class GenePairFinder(object):
         x2 = sam2.get_labels(key2)
         g1,g2 = ut.extract_annotation(sam3.adata.var_names,0,';'),ut.extract_annotation(sam3.adata.var_names,1,';')
         if knn:
-            X1 = sparse_sub_standardize(sam1.adata[:,g1].layers['X_knn_avg'][x1==c1,:],mu1,std1)
-            X2 = sparse_sub_standardize(sam2.adata[:,g2].layers['X_knn_avg'][x2==c2,:],mu2,std2)
+            X1 = _sparse_sub_standardize(sam1.adata[:,g1].layers['X_knn_avg'][x1==c1,:],mu1,std1)
+            X2 = _sparse_sub_standardize(sam2.adata[:,g2].layers['X_knn_avg'][x2==c2,:],mu2,std2)
         else:
-            X1 = sparse_sub_standardize(sam1.adata[:,g1].X[x1==c1,:],mu1,std1)
-            X2 = sparse_sub_standardize(sam2.adata[:,g2].X[x2==c2,:],mu2,std2)
+            X1 = _sparse_sub_standardize(sam1.adata[:,g1].X[x1==c1,:],mu1,std1)
+            X2 = _sparse_sub_standardize(sam2.adata[:,g2].X[x2==c2,:],mu2,std2)
     
     
-        X1 = sparse_sub_standardize(X1,mu1,std1,rows=True).tocsr()
-        X2 = sparse_sub_standardize(X2,mu2,std2,rows=True).tocsr()
+        X1 = _sparse_sub_standardize(X1,mu1,std1,rows=True).tocsr()
+        X2 = _sparse_sub_standardize(X2,mu2,std2,rows=True).tocsr()
     
         a,b = sam3.adata.obsp['connectivities'][:sam1.adata.shape[0],sam1.adata.shape[0]:][x1==c1,:][:,x2==c2].nonzero()
         c,d = sam3.adata.obsp['connectivities'][sam1.adata.shape[0]:,:sam1.adata.shape[0]][x2==c2,:][:,x1==c1].nonzero()
@@ -1182,11 +1182,57 @@ class GenePairFinder(object):
         w1[w1>0]=1
         w2[w2>0]=1
     
-        Z = sparse_knn(Z.T,n_pairs)
-        val = knndist(Z,n_pairs).T
+        Z = _sparse_knn(Z.T,n_pairs)
+        val = _knndist(Z,n_pairs).T
         mu = val.mean(0)*w1*w2*min_expr
         return mu
-        
+
+def substr(x, s="_", ix=None,obj=False):
+    m = []
+    if ix is not None:
+        for i in range(len(x)):
+            f = x[i].split(s)
+            ix = min(len(f) - 1, ix)
+            m.append(f[ix])
+        return np.array(m).astype('object') if obj else np.array(m)
+    else:
+        ms = []
+        ls = []
+        for i in range(len(x)):
+            f = x[i].split(s)
+            m = []
+            for ix in range(len(f)):
+                m.append(f[ix])
+            ms.append(m)
+            ls.append(len(m))
+        ml = max(ls)
+        for i in range(len(ms)):
+            ms[i].extend([""] * (ml - len(ms[i])))
+            if ml - len(ms[i]) > 0:
+                ms[i] = np.concatenate(ms[i])
+        ms = np.vstack(ms)
+        if obj:
+            ms=ms.astype('object')
+        MS = []
+        for i in range(ms.shape[1]):
+            MS.append(ms[:, i])
+            return MS
+            
+def _knndist(nnma,k):
+    x, y = nnma.nonzero()
+    data = nnma.data
+    xc,cc = np.unique(x,return_counts=True)
+    cc2=np.zeros(nnma.shape[0],dtype='int')
+    cc2[xc]=cc
+    cc=cc2
+    newx=[]
+    newdata=[]
+    for i in range(nnma.shape[0]):
+        newx.extend([i]*k)
+        newdata.extend(list(data[x==i])+[0]*(k-cc[i]))
+    data=np.array(newdata)
+    val = data.reshape((nnma.shape[0], k))
+    return val 
 def find_cluster_markers(sam,key,use_raw=True,layer=None):
     sc.tl.rank_genes_groups(sam.adata,key,method='wilcoxon',n_genes=sam.adata.shape[1],use_raw=use_raw,layer=layer)
     NAMES = pd.DataFrame(sam.adata.uns['rank_genes_groups']['names'])
@@ -1201,7 +1247,7 @@ def find_cluster_markers(sam,key,use_raw=True,layer=None):
         sam.adata.var[key+';;'+SCORES.columns[i]] = pd.DataFrame(data = scores[None,:],columns=names)[sam.adata.var_names].values.flatten()
         sam.adata.var[key+';;'+SCORES.columns[i]+'_pval'] = pd.DataFrame(data = pvals[None,:],columns=names)[sam.adata.var_names].values.flatten()
         
-def sparse_sub_standardize(X,mu,var,rows=False):
+def _sparse_sub_standardize(X,mu,var,rows=False):
     x,y = X.nonzero()
     if not rows:
         Xs = X.copy()
