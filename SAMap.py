@@ -12,7 +12,7 @@ import samalg.utilities as ut
 from sklearn.preprocessing import StandardScaler
 import scanpy as sc
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 def SAMAP(data1: typing.Union[str,SAM],
           data2: typing.Union[str,SAM],
