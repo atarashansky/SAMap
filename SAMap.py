@@ -12,7 +12,7 @@ import samalg.utilities as ut
 from sklearn.preprocessing import StandardScaler
 import scanpy as sc
 
-__version__ = '0.1.1'
+__version__ = '0.1.0'
 
 def SAMAP(data1: typing.Union[str,SAM],
           data2: typing.Union[str,SAM],
@@ -323,8 +323,8 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
     sp1 = s1.dot(avg2)
     sp2 = s2.dot(avg1.T)
 
-    sp1 = std.fit_transform(sp1).multiply(W1[None,:]).tocsr()
-    sp2 = std.fit_transform(sp2).multiply(W2[None,:]).tocsr()
+    sp1 = std.fit_transform(sp1).multiply(W2[None,:]).tocsr()
+    sp2 = std.fit_transform(sp2).multiply(W1[None,:]).tocsr()
     s1 = s1.multiply(W1[None,:]).tocsr()
     s2 = s2.multiply(W2[None,:]).tocsr()
     
