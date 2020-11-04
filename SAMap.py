@@ -304,7 +304,7 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
     W2 = adata2.var['weights'].values
 
     std = StandardScaler(with_mean=False)
-
+    #remove weighting for now
     s1 = std.fit_transform(adata1.X)#.multiply(W1[None,:]).tocsr()
     s2 = std.fit_transform(adata2.X)#.multiply(W2[None,:]).tocsr()
 
