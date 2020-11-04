@@ -183,6 +183,8 @@ def SAMAP(data1: typing.Union[str,SAM],
                                     f_maps+n+'/{}_to_{}.txt'.format(id2,id1),
                                     id1 = id1, id2 = id2)
 
+    print('{} `{}` genes and {} `{}` gene symbols match between the datasets and the BLAST graph.'.format(gn1.size,id1,gn2.size,id2))
+    
     smap = Samap(sam1,sam2,gnnm,gn1,gn2)
 
     ITER_DATA = smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
@@ -303,8 +305,8 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
 
     std = StandardScaler(with_mean=False)
 
-    s1 = std.fit_transform(adata1.X).multiply(W1[None,:]).tocsr()
-    s2 = std.fit_transform(adata2.X).multiply(W2[None,:]).tocsr()
+    s1 = std.fit_transform(adata1.X)#.multiply(W1[None,:]).tocsr()
+    s2 = std.fit_transform(adata2.X)#.multiply(W2[None,:]).tocsr()
 
     k = K
     
