@@ -303,8 +303,8 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
 
     std = StandardScaler(with_mean=False)
 
-    s1 = std.fit_transform(adata1.X)#.multiply(W1[None,:]).tocsr()
-    s2 = std.fit_transform(adata2.X)#.multiply(W2[None,:]).tocsr()
+    s1 = std.fit_transform(adata1.X).multiply(W1[None,:]).tocsr()
+    s2 = std.fit_transform(adata2.X).multiply(W2[None,:]).tocsr()
 
     k = K
     
@@ -323,10 +323,10 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
     sp1 = s1.dot(avg2)
     sp2 = s2.dot(avg1.T)
 
-    sp1 = std.fit_transform(sp1).multiply(W2[None,:]).tocsr()
-    sp2 = std.fit_transform(sp2).multiply(W1[None,:]).tocsr()
-    s1 = s1.multiply(W1[None,:]).tocsr()
-    s2 = s2.multiply(W2[None,:]).tocsr()
+    sp1 = std.fit_transform(sp1)#.multiply(W2[None,:]).tocsr()
+    sp2 = std.fit_transform(sp2)#.multiply(W1[None,:]).tocsr()
+    #s1 = s1.multiply(W1[None,:]).tocsr()
+    #s2 = s2.multiply(W2[None,:]).tocsr()
     
 
     mu1 = s1.mean(0).A.flatten()[None,:]
