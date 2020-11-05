@@ -15,7 +15,7 @@ import warnings
 from numba.core.errors import NumbaPerformanceWarning, NumbaWarning
 warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
 warnings.filterwarnings("ignore", category=NumbaWarning)
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 def SAMAP(data1: typing.Union[str,SAM],
           data2: typing.Union[str,SAM],
@@ -24,7 +24,7 @@ def SAMAP(data1: typing.Union[str,SAM],
           f_maps: typing.Optional[str]='maps/',
           key1: typing.Optional[str]='leiden_clusters',
           key2: typing.Optional[str]='leiden_clusters',
-          NUMITERS: typing.Optional[int] = 2,
+          NUMITERS: typing.Optional[int] = 3,
           leiden_res1: typing.Optional[int] = 3,
           leiden_res2: typing.Optional[int] = 3,
           NH1: typing.Optional[int] = 3,
@@ -32,7 +32,8 @@ def SAMAP(data1: typing.Union[str,SAM],
           K: typing.Optional[int] = 20,
           NOPs1: typing.Optional[int] = 4,
           NOPs2: typing.Optional[int] = 8,
-          N_GENE_CHUNKS: typing.Optional[int] = 1):
+          N_GENE_CHUNKS: typing.Optional[int] = 1,
+          USE_SEQ: typing.Optional[bool] = False):
 
     """Runs the SAMap algorithm.
 
@@ -60,7 +61,7 @@ def SAMAP(data1: typing.Union[str,SAM],
         Path to the `maps` directory output by `map_genes.sh`.
         By default assumes it is in the local directory.
 
-    NUMITERS : int, optional, default 2
+    NUMITERS : int, optional, default 3
         Runs SAMap for `NUMITERS` iterations using the mutual-nearest
         neighborhood criterion.
 
@@ -186,10 +187,12 @@ def SAMAP(data1: typing.Union[str,SAM],
                                     f_maps+n+'/{}_to_{}.txt'.format(id2,id1),
                                     id1 = id1, id2 = id2)
 
+    print('{} `{}` genes and {} `{}` gene symbols match between the datasets and the BLAST graph.'.format(gn1.size,id1,gn2.size,id2))
+    
     smap = Samap(sam1,sam2,gnnm,gn1,gn2)
 
     ITER_DATA = smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
-                         NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS)
+                         NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS,use_seq=USE_SEQ)
     samap=smap.final_sam
     print('Alignment score ---',avg_as(samap).mean())
 
@@ -308,10 +311,7 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
     s2 = std.fit_transform(adata2.X).multiply(W2[None,:]).tocsr()
 
     k = K
-
-    mu1 = s1.mean(0).A.flatten()[None,:]
-    mu2 = s2.mean(0).A.flatten()[None,:]
-
+    
     A1=pd.DataFrame(data=np.arange(g1.size)[None,:],columns=g1)
     A2=pd.DataFrame(data=np.arange(g2.size)[None,:],columns=g2)
 
@@ -327,6 +327,14 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
     sp1 = s1.dot(avg2)
     sp2 = s2.dot(avg1.T)
 
+    sp1 = std.fit_transform(sp1)#.multiply(W2[None,:]).tocsr()
+    sp2 = std.fit_transform(sp2)#.multiply(W1[None,:]).tocsr()
+    #s1 = s1.multiply(W1[None,:]).tocsr()
+    #s2 = s2.multiply(W2[None,:]).tocsr()
+    
+
+    mu1 = s1.mean(0).A.flatten()[None,:]
+    mu2 = s2.mean(0).A.flatten()[None,:]    
     mu1s = sp1.mean(0).A.flatten()[None,:]
     mu2s = sp2.mean(0).A.flatten()[None,:]
 
@@ -946,7 +954,6 @@ def _parallel_wrapper(j):
 def refine_corr(sam1,sam2,st,gnnm,gn1,gn2,corr_mode='pearson',THR=0,use_seq=False,
                      T1=0.25,T2=0,NCLUSTERS = 1):
     #import networkx as nx
-    import gc
     gn=np.append(gn1,gn2)
 
     x,y=gnnm.nonzero()
@@ -1010,7 +1017,7 @@ class Samap(object):
         self.gn2=gn2
 
 
-    def run(self,NUMITERS=2,NOPs1=4,NOPs2=8,NH1=2,NH2=2,K=20,NCLUSTERS=1):
+    def run(self,NUMITERS=3,NOPs1=4,NOPs2=8,NH1=2,NH2=2,K=20,NCLUSTERS=1,use_seq=False):
         sam1=self.sam1
         sam2=self.sam2
         gnnm=self.gnnm
@@ -1019,9 +1026,7 @@ class Samap(object):
         gn=np.append(gn1,gn2)
 
         self.max_score = 0
-        import gc
-        coarsen=False
-
+        coarsen = False
         gnnm2 = get_pairs(sam1,sam2,gnnm,gn1,gn2,NOPs1=NOPs1,NOPs2=NOPs2)
         sam_def = samap([sam1,sam2],gnnm2,gn, umap=False, NH1=NH1, NH2=NH2,
                                     coarsen=coarsen,K=K)
@@ -1049,7 +1054,7 @@ class Samap(object):
             sam_def=sam4
             gc.collect()
             print('Calculating gene-gene correlations in the homology graph...')
-            gnnmu = refine_corr(sam1,sam2,sam_def,gnnm,gn1,gn2, THR = 0, use_seq=False,corr_mode='pearson',T1=0,T2=0,NCLUSTERS=NCLUSTERS)
+            gnnmu = refine_corr(sam1,sam2,sam_def,gnnm,gn1,gn2, THR = 0, use_seq=use_seq,corr_mode='pearson',T1=0,T2=0,NCLUSTERS=NCLUSTERS)
 
             self.GNNMS_corr.append(gnnmu)
             self.gnnmu = gnnmu
@@ -1070,13 +1075,12 @@ class Samap(object):
             self.SCORE_VEC.append(new)
 
             self.last_score = self.SCORES[-1]
-
-
+            
             if i==BURN_IN+1 and FLAG:
                 FLAG=False
                 BURN_IN += NUMITERS
                 coarsen=True
-
+                
             gc.collect()
 
         self.final_sam=sam4
