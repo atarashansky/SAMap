@@ -1,4 +1,4 @@
-# SAMap -- version 0.1.0
+# SAMap -- version 0.1.1
 The SAMap algorithm.
 
 ## Requirements
