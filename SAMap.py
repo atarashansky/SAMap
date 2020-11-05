@@ -1252,6 +1252,8 @@ def find_cluster_markers(sam,key,use_raw=True,layer=None):
         pvals = PVALS.iloc[:,i]
         pvals[scores<0]=1.0
         scores[scores<0]=0
+        pvals = q(pvals)
+        scores = q(scores)
         sam.adata.var[key+';;'+SCORES.columns[i]] = pd.DataFrame(data = scores[None,:],columns=names)[sam.adata.var_names].values.flatten()
         sam.adata.var[key+';;'+SCORES.columns[i]+'_pval'] = pd.DataFrame(data = pvals[None,:],columns=names)[sam.adata.var_names].values.flatten()
         
