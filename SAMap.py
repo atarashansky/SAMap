@@ -250,7 +250,7 @@ def get_mapping_scores(sam1,sam2,samap,key1,key2):
 
 def _united_proj(wpca1,wpca2,k=20, metric='correlation', sigma=500, ef = 200, M = 48):
 
-    print('Running hsnwlib (2) ')
+    print('Running hsnwlib')
 
     labels1 = np.arange(wpca1.shape[0])
     labels2 = np.arange(wpca2.shape[0])
@@ -333,11 +333,8 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
     sp1 = s1.dot(avg2)
     sp2 = s2.dot(avg1.T)
 
-    sp1 = std.fit_transform(sp1)#.multiply(W2[None,:]).tocsr()
-    sp2 = std.fit_transform(sp2)#.multiply(W1[None,:]).tocsr()
-    #s1 = s1.multiply(W1[None,:]).tocsr()
-    #s2 = s2.multiply(W2[None,:]).tocsr()
-    
+    sp1 = std.fit_transform(sp1)
+    sp2 = std.fit_transform(sp2)    
 
     mu1 = s1.mean(0).A.flatten()[None,:]
     mu2 = s2.mean(0).A.flatten()[None,:]    
@@ -371,7 +368,7 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
     output_dict['G_avg1'] = avg1.tocsr()
     output_dict['G_avg2'] = avg2.tocsr()
     output_dict['G_avg'] = avg.tocsr()
-    output_dict['edge_weights'] = corr#pd.Series(index=to_vn(ortholog_pairs),data=corr)
+    output_dict['edge_weights'] = corr
     return output_dict
 
 def _sparse_knn(D,k):
