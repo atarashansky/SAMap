@@ -11,7 +11,10 @@ import numpy as np
 import samalg.utilities as ut
 from sklearn.preprocessing import StandardScaler
 import scanpy as sc
-
+import warnings
+from numba.core.errors import NumbaPerformanceWarning, NumbaWarning
+warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
+warnings.filterwarnings("ignore", category=NumbaWarning)
 __version__ = '0.1.1'
 
 def SAMAP(data1: typing.Union[str,SAM],
@@ -22,6 +25,8 @@ def SAMAP(data1: typing.Union[str,SAM],
           key1: typing.Optional[str]='leiden_clusters',
           key2: typing.Optional[str]='leiden_clusters',
           NUMITERS: typing.Optional[int] = 3,
+          leiden_res1: typing.Optional[int] = 3,
+          leiden_res2: typing.Optional[int] = 3,
           NH1: typing.Optional[int] = 3,
           NH2: typing.Optional[int] = 3,
           K: typing.Optional[int] = 20,
@@ -56,19 +61,17 @@ def SAMAP(data1: typing.Union[str,SAM],
         Path to the `maps` directory output by `map_genes.sh`.
         By default assumes it is in the local directory.
 
-    key1 : string, optional, default 'leiden_clusters'
-        Corresponds to one of the annotation columns in the `AnnData` object for
-        organism 1. The final alignment score tables will be computed for these
-        cell type annotations.
-
-    key2 : string, optional, default 'leiden_clusters'
-        Corresponds to one of the annotation columns in the `AnnData` object for
-        organism 2. The final alignment score tables will be computed for these
-        cell type annotations.
-
     NUMITERS : int, optional, default 3
         Runs SAMap for `NUMITERS` iterations using the mutual-nearest
         neighborhood criterion.
+
+    leiden_res1 : float, optional, default 3
+        The resolution parameter for the leiden clustering to be done on the manifold of organism 1.
+        Each cell's neighborhood size will be capped to be the size of its leiden cluster.
+
+    leiden_res2 : float, optional, default 3
+        The resolution parameter for the leiden clustering to be done on the manifold of organism 2.
+        Each cell's neighborhood size will be capped to be the size of its leiden cluster.
 
     NH1 : int, optional, default 3
         Cells up to `NH1` hops away from a particular cell in organism 1
@@ -142,8 +145,6 @@ def SAMAP(data1: typing.Union[str,SAM],
         sam1.load_data(data1)
         sam1.preprocess_data(sum_norm='cell_median',norm='log',thresh_low=0.0,thresh_high=0.96,min_expression=1)
         sam1.run(preprocessing='StandardScaler',npcs=150,weight_PCs=False,k=20,n_genes=3000)
-        sam1.leiden_clustering(res=3)
-        prepare_SAMap_loadings(sam1)
         f1n = '.'.join(data1.split('.')[:-1])+'_pr.h5ad'
         print('Saving processed data to:\n{}'.format(f1n))
         sam1.save_anndata(f1n)
@@ -164,12 +165,14 @@ def SAMAP(data1: typing.Union[str,SAM],
 
 
     print('Preparing data 1 for SAMap.')
-    sam1.leiden_clustering(res=3)
-    prepare_SAMap_loadings(sam1)
+    sam1.leiden_clustering(res=leiden_res1)
+    if 'PCs_SAMap' not in sam1.adata.varm.keys():
+        prepare_SAMap_loadings(sam1)
 
     print('Preparing data 2 for SAMap.')
-    sam2.leiden_clustering(res=3)
-    prepare_SAMap_loadings(sam2)
+    sam2.leiden_clustering(res=leiden_res2)
+    if 'PCs_SAMap' not in sam2.adata.varm.keys():
+        prepare_SAMap_loadings(sam2)
 
 
     if path.exists(f_maps+id1+id2+'/'):
@@ -192,8 +195,6 @@ def SAMAP(data1: typing.Union[str,SAM],
                          NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS,use_seq=USE_SEQ)
     samap=smap.final_sam
     print('Alignment score ---',avg_as(samap).mean())
-    samap.adata.obs['celltypes'] = pd.Categorical(np.append(sam1.get_labels(key1).astype('object').astype('<U100').astype('object'),
-                                                            sam2.get_labels(key2).astype('object').astype('<U100').astype('object')))
 
     print('Running UMAP on the stitched manifolds.')
     sc.tl.umap(samap.adata,min_dist=0.1,init_pos='random')
@@ -221,7 +222,7 @@ def get_mapping_scores(sam1,sam2,samap,key1,key2):
     H=[]
     C=[]
     for I in range(A.shape[1]):
-        x = A.iloc[:,i[I]].sort_values(ascending=False).iloc[:8]
+        x = A.iloc[:,i[I]].sort_values(ascending=False)
         H.append(np.vstack((x.index,x.values)).T)
         C.append(A.columns[i[I]])
         C.append(A.columns[i[I]])
@@ -233,7 +234,7 @@ def get_mapping_scores(sam1,sam2,samap,key1,key2):
     H=[]
     C=[]
     for I in range(A.shape[1]):
-        x = A.iloc[:,i[I]].sort_values(ascending=False).iloc[:8]
+        x = A.iloc[:,i[I]].sort_values(ascending=False)
         H.append(np.vstack((x.index,x.values)).T)
         C.append(A.columns[i[I]])
         C.append(A.columns[i[I]])
@@ -364,7 +365,7 @@ def _mapping_window(sam1,sam2,gnnm,gn,K=20):
     output_dict['G_avg1'] = avg1.tocsr()
     output_dict['G_avg2'] = avg2.tocsr()
     output_dict['G_avg'] = avg.tocsr()
-    output_dict['edge_weights'] = pd.Series(index=to_vn(ortholog_pairs),data=corr)
+    output_dict['edge_weights'] = corr#pd.Series(index=to_vn(ortholog_pairs),data=corr)
     return output_dict
 
 def _sparse_knn(D,k):
@@ -750,11 +751,11 @@ def calculate_blast_graph(sam1,sam2,fA,fB,id1='A',id2='B', thr=0.25):
 
     A.index = id1+'_'+A.index.astype('str').astype('object')
     B.iloc[:,0] = id1 +'_'+B.iloc[:,0].values.flatten().astype('str').astype('object')
-    sam1.adata.var_names = id1+'_'+sam1.adata.var_names
+    sam1.adata.var_names = id1+'_'+sam1.adata.var_names.astype('str').astype('object')
 
     B.index = id2+'_'+B.index.astype('str').astype('object')
     A.iloc[:,0] = id2+'_' + A.iloc[:,0].values.flatten().astype('str').astype('object')
-    sam2.adata.var_names = id2+'_'+sam2.adata.var_names
+    sam2.adata.var_names = id2+'_'+sam2.adata.var_names.astype('str').astype('object')
 
     gnnm,gn1,gn2 = _map_features_un(A,B,sam1,sam2)
     gn=np.append(gn1,gn2)
