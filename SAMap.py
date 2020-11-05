@@ -12,7 +12,7 @@ import samalg.utilities as ut
 from sklearn.preprocessing import StandardScaler
 import scanpy as sc
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 def SAMAP(data1: typing.Union[str,SAM],
           data2: typing.Union[str,SAM],
@@ -27,7 +27,8 @@ def SAMAP(data1: typing.Union[str,SAM],
           K: typing.Optional[int] = 20,
           NOPs1: typing.Optional[int] = 4,
           NOPs2: typing.Optional[int] = 8,
-          N_GENE_CHUNKS: typing.Optional[int] = 1):
+          N_GENE_CHUNKS: typing.Optional[int] = 1
+          USE_SEQ: typing.Optional[bool] = False):
 
     """Runs the SAMap algorithm.
 
@@ -188,7 +189,7 @@ def SAMAP(data1: typing.Union[str,SAM],
     smap = Samap(sam1,sam2,gnnm,gn1,gn2)
 
     ITER_DATA = smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
-                         NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS)
+                         NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS,use_seq=USE_SEQ)
     samap=smap.final_sam
     print('Alignment score ---',avg_as(samap).mean())
     samap.adata.obs['celltypes'] = pd.Categorical(np.append(sam1.get_labels(key1).astype('object').astype('<U100').astype('object'),
@@ -1015,7 +1016,7 @@ class Samap(object):
         self.gn2=gn2
 
 
-    def run(self,NUMITERS=3,NOPs1=4,NOPs2=8,NH1=2,NH2=2,K=20,NCLUSTERS=1):
+    def run(self,NUMITERS=3,NOPs1=4,NOPs2=8,NH1=2,NH2=2,K=20,NCLUSTERS=1,use_seq=False):
         sam1=self.sam1
         sam2=self.sam2
         gnnm=self.gnnm
@@ -1050,7 +1051,7 @@ class Samap(object):
             sam_def=sam4
             gc.collect()
             print('Calculating gene-gene correlations in the homology graph...')
-            gnnmu = refine_corr(sam1,sam2,sam_def,gnnm,gn1,gn2, THR = 0, use_seq=False,corr_mode='pearson',T1=0,T2=0,NCLUSTERS=NCLUSTERS)
+            gnnmu = refine_corr(sam1,sam2,sam_def,gnnm,gn1,gn2, THR = 0, use_seq=use_seq,corr_mode='pearson',T1=0,T2=0,NCLUSTERS=NCLUSTERS)
 
             self.GNNMS_corr.append(gnnmu)
             self.gnnmu = gnnmu
