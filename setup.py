@@ -16,7 +16,7 @@ setup(
         "scanpy==1.5.1",
         "hnswlib==0.3.4",
         "matplotlib==3.1.3",
-        "leidenalg==0.7.0",
+        "leidenalg==0.7.0"
     ],
     packages=find_packages(),
     include_package_data=True,
