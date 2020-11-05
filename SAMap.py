@@ -21,7 +21,7 @@ def SAMAP(data1: typing.Union[str,SAM],
           f_maps: typing.Optional[str]='maps/',
           key1: typing.Optional[str]='leiden_clusters',
           key2: typing.Optional[str]='leiden_clusters',
-          NUMITERS: typing.Optional[int] = 2,
+          NUMITERS: typing.Optional[int] = 3,
           NH1: typing.Optional[int] = 3,
           NH2: typing.Optional[int] = 3,
           K: typing.Optional[int] = 20,
@@ -65,7 +65,7 @@ def SAMAP(data1: typing.Union[str,SAM],
         organism 2. The final alignment score tables will be computed for these
         cell type annotations.
 
-    NUMITERS : int, optional, default 2
+    NUMITERS : int, optional, default 3
         Runs SAMap for `NUMITERS` iterations using the mutual-nearest
         neighborhood criterion.
 
@@ -952,7 +952,6 @@ def _parallel_wrapper(j):
 def refine_corr(sam1,sam2,st,gnnm,gn1,gn2,corr_mode='pearson',THR=0,use_seq=False,
                      T1=0.25,T2=0,NCLUSTERS = 1):
     #import networkx as nx
-    import gc
     gn=np.append(gn1,gn2)
 
     x,y=gnnm.nonzero()
@@ -1016,7 +1015,7 @@ class Samap(object):
         self.gn2=gn2
 
 
-    def run(self,NUMITERS=2,NOPs1=4,NOPs2=8,NH1=2,NH2=2,K=20,NCLUSTERS=1):
+    def run(self,NUMITERS=3,NOPs1=4,NOPs2=8,NH1=2,NH2=2,K=20,NCLUSTERS=1):
         sam1=self.sam1
         sam2=self.sam2
         gnnm=self.gnnm
@@ -1025,8 +1024,6 @@ class Samap(object):
         gn=np.append(gn1,gn2)
 
         self.max_score = 0
-        import gc
-        coarsen=False
 
         gnnm2 = get_pairs(sam1,sam2,gnnm,gn1,gn2,NOPs1=NOPs1,NOPs2=NOPs2)
         sam_def = samap([sam1,sam2],gnnm2,gn, umap=False, NH1=NH1, NH2=NH2,
@@ -1044,9 +1041,7 @@ class Samap(object):
         self.GNNMS_pruned=[gnnm2]
         i=0
         self.GNNMS_nnm=[sam_def.adata.obsp['connectivities']]
-        BURN_IN = 0
-        FLAG = True
-        while i < BURN_IN+1:
+        while i < NUMITERS:
             print('ITERATION: ' + str(i),
                   '\nAverage alignment score (A.S.): ',avg_as(sam4).mean(),
                   '\nMax A.S. improvement:',np.max(new-old),
@@ -1065,7 +1060,7 @@ class Samap(object):
 
             gc.collect()
 
-            sam4 = samap([sam1,sam2],gnnm2,gn,umap=False,K=K,NH1=NH1,NH2=NH2,coarsen=coarsen)
+            sam4 = samap([sam1,sam2],gnnm2,gn,umap=False,K=K,NH1=NH1,NH2=NH2,coarsen=True)
             self.samap = sam4
             self.GNNMS_nnm.append(sam4.adata.uns['nnm'])
 
@@ -1076,13 +1071,6 @@ class Samap(object):
             self.SCORE_VEC.append(new)
 
             self.last_score = self.SCORES[-1]
-
-
-            if i==BURN_IN+1 and FLAG:
-                FLAG=False
-                BURN_IN += NUMITERS
-                coarsen=True
-
             gc.collect()
 
         self.final_sam=sam4
