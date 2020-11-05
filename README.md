@@ -36,7 +36,7 @@ source ~/.bashrc
 ```
 *Installation time should take no more than 5 minutes.*
 
-## Running SAMap
+## Running BLAST
 
 First, we need to map the transcriptomes to generate the homology graph. For convenience, you may wish to place the transcriptomes/proteomes and the `map_genes.sh` bash script in the same directory as your data (which should be `AnnData` `.h5ad` files).
 
@@ -44,8 +44,10 @@ Run the mapping bash script:
 ```
 bash map_genes.sh
 ```
-The script will ask you for the paths to your fasta files and whether they are transcriptomes (`nucl`) or proteomes (`prot`). It will also ask you to assign a two-character ID for each dataset (e.g. `ze` for Zebrafish).
+The script will ask you for the paths to your fasta files and whether they are transcriptomes (`nucl`) or proteomes (`prot`). It will also ask you to assign a two-character ID for each dataset (e.g. `ze` for Zebrafish). These IDs will be input by the user into the SAMap algorithm (see `SAMap_quickstart.ipynb`).
 
 Depending on the number of cores available on your machine and the size/type of the input fasta files, this step may take up to around 4 hours.
 
-To run SAMap, use the `SAMAP` function in `SAMap.py`. Please see its function documentation for a description of the inputs and outputs.
+## Running SAMap
+
+To run SAMap, use the `SAMAP` function in `SAMap.py`. Please see its function documentation for a description of the inputs and outputs. Take a look at the provided Jupyter notebook to get started (`SAMap_quickstart.ipynb`).
