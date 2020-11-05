@@ -27,7 +27,7 @@ def SAMAP(data1: typing.Union[str,SAM],
           K: typing.Optional[int] = 20,
           NOPs1: typing.Optional[int] = 4,
           NOPs2: typing.Optional[int] = 8,
-          N_GENE_CHUNKS: typing.Optional[int] = 1
+          N_GENE_CHUNKS: typing.Optional[int] = 1,
           USE_SEQ: typing.Optional[bool] = False):
 
     """Runs the SAMap algorithm.
