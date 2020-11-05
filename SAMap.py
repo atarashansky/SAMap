@@ -99,6 +99,12 @@ def SAMAP(data1: typing.Union[str,SAM],
         (>50,000 cells), use more chunks (e.g. 4) to avoid running out of
         memory.
 
+    USE_SEQ: bool, optional, default False
+        If `USE_SEQ` is False, gene-gene correlations replace the BLAST sequence
+        similarity edge weights when refining the edge weights in the homology graph.
+        If `USE_SEQ` is True, gene-gene correlations scale the BLAST sequence similarity
+        edge weights. `USE_SEQ` is False by default.
+
     Returns
     -------
     samap - Samap
