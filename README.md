@@ -21,6 +21,7 @@ conda activate environment_name
 Having activated the environment, install SAMap like so:
 
 ```
+git clone https://github.com/atarashansky/SAMap.git samap_directory
 cd samap_directory
 pip install .
 ```
