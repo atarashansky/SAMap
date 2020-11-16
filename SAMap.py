@@ -1241,11 +1241,13 @@ def _knndist(nnma,k):
     data=np.array(newdata)
     val = data.reshape((nnma.shape[0], k))
     return val 
-def find_cluster_markers(sam,key,use_raw=True,layer=None):
-    sc.tl.rank_genes_groups(sam.adata,key,method='wilcoxon',n_genes=sam.adata.shape[1],use_raw=use_raw,layer=layer)
+def find_cluster_markers(sam,key,layer=None,inplace=True):
+    sc.tl.rank_genes_groups(sam.adata_raw,key,method='wilcoxon',n_genes=sam.adata.shape[1],use_raw=True,layer=layer)
     NAMES = pd.DataFrame(sam.adata.uns['rank_genes_groups']['names'])
     PVALS = pd.DataFrame(sam.adata.uns['rank_genes_groups']['pvals_adj'])
     SCORES = pd.DataFrame(sam.adata.uns['rank_genes_groups']['scores'])
+    if not inplace:
+        return NAMES,PVALS,SCORES
     for i in range(SCORES.shape[1]):
         names = NAMES.iloc[:,i]
         scores = SCORES.iloc[:,i]
