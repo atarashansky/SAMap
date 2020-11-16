@@ -26,7 +26,7 @@ cd samap_directory
 pip install .
 ```
 
-NCBI BLAST must be installed for the commandline. Download version 2.1.0 here for LINUX/UNIX systems (here)[ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.9.0/ncbi-blast-2.9.0+-x64-linux.tar.gz]. Unpack the tarball with:
+NCBI BLAST must be installed for the commandline. Download version 2.9.0 here for LINUX/UNIX systems (here)[ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.9.0/ncbi-blast-2.9.0+-x64-linux.tar.gz]. Unpack the tarball with:
 ```
 tar -xzvf ncbi-blast-2.9.0+-x64-linux.tar.gz
 ```
