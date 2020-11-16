@@ -1244,7 +1244,7 @@ def _knndist(nnma,k):
 def find_cluster_markers(sam,key,layer=None,inplace=True):
     sc.tl.rank_genes_groups(sam.adata_raw,key,method='wilcoxon',n_genes=sam.adata.shape[1],use_raw=True,layer=layer)
     NAMES = pd.DataFrame(sam.adata_raw.uns['rank_genes_groups']['names'])
-    PVALS = pd.DataFrame(sam.adata_raw.uns['rank_genes_groups']['pvals_adj'])
+    PVALS = pd.DataFrame(sam.adata_raw.uns['rank_genes_groups']['pvals'])
     SCORES = pd.DataFrame(sam.adata_raw.uns['rank_genes_groups']['scores'])
     if not inplace:
         return NAMES,PVALS,SCORES
