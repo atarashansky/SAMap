@@ -225,10 +225,9 @@ def SAMAP(data1: typing.Union[str,SAM],
     ge = np.append(ge1,ge2)
     ix = A[ge].values.flatten()
     gnnm = gnnm[ix][:,ix]
-    gn1 = ge1[ix]
-    gn2 = ge2[ix]
     gn = ge[ix]
-    
+    gn1 = gn[np.in1d(gn,ge1)]
+    gn2 = gn[np.in1d(gn,ge2)]    
 
     print('{} `{}` genes and {} `{}` gene symbols match between the datasets and the BLAST graph.'.format(gn1.size,id1,gn2.size,id2))
     
