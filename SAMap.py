@@ -220,8 +220,8 @@ def SAMAP(data1: typing.Union[str,SAM],
     gnnm = gnnm[f][:,f]
     
     A = pd.DataFrame(data = np.arange(gn.size)[None,:], columns = gn)
-    ge1 = ge1[np.in1d(gn1)]
-    ge2 = ge2[np.in1d(gn2)]
+    ge1 = ge1[np.in1d(ge1,gn1)]
+    ge2 = ge2[np.in1d(ge2,gn2)]
     ge = np.append(ge1,ge2)
     ix = A[ge].values.flatten()
     gnnm = gnnm[ix][:,ix]
