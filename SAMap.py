@@ -872,7 +872,7 @@ def calculate_blast_graph(id1,id2,f_maps = 'maps/',
             if isinstance(groups,dict):
                 xdim = len(list(groups.keys()))
                 for I in range(2):
-                    print('Coarsening gene connectivity graph using labels {}, round {}.'.format(n,I))
+                    print('Coarsening gene connectivity graph using labels `{}`, round {}.'.format(ids,I))
                     X=[]
                     Y=[]
                     D=[]
