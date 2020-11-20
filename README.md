@@ -1,9 +1,6 @@
 # SAMap -- version 0.1.2
 The SAMap algorithm.
 
-# New in version 0.1.2
-Users can provide a list of name pairs ( `(Fasta header ID, Dataset gene symbol)` ) mapping the fasta header IDs to the dataset gene symbol as input to SAMap. This is useful when the annotated GTF or transcriptome has multiple transcripts or isoforms for the same gene symbol. In cases where the same dataset gene symbol maps to multiple transcripts or isoforms in the BLAST results, they are all collapsed into a supernode in the computed BLAST homology graph.
-
 # Beta
 Hello! Just a friendly reminder that if any of you have trouble getting SAMap up and running or want to know more about the various arguments, please do not hesitate to reach out to me by submitting an issue!
 
