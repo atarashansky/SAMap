@@ -52,7 +52,7 @@ tar -xzvf "ncbi-blast-${ncbi_blast_version}+-x64-linux.tar.gz" \
     "ncbi-blast-${ncbi_blast_version}+/bin/"
 ```
 
-Alternatively, add the NCBI BLAST binaries manualy to the path:
+Alternatively, add the NCBI BLAST binaries manually to the path:
 
 ```bash
 # Define NCBI BLAST version.
