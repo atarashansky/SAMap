@@ -22,6 +22,9 @@ def SAMAP(data1: typing.Union[str,SAM],
           id1: str,
           id2: str,
           f_maps: typing.Optional[str]='maps/',
+          names1: typing.Optional[typing.Union[list,np.ndarray]]=None,
+          names2: typing.Optional[typing.Union[list,np.ndarray]]=None,  
+          reciprocal_blast: typing.Optional[bool]=False,
           key1: typing.Optional[str]='leiden_clusters',
           key2: typing.Optional[str]='leiden_clusters',
           NUMITERS: typing.Optional[int] = 3,
@@ -60,7 +63,22 @@ def SAMAP(data1: typing.Union[str,SAM],
     f_maps : string, optional, default 'maps/'
         Path to the `maps` directory output by `map_genes.sh`.
         By default assumes it is in the local directory.
-
+        
+    names1 & names2 : list of 2D tuples or Nx2 numpy.ndarray, optional, default None
+        If BLAST was run on a transcriptome with Fasta headers that do not match
+        the gene symbols used in the dataset, you can pass a list of tuples mapping
+        the Fasta header name to the Dataset gene symbol:
+        (Fasta header name , Dataset gene symbol). Transcripts with the same gene
+        symbol will be collapsed into a single node in the gene homology graph.
+        By default, the Fasta header IDs are assumed to be equivalent to the
+        gene symbols used in the dataset.
+        
+        names1 corresponds to the mapping for organism 1 and names2 corresponds to
+        the mapping for organism 2.
+        
+    reciprocal_blast : bool, optional, default False
+        If True, only keep reciprocal edges in the computed BLAST graph.
+        
     NUMITERS : int, optional, default 3
         Runs SAMap for `NUMITERS` iterations using the mutual-nearest
         neighborhood criterion.
@@ -181,17 +199,35 @@ def SAMAP(data1: typing.Union[str,SAM],
         prepare_SAMap_loadings(sam2)
 
 
-    if path.exists(f_maps+id1+id2+'/'):
-        n = id1+id2
-    elif path.exists(f_maps+id2+id1+'/'):
-        n = id2+id1
-    else:
-        raise FileNotFoundError('BLAST mapping files not found.')
+    gnnm,gn1,gn2,gn = calculate_blast_graph(id1 , id2,
+                                            f_maps = f_maps,
+                                            reciprocate = reciprocal_blast,
+                                            namesA = names1,
+                                            namesB = names2)
 
-    gnnm,gn1,gn2,gn = calculate_blast_graph(sam1,sam2,
-                                    f_maps+n+'/{}_to_{}.txt'.format(id1,id2),
-                                    f_maps+n+'/{}_to_{}.txt'.format(id2,id1),
-                                    id1 = id1, id2 = id2)
+    sam1.adata.var_names = id1 + '_' + sam1.adata.var_names.astype('str').astype('object')
+    sam2.adata.var_names = id2 + '_' + sam2.adata.var_names.astype('str').astype('object')
+    sam1.adata_raw.var_names = sam1.adata.var_names
+    sam2.adata_raw.var_names = sam2.adata.var_names    
+    
+    ge1 = np.array(list(sam1.adata.var_names))
+    ge2 = np.array(list(sam2.adata.var_names))
+    
+    gn1 = gn1[np.in1d(gn1,ge1)]
+    gn2 = gn2[np.in1d(gn2,ge2)]
+    f = np.in1d(gn,np.append(gn1,gn2))
+    gn = gn[f]
+    gnnm = gnnm[f][:,f]
+    
+    A = pd.DataFrame(data = np.arange(gn.size)[None,:], columns = gn)
+    ge1 = ge1[np.in1d(ge1,gn1)]
+    ge2 = ge2[np.in1d(ge2,gn2)]
+    ge = np.append(ge1,ge2)
+    ix = A[ge].values.flatten()
+    gnnm = gnnm[ix][:,ix]
+    gn = ge[ix]
+    gn1 = gn[np.in1d(gn,ge1)]
+    gn2 = gn[np.in1d(gn,ge2)]    
 
     print('{} `{}` genes and {} `{}` gene symbols match between the datasets and the BLAST graph.'.format(gn1.size,id1,gn2.size,id2))
     
@@ -744,26 +780,148 @@ def _filter_gnnm(gnnm,thr=0.25):
     gnnm4=gnnm4.tocsr()
     return gnnm4
 
-def calculate_blast_graph(sam1,sam2,fA,fB,id1='A',id2='B', thr=0.25):
-    print('Calculating BLAST graph')
+def calculate_blast_graph(id1,id2,f_maps = 'maps/',
+                          namesA = None, namesB = None,
+                          eval_thr = 1e-6, ew_thr = 0.25, reciprocate=False):
+    
+    if os.path.exists(f_maps+'{}{}'.format(id1,id2)):
+        fA = f_maps + '{}{}/{}_to_{}.txt'.format(id1,id2,id1,id2)
+        fB = f_maps + '{}{}/{}_to_{}.txt'.format(id1,id2,id2,id1)    
+    elif os.path.exists(f_maps+'{}{}'.format(id2,id1)):
+        fA = f_maps + '{}{}/{}_to_{}.txt'.format(id2,id1,id1,id2)
+        fB = f_maps + '{}{}/{}_to_{}.txt'.format(id2,id1,id2,id1)        
+    else:
+        raise FileExistsError('BLAST mapping tables with the input IDs ({} and {}) not found in the specified path.'.format(id1,id2))
+    
+    if namesA is not None:
+        groupsA = {}
+        for i in range(len(namesA)):
+            name = namesA[i][1]                        
+            L = groupsA.get(name,[])
+            L.append(namesA[i][0])
+            groupsA[name] = L
+    else:
+        groupsA = None
+
+    if namesB is not None:
+        groupsB = {}
+        for i in range(len(namesB)):
+            name = namesB[i][1]                        
+            L = groupsB.get(name,[])
+            L.append(namesB[i][0])
+            groupsB[name] = L
+    else:
+        groupsB = None    
+        
     A=pd.read_csv(fA,sep='\t',header=None,index_col=0)
     B=pd.read_csv(fB,sep='\t',header=None,index_col=0)
 
     A.columns=A.columns.astype('<U100')
     B.columns=B.columns.astype('<U100')
 
+    A=A[A.index.astype('str')!='nan']
+    A=A[A.iloc[:,0].astype('str')!='nan']
+    B=B[B.index.astype('str')!='nan']
+    B=B[B.iloc[:,0].astype('str')!='nan']
+
+
     A.index = id1+'_'+A.index.astype('str').astype('object')
     B.iloc[:,0] = id1 +'_'+B.iloc[:,0].values.flatten().astype('str').astype('object')
-    sam1.adata.var_names = id1+'_'+sam1.adata.var_names.astype('str').astype('object')
 
     B.index = id2+'_'+B.index.astype('str').astype('object')
     A.iloc[:,0] = id2+'_' + A.iloc[:,0].values.flatten().astype('str').astype('object')
-    sam2.adata.var_names = id2+'_'+sam2.adata.var_names.astype('str').astype('object')
 
-    gnnm,gn1,gn2 = _map_features_un(A,B,sam1,sam2)
-    gn=np.append(gn1,gn2)
-    gnnm = _filter_gnnm(gnnm,thr=thr)
+    i1 = np.where(A.columns=='10')[0][0]
+    i3 = np.where(A.columns=='11')[0][0]
+
+    inA = np.array(list(A.index))
+    inB = np.array(list(B.index))
+
+    inA2 = np.array(list(A.iloc[:,0]))
+    inB2 = np.array(list(B.iloc[:,0]))
+    gn1 = np.unique(np.append(inB2,inA))
+    gn2 = np.unique(np.append(inA2,inB))
+    gn = np.append(gn1,gn2)
+    gnind = pd.DataFrame(data = np.arange(gn.size)[None,:],columns=gn)
+
+    A.index = pd.Index(gnind[A.index].values.flatten())
+    B.index = pd.Index(gnind[B.index].values.flatten())
+    A.iloc[:,0] = gnind[A.iloc[:,0].values.flatten()].values.flatten()
+    B.iloc[:,0] = gnind[B.iloc[:,0].values.flatten()].values.flatten()
+
+    Arows=np.vstack((A.index,A.iloc[:,0],A.iloc[:,i3])).T
+    Arows = Arows[A.iloc[:,i1].values.flatten()<=eval_thr,:]
+    gnnm1 = sp.sparse.lil_matrix((gn.size,)*2)
+    gnnm1[Arows[:,0].astype('int32'),Arows[:,1].astype('int32')] = Arows[:,2]#-np.log10(Arows[:,2]+1e-200)
+
+    Brows=np.vstack((B.index,B.iloc[:,0],B.iloc[:,i3])).T
+    Brows = Brows[B.iloc[:,i1].values.flatten()<=eval_thr,:]
+    gnnm2 = sp.sparse.lil_matrix((gn.size,)*2)
+    gnnm2[Brows[:,0].astype('int32'),Brows[:,1].astype('int32')] = Brows[:,2]#-np.log10(Brows[:,2]+1e-200)
+
+    gnnm = (gnnm1+gnnm2).tocsr()
+    gnnms = (gnnm+gnnm.T)/2
+    if reciprocate:
+        gnnm.data[:]=1
+        gnnms = gnnms.multiply(gnnm).multiply(gnnm.T).tocsr()
+    gnnm=gnnms
+    
+    for n,groups,ids,g in zip(['A','B'],[groupsA,groupsB],[id1,id2],[gn1,gn2]):
+        if groups is not None:
+            if isinstance(groups,dict):
+                xdim = len(list(groups.keys()))
+                for I in range(2):
+                    print('Coarsening gene connectivity graph using labels `{}`, round {}.'.format(ids,I))
+                    X=[]
+                    Y=[]
+                    D=[]
+                    for i,k in enumerate(groups.keys()):
+                        if len(groups[k])>1:
+                            f = np.in1d(gn,[ids+'_'+x for x in groups[k]])
+                            if f.sum()>0:
+                                z = gnnm[f].max(0).A.flatten()
+                            else:
+                                z = np.array([])
+                        else:
+                            f = gn==ids+'_'+groups[k][0]
+                            if np.any(f):
+                                z = gnnm[f].A.flatten()
+                            else:
+                                z = np.array([])
+                        y = z.nonzero()[0]
+                        d = z[y]                                                
+                        x = np.ones(y.size)*i
+                        X.extend(x); Y.extend(y); D.extend(d)
+                    if n == 'A':
+                        xa,ya = gnnm[gn1.size:].nonzero()
+                        da = gnnm[gn1.size:].data
+                        xa+=xdim
+                    else:
+                        xa,ya = gnnm[:gn1.size].nonzero()
+                        da = gnnm[:gn1.size].data
+                        X = list(np.array(X)+gn1.size)
+                    X.extend(xa)
+                    Y.extend(ya)
+                    D.extend(da)
+                    gnnm = sp.sparse.coo_matrix((D,(X,Y)),shape = (xdim+gnnm.shape[0]-g.size,gnnm.shape[1])).T.tocsr()
+                g = np.array([ids+'_'+x for x in list(groups.keys())])
+                if n == 'A':
+                    gn1 = g
+                else:
+                    gn2 = g
+                gn = np.append(gn1,gn2)
+            else:
+                raise TypeError('Gene groupings ({}) must be in dictionary form.'.format(n))
+    f = gnnm.sum(1).A.flatten()!=0
+    gn = gn[f]
+    gn1 = gn1[np.in1d(gn1,gn)]
+    gn2 = gn2[np.in1d(gn2,gn)]
+    gnnm=gnnm[f,:][:,f]
+    gnnm = _filter_gnnm(gnnm,thr=ew_thr)
+    
     return gnnm,gn1,gn2,gn
+    
+    
 
 def get_pairs(sam1,sam2,gnnm,gn1,gn2,NOPs1=2,NOPs2=5):
     #gnnm = filter_gnnm(gnnm)
