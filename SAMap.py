@@ -801,6 +801,8 @@ def calculate_blast_graph(id1,id2,f_maps = 'maps/',
             L = groupsA.get(name,[])
             L.append(namesA[i][0])
             groupsA[name] = L
+    else:
+        groupsA = None
 
     if namesB is not None:
         groupsB = {}
@@ -809,7 +811,9 @@ def calculate_blast_graph(id1,id2,f_maps = 'maps/',
             L = groupsB.get(name,[])
             L.append(namesB[i][0])
             groupsB[name] = L
-            
+    else:
+        groupsB = None    
+        
     A=pd.read_csv(fA,sep='\t',header=None,index_col=0)
     B=pd.read_csv(fB,sep='\t',header=None,index_col=0)
 
