@@ -24,7 +24,7 @@ def SAMAP(data1: typing.Union[str,SAM],
           f_maps: typing.Optional[str]='maps/',
           names1: typing.Optional[typing.Union[list,np.ndarray]]=None,
           names2: typing.Optional[typing.Union[list,np.ndarray]]=None,  
-          reciprocal_blast: typing.Optional[bool]=False,
+          reciprocal_blast: typing.Optional[bool]=True,
           key1: typing.Optional[str]='leiden_clusters',
           key2: typing.Optional[str]='leiden_clusters',
           NUMITERS: typing.Optional[int] = 3,
@@ -76,7 +76,7 @@ def SAMAP(data1: typing.Union[str,SAM],
         names1 corresponds to the mapping for organism 1 and names2 corresponds to
         the mapping for organism 2.
         
-    reciprocal_blast : bool, optional, default False
+    reciprocal_blast : bool, optional, default True
         If True, only keep reciprocal edges in the computed BLAST graph.
         
     NUMITERS : int, optional, default 3
