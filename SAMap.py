@@ -17,7 +17,9 @@ warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
 warnings.filterwarnings("ignore", category=NumbaWarning)
 __version__ = '0.1.1'
 
-def SAMAP(data1: typing.Union[str,SAM],
+# Making SAMAP a class to keep internal objects persistent after early terminations.
+class SAMAP(object):
+    def __init__(self, data1: typing.Union[str,SAM],
           data2: typing.Union[str,SAM],
           id1: str,
           id2: str,
@@ -38,218 +40,239 @@ def SAMAP(data1: typing.Union[str,SAM],
           N_GENE_CHUNKS: typing.Optional[int] = 1,
           USE_SEQ: typing.Optional[bool] = False):
 
-    """Runs the SAMap algorithm.
-
-    Parameters
-    ----------
-    data1 : string OR SAM
-        The path to an unprocessed '.h5ad' `AnnData` object for organism 1.
-        OR
-        A processed and already-run SAM object.
-
-    data2 : string OR SAM
-        The path to an unprocessed '.h5ad' `AnnData` object for organism 2.
-        OR
-        A processed and already-run SAM object.
-
-    id1 : string
-        Organism 1 identifier (corresponds to the transcriptome ID provided
-        when using `map_genes.sh`)
-
-    id2 : string
-        Organism 2 identifier (corresponds to the transcriptome ID provided
-        when using `map_genes.sh`)
-
-    f_maps : string, optional, default 'maps/'
-        Path to the `maps` directory output by `map_genes.sh`.
-        By default assumes it is in the local directory.
-        
-    names1 & names2 : list of 2D tuples or Nx2 numpy.ndarray, optional, default None
-        If BLAST was run on a transcriptome with Fasta headers that do not match
-        the gene symbols used in the dataset, you can pass a list of tuples mapping
-        the Fasta header name to the Dataset gene symbol:
-        (Fasta header name , Dataset gene symbol). Transcripts with the same gene
-        symbol will be collapsed into a single node in the gene homology graph.
-        By default, the Fasta header IDs are assumed to be equivalent to the
-        gene symbols used in the dataset.
-        
-        names1 corresponds to the mapping for organism 1 and names2 corresponds to
-        the mapping for organism 2.
-        
-    reciprocal_blast : bool, optional, default True
-        If True, only keep reciprocal edges in the computed BLAST graph.
-        
-    NUMITERS : int, optional, default 3
-        Runs SAMap for `NUMITERS` iterations using the mutual-nearest
-        neighborhood criterion.
-
-    leiden_res1 : float, optional, default 3
-        The resolution parameter for the leiden clustering to be done on the manifold of organism 1.
-        Each cell's neighborhood size will be capped to be the size of its leiden cluster.
-
-    leiden_res2 : float, optional, default 3
-        The resolution parameter for the leiden clustering to be done on the manifold of organism 2.
-        Each cell's neighborhood size will be capped to be the size of its leiden cluster.
-
-    NH1 : int, optional, default 3
-        Cells up to `NH1` hops away from a particular cell in organism 1
-        will be included in its neighborhood.
-
-    NH2 : int, optional, default 3
-        Cells up to `NH2` hops away from a particular cell in organism 2
-        will be included in its neighborhood.
-
-    K : int, optional, default 20
-        The number of cross-species edges to identify per cell.
-
-    NOPs1 : int, optional, default 4
-        Keeps the `NOPs1` largest outgoing edges in the homology graph, pruning
-        the rest.
-
-    NOPs2 : int, optional, default 8
-        Keeps the `NOPs2` largest incoming edges in the homology graph, pruning
-        the rest. The final homology graph is the union of the outgoing- and
-        incoming-edge filtered graphs.
-
-    N_GENE_CHUNKS: int, optional, default 1
-        When updating the edge weights in the BLAST homology graph, the operation
-        will be split up into `N_GENE_CHUNKS` chunks. For large datasets
-        (>50,000 cells), use more chunks (e.g. 4) to avoid running out of
-        memory.
-
-    USE_SEQ: bool, optional, default False
-        If `USE_SEQ` is False, gene-gene correlations replace the BLAST sequence
-        similarity edge weights when refining the edge weights in the homology graph.
-        If `USE_SEQ` is True, gene-gene correlations scale the BLAST sequence similarity
-        edge weights. `USE_SEQ` is False by default.
-
-    Returns
-    -------
-    samap - Samap
-        The Samap object.
-
-    D1 - pandas.DataFrame
-        A DataFrame containing the highst-scoring cross-species neighbors of
-        each cell type in organism 1.
-
-    D2 - pandas.DataFrame
-        A DataFrame containing the highst-scoring cross-species neighbors of
-        each cell type in organism 2.
-
-    sam1 - SAM
-        The SAM object of organism 1 used as input to SAMap.
-
-    sam2 - SAM
-        The SAM object of organism 2 used as input to SAMap.
-
-    ITER_DATA - tuple
-        GNNMS_nnm - A list of scipy.sparse.csr_matrix
-            The stitched cell nearest-neighbor graphs from each iteration of
-            SAMap.
-        GNNMS_corr - A list of scipy.sparse.csr_matrix
-            The homology graph from each iteration of SAMap.
-        GNNMS_pruned - A list of scipy.sparse.csr_matrix
-            The pruned homology graph from each iteration of SAMap.
-        SCORES_VEC - A list of numpy.ndarray
-            Flattened leiden cluster alignment score matrices from each iteration.
-            These are used to calculate the difference between alignment scores
-            in adjacent iterations. The largest and smallest values are printed
-            for each iteration while SAMap is running.
-    """
-
-    if not (isinstance(data1,str) or isinstance(data1,SAM)):
-        raise TypeError('Input data 1 must be either a path or a SAM object.')
-
-    if not (isinstance(data2,str) or isinstance(data2,SAM)):
-        raise TypeError('Input data 2 must be either a path or a SAM object.')
-
-    if isinstance(data1,str):
-        print('Processing data 1 from:\n{}'.format(data1))
-        sam1=SAM()
-        sam1.load_data(data1)
-        sam1.preprocess_data(sum_norm='cell_median',norm='log',thresh_low=0.0,thresh_high=0.96,min_expression=1)
-        sam1.run(preprocessing='StandardScaler',npcs=150,weight_PCs=False,k=20,n_genes=3000)
-        f1n = '.'.join(data1.split('.')[:-1])+'_pr.h5ad'
-        print('Saving processed data to:\n{}'.format(f1n))
-        sam1.save_anndata(f1n)
-    else:
-        sam1 = data1
-
-    if isinstance(data2,str):
-        print('Processing data 2 from:\n{}'.format(data2))
-        sam2=SAM()
-        sam2.load_data(data2)
-        sam2.preprocess_data(sum_norm='cell_median',norm='log',thresh_low=0.0,thresh_high=0.96,min_expression=1)
-        sam2.run(preprocessing='StandardScaler',npcs=150,weight_PCs=False,k=20,n_genes=3000)
-        f2n = '.'.join(data2.split('.')[:-1])+'_pr.h5ad'
-        print('Saving processed data to:\n{}'.format(f2n))
-        sam2.save_anndata(f2n)
-    else:
-        sam2 = data2
-
-
-    print('Preparing data 1 for SAMap.')
-    sam1.leiden_clustering(res=leiden_res1)
-    if 'PCs_SAMap' not in sam1.adata.varm.keys():
-        prepare_SAMap_loadings(sam1)
-
-    print('Preparing data 2 for SAMap.')
-    sam2.leiden_clustering(res=leiden_res2)
-    if 'PCs_SAMap' not in sam2.adata.varm.keys():
-        prepare_SAMap_loadings(sam2)
-
-
-    gnnm,gn1,gn2,gn = calculate_blast_graph(id1 , id2,
-                                            f_maps = f_maps,
-                                            reciprocate = reciprocal_blast,
-                                            namesA = names1,
-                                            namesB = names2)
-
-    sam1.adata.var_names = id1 + '_' + sam1.adata.var_names.astype('str').astype('object')
-    sam2.adata.var_names = id2 + '_' + sam2.adata.var_names.astype('str').astype('object')
-    sam1.adata_raw.var_names = sam1.adata.var_names
-    sam2.adata_raw.var_names = sam2.adata.var_names    
+        """Runs the SAMap algorithm.
     
-    ge1 = np.array(list(sam1.adata.var_names))
-    ge2 = np.array(list(sam2.adata.var_names))
+        Parameters
+        ----------
+        data1 : string OR SAM
+            The path to an unprocessed '.h5ad' `AnnData` object for organism 1.
+            OR
+            A processed and already-run SAM object.
     
-    gn1 = gn1[np.in1d(gn1,ge1)]
-    gn2 = gn2[np.in1d(gn2,ge2)]
-    f = np.in1d(gn,np.append(gn1,gn2))
-    gn = gn[f]
-    gnnm = gnnm[f][:,f]
+        data2 : string OR SAM
+            The path to an unprocessed '.h5ad' `AnnData` object for organism 2.
+            OR
+            A processed and already-run SAM object.
     
-    A = pd.DataFrame(data = np.arange(gn.size)[None,:], columns = gn)
-    ge1 = ge1[np.in1d(ge1,gn1)]
-    ge2 = ge2[np.in1d(ge2,gn2)]
-    ge = np.append(ge1,ge2)
-    ix = A[ge].values.flatten()
-    gnnm = gnnm[ix][:,ix]
-    gn = ge[ix]
-    gn1 = gn[np.in1d(gn,ge1)]
-    gn2 = gn[np.in1d(gn,ge2)]    
-
-    print('{} `{}` genes and {} `{}` gene symbols match between the datasets and the BLAST graph.'.format(gn1.size,id1,gn2.size,id2))
+        id1 : string
+            Organism 1 identifier (corresponds to the transcriptome ID provided
+            when using `map_genes.sh`)
     
-    smap = Samap(sam1,sam2,gnnm,gn1,gn2)
+        id2 : string
+            Organism 2 identifier (corresponds to the transcriptome ID provided
+            when using `map_genes.sh`)
+    
+        f_maps : string, optional, default 'maps/'
+            Path to the `maps` directory output by `map_genes.sh`.
+            By default assumes it is in the local directory.
+            
+        names1 & names2 : list of 2D tuples or Nx2 numpy.ndarray, optional, default None
+            If BLAST was run on a transcriptome with Fasta headers that do not match
+            the gene symbols used in the dataset, you can pass a list of tuples mapping
+            the Fasta header name to the Dataset gene symbol:
+            (Fasta header name , Dataset gene symbol). Transcripts with the same gene
+            symbol will be collapsed into a single node in the gene homology graph.
+            By default, the Fasta header IDs are assumed to be equivalent to the
+            gene symbols used in the dataset.
+            
+            names1 corresponds to the mapping for organism 1 and names2 corresponds to
+            the mapping for organism 2.
+            
+        reciprocal_blast : bool, optional, default True
+            If True, only keep reciprocal edges in the computed BLAST graph.
+            
+        NUMITERS : int, optional, default 3
+            Runs SAMap for `NUMITERS` iterations using the mutual-nearest
+            neighborhood criterion.
+    
+        leiden_res1 : float, optional, default 3
+            The resolution parameter for the leiden clustering to be done on the manifold of organism 1.
+            Each cell's neighborhood size will be capped to be the size of its leiden cluster.
+    
+        leiden_res2 : float, optional, default 3
+            The resolution parameter for the leiden clustering to be done on the manifold of organism 2.
+            Each cell's neighborhood size will be capped to be the size of its leiden cluster.
+    
+        NH1 : int, optional, default 3
+            Cells up to `NH1` hops away from a particular cell in organism 1
+            will be included in its neighborhood.
+    
+        NH2 : int, optional, default 3
+            Cells up to `NH2` hops away from a particular cell in organism 2
+            will be included in its neighborhood.
+    
+        K : int, optional, default 20
+            The number of cross-species edges to identify per cell.
+    
+        NOPs1 : int, optional, default 4
+            Keeps the `NOPs1` largest outgoing edges in the homology graph, pruning
+            the rest.
+    
+        NOPs2 : int, optional, default 8
+            Keeps the `NOPs2` largest incoming edges in the homology graph, pruning
+            the rest. The final homology graph is the union of the outgoing- and
+            incoming-edge filtered graphs.
+    
+        N_GENE_CHUNKS: int, optional, default 1
+            When updating the edge weights in the BLAST homology graph, the operation
+            will be split up into `N_GENE_CHUNKS` chunks. For large datasets
+            (>50,000 cells), use more chunks (e.g. 4) to avoid running out of
+            memory.
+    
+        USE_SEQ: bool, optional, default False
+            If `USE_SEQ` is False, gene-gene correlations replace the BLAST sequence
+            similarity edge weights when refining the edge weights in the homology graph.
+            If `USE_SEQ` is True, gene-gene correlations scale the BLAST sequence similarity
+            edge weights. `USE_SEQ` is False by default.
+    
+        Returns
+        -------
+        samap - Samap
+            The Samap object.
+    
+        D1 - pandas.DataFrame
+            A DataFrame containing the highst-scoring cross-species neighbors of
+            each cell type in organism 1.
+    
+        D2 - pandas.DataFrame
+            A DataFrame containing the highst-scoring cross-species neighbors of
+            each cell type in organism 2.
+    
+        sam1 - SAM
+            The SAM object of organism 1 used as input to SAMap.
+    
+        sam2 - SAM
+            The SAM object of organism 2 used as input to SAMap.
+    
+        ITER_DATA - tuple
+            GNNMS_nnm - A list of scipy.sparse.csr_matrix
+                The stitched cell nearest-neighbor graphs from each iteration of
+                SAMap.
+            GNNMS_corr - A list of scipy.sparse.csr_matrix
+                The homology graph from each iteration of SAMap.
+            GNNMS_pruned - A list of scipy.sparse.csr_matrix
+                The pruned homology graph from each iteration of SAMap.
+            SCORES_VEC - A list of numpy.ndarray
+                Flattened leiden cluster alignment score matrices from each iteration.
+                These are used to calculate the difference between alignment scores
+                in adjacent iterations. The largest and smallest values are printed
+                for each iteration while SAMap is running.
+        """
+    
+        if not (isinstance(data1,str) or isinstance(data1,SAM)):
+            raise TypeError('Input data 1 must be either a path or a SAM object.')
+    
+        if not (isinstance(data2,str) or isinstance(data2,SAM)):
+            raise TypeError('Input data 2 must be either a path or a SAM object.')
+    
+        if isinstance(data1,str):
+            print('Processing data 1 from:\n{}'.format(data1))
+            sam1=SAM()
+            sam1.load_data(data1)
+            sam1.preprocess_data(sum_norm='cell_median',norm='log',thresh_low=0.0,thresh_high=0.96,min_expression=1)
+            sam1.run(preprocessing='StandardScaler',npcs=150,weight_PCs=False,k=20,n_genes=3000)
+            f1n = '.'.join(data1.split('.')[:-1])+'_pr.h5ad'
+            print('Saving processed data to:\n{}'.format(f1n))
+            sam1.save_anndata(f1n)
+        else:
+            sam1 = data1
+    
+        if isinstance(data2,str):
+            print('Processing data 2 from:\n{}'.format(data2))
+            sam2=SAM()
+            sam2.load_data(data2)
+            sam2.preprocess_data(sum_norm='cell_median',norm='log',thresh_low=0.0,thresh_high=0.96,min_expression=1)
+            sam2.run(preprocessing='StandardScaler',npcs=150,weight_PCs=False,k=20,n_genes=3000)
+            f2n = '.'.join(data2.split('.')[:-1])+'_pr.h5ad'
+            print('Saving processed data to:\n{}'.format(f2n))
+            sam2.save_anndata(f2n)
+        else:
+            sam2 = data2
+    
+    
+        print('Preparing data 1 for SAMap.')
+        sam1.leiden_clustering(res=leiden_res1)
+        if 'PCs_SAMap' not in sam1.adata.varm.keys():
+            prepare_SAMap_loadings(sam1)
+    
+        print('Preparing data 2 for SAMap.')
+        sam2.leiden_clustering(res=leiden_res2)
+        if 'PCs_SAMap' not in sam2.adata.varm.keys():
+            prepare_SAMap_loadings(sam2)
+    
+    
+        gnnm,gn1,gn2,gn = calculate_blast_graph(id1 , id2,
+                                                f_maps = f_maps,
+                                                reciprocate = reciprocal_blast,
+                                                namesA = names1,
+                                                namesB = names2)
+    
+        _prepend_var_prefix(sam1,id1)
+        _prepend_var_prefix(sam2,id2)    
+        
+        ge1 = np.array(list(sam1.adata.var_names))
+        ge2 = np.array(list(sam2.adata.var_names))
+        
+        gn1 = gn1[np.in1d(gn1,ge1)]
+        gn2 = gn2[np.in1d(gn2,ge2)]
+        f = np.in1d(gn,np.append(gn1,gn2))
+        gn = gn[f]
+        gnnm = gnnm[f][:,f]
+        A = pd.DataFrame(data = np.arange(gn.size)[None,:], columns = gn)
+        ge = np.append(ge1,ge2)
+        ge=ge[np.in1d(ge,gn)]
+        ix = A[ge].values.flatten()
+        gnnm = gnnm[ix][:,ix]
+        gn = ge
+        gn1 = ge[np.in1d(ge,gn1)]
+        gn2 = ge[np.in1d(ge,gn2)]        
+    
+        print('{} `{}` genes and {} `{}` gene symbols match between the datasets and the BLAST graph.'.format(gn1.size,id1,gn2.size,id2))
+        
+        smap = Samap(sam1,sam2,gnnm,gn1,gn2)
+        
+        # assign to self
+        self.smap = smap
+        self.gnnm = gnnm
+        self.gn1 = gn1
+        self.gn2 = gn2
+        self.gn = gn
+        self.sam1 = sam1
+        self.sam2 = sam2
+        
+        ITER_DATA = smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
+                             NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS,use_seq=USE_SEQ)
+        samap=smap.final_sam
+        
+        self.samap = samap
+        self.ITER_DATA = ITER_DATA
+        
+        print('Alignment score ---',avg_as(samap).mean())
+    
+        print('Running UMAP on the stitched manifolds.')
+        sc.tl.umap(samap.adata,min_dist=0.1,init_pos='random')
+    
+    
+        hom_graph = smap.GNNMS_corr[-1]
+        samap.adata.uns['homology_graph_reweighted'] = hom_graph
+        samap.adata.uns['homology_graph'] = gnnm
+        samap.adata.uns['homology_gene_names'] = gn
+    
+        samap.adata.obs['species'] = pd.Categorical([id1]*sam1.adata.shape[0]+[id2]*sam2.adata.shape[0])    
 
-    ITER_DATA = smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
-                         NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS,use_seq=USE_SEQ)
-    samap=smap.final_sam
-    print('Alignment score ---',avg_as(samap).mean())
 
-    print('Running UMAP on the stitched manifolds.')
-    sc.tl.umap(samap.adata,min_dist=0.1,init_pos='random')
-
-
-    hom_graph = smap.GNNMS_corr[-1]
-    samap.adata.uns['homology_graph_reweighted'] = hom_graph
-    samap.adata.uns['homology_graph'] = gnnm
-    samap.adata.uns['homology_gene_names'] = gn
-
-    samap.adata.obs['species'] = pd.Categorical([id1]*sam1.adata.shape[0]+[id2]*sam2.adata.shape[0])
-    return samap, sam1, sam2, ITER_DATA
-
+def _prepend_var_prefix(s,pre):
+    x = ['_'.join(x.split('_')[1:]) for x in s.adata.var_names]
+    if not (np.unique(x).size == 1 and x[0] == pre):
+        if np.unique(substr(s.adata.var_names,'_',0)).size == 1:
+            y = ['_'.join(x.split('_')[1:]) for x in s.adata.var_names]
+        else:
+            y = list(s.adata.var_names)
+        vn=[pre+'_'+x for x in y]
+        s.adata.var_names = vn
+        s.adata_raw.var_names = vn
+        
+            
 def get_mapping_scores(sam1,sam2,samap,key1,key2):
     
     cl1 = np.array(list(sam1.adata.obs[key1]))
