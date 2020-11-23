@@ -743,6 +743,8 @@ def _concatenate_sam(sams,nnm,op):
     for i in range(len(sams)):
         a.extend(['batch'+str(i+1)]*sams[i].adata.shape[0])
     sam.adata.obs['batch'] = pd.Categorical(np.array(a))
+    sam.adata.obs.columns = sam.adata.obs.columns.astype('str')
+    sam.adata.var.columns = sam.adata.var.columns.astype('str')    
     return sam
 
 
