@@ -21,11 +21,12 @@ __version__ = '0.1.1'
 class SAMAP(object):
     def __init__(self, data1: typing.Union[str,SAM],
           data2: typing.Union[str,SAM],
-          id1: str,
-          id2: str,
+          id1: typing.Optional[str] = 'Aa',
+          id2: typing.Optional[str] = 'Bb',
           f_maps: typing.Optional[str]='maps/',
           names1: typing.Optional[typing.Union[list,np.ndarray]]=None,
-          names2: typing.Optional[typing.Union[list,np.ndarray]]=None,  
+          names2: typing.Optional[typing.Union[list,np.ndarray]]=None,
+          gnnm: typing.Optional[tuple]=None,
           reciprocal_blast: typing.Optional[bool]=True,
           key1: typing.Optional[str]='leiden_clusters',
           key2: typing.Optional[str]='leiden_clusters',
@@ -77,7 +78,7 @@ class SAMAP(object):
             
             names1 corresponds to the mapping for organism 1 and names2 corresponds to
             the mapping for organism 2.
-            
+
         reciprocal_blast : bool, optional, default True
             If True, only keep reciprocal edges in the computed BLAST graph.
             
@@ -201,11 +202,17 @@ class SAMAP(object):
             prepare_SAMap_loadings(sam2)
     
     
-        gnnm,gn1,gn2,gn = calculate_blast_graph(id1 , id2,
-                                                f_maps = f_maps,
-                                                reciprocate = reciprocal_blast,
-                                                namesA = names1,
-                                                namesB = names2)
+        if gnnm is None:
+            gnnm,gn1,gn2,gn = calculate_blast_graph(id1 , id2,
+                                                    f_maps = f_maps,
+                                                    reciprocate = reciprocal_blast,
+                                                    namesA = names1,
+                                                    namesB = names2)
+        else:
+            gnnm,gn1,gn2,gn = gnnm
+            id1 = gn1[0].split('_')[0]
+            id2 = gn2[0].split('_')[0]
+            
     
         _prepend_var_prefix(sam1,id1)
         _prepend_var_prefix(sam2,id2)    
