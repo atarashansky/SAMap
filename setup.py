@@ -12,12 +12,11 @@ setup(
     python_requires=">=3.6",
     py_modules=["SAMap"],    
     install_requires=[
-        "sam-algorithm==0.7.6",
-        "scanpy==1.5.1",
-        "hnswlib==0.3.4",
-        "matplotlib==3.1.3",
+        "sam-algorithm==0.7.7",
+        "scanpy",
+        "hnswlib",
         "h5py<=2.10",
-        "leidenalg==0.7.0"
+        "leidenalg"
     ],
     packages=find_packages(),
     include_package_data=True,
