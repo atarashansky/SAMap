@@ -169,6 +169,8 @@ class SAMAP(object):
         self.gn1 = gn1
         self.gn2 = gn2
         self.gn = gn        
+        self.id1 = id1
+        self.id2 = id2
         
     def run(self,NUMITERS: typing.Optional[int] = 3,
           NH1: typing.Optional[int] = 3,
@@ -246,7 +248,7 @@ class SAMAP(object):
         samap.adata.uns['homology_graph'] = gnnm
         samap.adata.uns['homology_gene_names'] = gn
     
-        samap.adata.obs['species'] = pd.Categorical([id1]*sam1.adata.shape[0]+[id2]*sam2.adata.shape[0])
+        samap.adata.obs['species'] = pd.Categorical([self.id1]*sam1.adata.shape[0]+[self.id2]*sam2.adata.shape[0])
         return samap
 
 
