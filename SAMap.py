@@ -29,7 +29,9 @@ class SAMAP(object):
           gnnm: typing.Optional[tuple]=None,
           reciprocal_blast: typing.Optional[bool]=True,
           key1: typing.Optional[str]='leiden_clusters',
-          key2: typing.Optional[str]='leiden_clusters'):
+          key2: typing.Optional[str]='leiden_clusters',
+          leiden_res1: typing.Optional[int] = 3,
+          leiden_res2: typing.Optional[int] = 3):
 
         """Initializes and preprocess data structures for SAMap algorithm.
     
@@ -169,8 +171,6 @@ class SAMAP(object):
         self.gn = gn        
         
     def run(self,NUMITERS: typing.Optional[int] = 3,
-          leiden_res1: typing.Optional[int] = 3,
-          leiden_res2: typing.Optional[int] = 3,
           NH1: typing.Optional[int] = 3,
           NH2: typing.Optional[int] = 3,
           K: typing.Optional[int] = 20,
