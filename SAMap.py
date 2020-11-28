@@ -253,10 +253,7 @@ class SAMAP(object):
 def _prepend_var_prefix(s,pre):
     x = ['_'.join(x.split('_')[1:]) for x in s.adata.var_names]
     if not (np.unique(x).size == 1 and x[0] == pre):
-        if np.unique(substr(s.adata.var_names,'_',0)).size == 1:
-            y = ['_'.join(x.split('_')[1:]) for x in s.adata.var_names]
-        else:
-            y = list(s.adata.var_names)
+        y = list(s.adata.var_names)
         vn=[pre+'_'+x for x in y]
         s.adata.var_names = vn
         s.adata_raw.var_names = vn
