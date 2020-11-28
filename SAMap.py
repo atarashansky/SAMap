@@ -29,19 +29,9 @@ class SAMAP(object):
           gnnm: typing.Optional[tuple]=None,
           reciprocal_blast: typing.Optional[bool]=True,
           key1: typing.Optional[str]='leiden_clusters',
-          key2: typing.Optional[str]='leiden_clusters',
-          NUMITERS: typing.Optional[int] = 3,
-          leiden_res1: typing.Optional[int] = 3,
-          leiden_res2: typing.Optional[int] = 3,
-          NH1: typing.Optional[int] = 3,
-          NH2: typing.Optional[int] = 3,
-          K: typing.Optional[int] = 20,
-          NOPs1: typing.Optional[int] = 4,
-          NOPs2: typing.Optional[int] = 8,
-          N_GENE_CHUNKS: typing.Optional[int] = 1,
-          USE_SEQ: typing.Optional[bool] = False):
+          key2: typing.Optional[str]='leiden_clusters'):
 
-        """Runs the SAMap algorithm.
+        """Initializes and preprocess data structures for SAMap algorithm.
     
         Parameters
         ----------
@@ -92,72 +82,7 @@ class SAMAP(object):
     
         leiden_res2 : float, optional, default 3
             The resolution parameter for the leiden clustering to be done on the manifold of organism 2.
-            Each cell's neighborhood size will be capped to be the size of its leiden cluster.
-    
-        NH1 : int, optional, default 3
-            Cells up to `NH1` hops away from a particular cell in organism 1
-            will be included in its neighborhood.
-    
-        NH2 : int, optional, default 3
-            Cells up to `NH2` hops away from a particular cell in organism 2
-            will be included in its neighborhood.
-    
-        K : int, optional, default 20
-            The number of cross-species edges to identify per cell.
-    
-        NOPs1 : int, optional, default 4
-            Keeps the `NOPs1` largest outgoing edges in the homology graph, pruning
-            the rest.
-    
-        NOPs2 : int, optional, default 8
-            Keeps the `NOPs2` largest incoming edges in the homology graph, pruning
-            the rest. The final homology graph is the union of the outgoing- and
-            incoming-edge filtered graphs.
-    
-        N_GENE_CHUNKS: int, optional, default 1
-            When updating the edge weights in the BLAST homology graph, the operation
-            will be split up into `N_GENE_CHUNKS` chunks. For large datasets
-            (>50,000 cells), use more chunks (e.g. 4) to avoid running out of
-            memory.
-    
-        USE_SEQ: bool, optional, default False
-            If `USE_SEQ` is False, gene-gene correlations replace the BLAST sequence
-            similarity edge weights when refining the edge weights in the homology graph.
-            If `USE_SEQ` is True, gene-gene correlations scale the BLAST sequence similarity
-            edge weights. `USE_SEQ` is False by default.
-    
-        Returns
-        -------
-        samap - Samap
-            The Samap object.
-    
-        D1 - pandas.DataFrame
-            A DataFrame containing the highst-scoring cross-species neighbors of
-            each cell type in organism 1.
-    
-        D2 - pandas.DataFrame
-            A DataFrame containing the highst-scoring cross-species neighbors of
-            each cell type in organism 2.
-    
-        sam1 - SAM
-            The SAM object of organism 1 used as input to SAMap.
-    
-        sam2 - SAM
-            The SAM object of organism 2 used as input to SAMap.
-    
-        ITER_DATA - tuple
-            GNNMS_nnm - A list of scipy.sparse.csr_matrix
-                The stitched cell nearest-neighbor graphs from each iteration of
-                SAMap.
-            GNNMS_corr - A list of scipy.sparse.csr_matrix
-                The homology graph from each iteration of SAMap.
-            GNNMS_pruned - A list of scipy.sparse.csr_matrix
-                The pruned homology graph from each iteration of SAMap.
-            SCORES_VEC - A list of numpy.ndarray
-                Flattened leiden cluster alignment score matrices from each iteration.
-                These are used to calculate the difference between alignment scores
-                in adjacent iterations. The largest and smallest values are printed
-                for each iteration while SAMap is running.
+            Each cell's neighborhood size will be capped to be the size of its leiden cluster.    
         """
     
         if not (isinstance(data1,str) or isinstance(data1,SAM)):
@@ -235,23 +160,72 @@ class SAMAP(object):
         gn2 = ge[np.in1d(ge,gn2)]        
     
         print('{} `{}` genes and {} `{}` gene symbols match between the datasets and the BLAST graph.'.format(gn1.size,id1,gn2.size,id2))
-        
-        smap = Samap(sam1,sam2,gnnm,gn1,gn2)
-        
-        # assign to self
-        self.smap = smap
+
+        self.sam1 = sam1
+        self.sam2 = sam2
         self.gnnm = gnnm
         self.gn1 = gn1
         self.gn2 = gn2
-        self.gn = gn
-        self.sam1 = sam1
-        self.sam2 = sam2
+        self.gn = gn        
+        
+    def run(self,NUMITERS: typing.Optional[int] = 3,
+          leiden_res1: typing.Optional[int] = 3,
+          leiden_res2: typing.Optional[int] = 3,
+          NH1: typing.Optional[int] = 3,
+          NH2: typing.Optional[int] = 3,
+          K: typing.Optional[int] = 20,
+          NOPs1: typing.Optional[int] = 4,
+          NOPs2: typing.Optional[int] = 8,
+          N_GENE_CHUNKS: typing.Optional[int] = 1,
+          USE_SEQ: typing.Optional[bool] = False):
+        """Runs the SAMap algorithm.
+    
+        Parameters
+        ----------
+        NH1 : int, optional, default 3
+            Cells up to `NH1` hops away from a particular cell in organism 1
+            will be included in its neighborhood.
+    
+        NH2 : int, optional, default 3
+            Cells up to `NH2` hops away from a particular cell in organism 2
+            will be included in its neighborhood.
+    
+        K : int, optional, default 20
+            The number of cross-species edges to identify per cell.
+    
+        NOPs1 : int, optional, default 4
+            Keeps the `NOPs1` largest outgoing edges in the homology graph, pruning
+            the rest.
+    
+        NOPs2 : int, optional, default 8
+            Keeps the `NOPs2` largest incoming edges in the homology graph, pruning
+            the rest. The final homology graph is the union of the outgoing- and
+            incoming-edge filtered graphs.
+    
+        N_GENE_CHUNKS: int, optional, default 1
+            When updating the edge weights in the BLAST homology graph, the operation
+            will be split up into `N_GENE_CHUNKS` chunks. For large datasets
+            (>50,000 cells), use more chunks (e.g. 4) to avoid running out of
+            memory.
+    
+        USE_SEQ: bool, optional, default False
+            If `USE_SEQ` is False, gene-gene correlations replace the BLAST sequence
+            similarity edge weights when refining the edge weights in the homology graph.
+            If `USE_SEQ` is True, gene-gene correlations scale the BLAST sequence similarity
+            edge weights. `USE_SEQ` is False by default. 
+     
+        Returns
+        -------
+        samap - Species-merged SAM object
+        """
+        smap = Samap(sam1,sam2,gnnm,gn1,gn2)        
+        # assign to self
+        self.smap = smap
         
         ITER_DATA = smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
                              NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS,use_seq=USE_SEQ)
-        samap=smap.final_sam
-        
-        self.samap = samap
+        samap=smap.final_sam        
+        self.final_samap = samap
         self.ITER_DATA = ITER_DATA
         
         print('Alignment score ---',avg_as(samap).mean())
@@ -265,7 +239,8 @@ class SAMAP(object):
         samap.adata.uns['homology_graph'] = gnnm
         samap.adata.uns['homology_gene_names'] = gn
     
-        samap.adata.obs['species'] = pd.Categorical([id1]*sam1.adata.shape[0]+[id2]*sam2.adata.shape[0])    
+        samap.adata.obs['species'] = pd.Categorical([id1]*sam1.adata.shape[0]+[id2]*sam2.adata.shape[0])
+        return samap
 
 
 def _prepend_var_prefix(s,pre):
