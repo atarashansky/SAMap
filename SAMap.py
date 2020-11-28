@@ -218,6 +218,13 @@ class SAMAP(object):
         -------
         samap - Species-merged SAM object
         """
+        sam1 = self.sam1
+        sam2 = self.sam2
+        gnnm = self.gnnm
+        gn1 = self.gn1
+        gn2 = self.gn2
+        gn = self.gn
+        
         smap = Samap(sam1,sam2,gnnm,gn1,gn2)        
         # assign to self
         self.smap = smap
