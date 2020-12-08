@@ -18,6 +18,41 @@ warnings.filterwarnings("ignore", category=NumbaWarning)
 __version__ = '0.1.1'
 
 # Making SAMAP a class to keep internal objects persistent after early terminations.
+
+def calculate_eggnog_graph(A,B,id1,id2,taxa=33208):    
+    import networkx as nx
+    A=A.copy()
+    B=B.copy()
+    A.index = id1 + '_' + A.index
+    B.index = id2 + '_' + B.index
+    
+    x,ix = ut.search_string(A.values,'@{}'.format(taxa))
+    A = A.iloc[ix]
+    ogA = substr(substr(x,'@{}'.format(taxa),0),',',-1)
+
+    x,ix = ut.search_string(B.values,'@{}'.format(taxa))
+    B = B.iloc[ix]
+    ogB = substr(substr(x,'@{}'.format(taxa),0),',',-1)
+
+    ogs = np.unique(np.append(ogA,ogB))
+    T = pd.DataFrame(data=np.arange(ogs.size)[None,:],columns=ogs)
+    Am = sp.sparse.coo_matrix((np.ones(A.size),(np.arange(A.size),T[ogA].values.flatten())),shape=(A.size,ogs.size))
+    Bm = sp.sparse.coo_matrix((np.ones(B.size),(np.arange(B.size),T[ogB].values.flatten())),shape=(B.size,ogs.size))
+
+    iA,iB = np.vstack(Am.dot(Bm.T).nonzero())
+    gA=np.array(list(A.index))[iA]
+    gB=np.array(list(B.index))[iB]
+
+    G = nx.Graph()
+    G.add_edges_from(np.vstack((gA,gB)).T)
+    gn = np.array(list(G.nodes))
+    gnnm = nx.convert_matrix.to_scipy_sparse_matrix(G)    
+    
+    gn1 = gn[np.array([x.split('_')[0] for x in gn])==id1]
+    gn2 = gn[np.array([x.split('_')[0] for x in gn])==id2]
+    return gnnm,gn1,gn2,gn
+
+
 class SAMAP(object):
     def __init__(self, data1: typing.Union[str,SAM],
           data2: typing.Union[str,SAM],
@@ -27,6 +62,10 @@ class SAMAP(object):
           names1: typing.Optional[typing.Union[list,np.ndarray]]=None,
           names2: typing.Optional[typing.Union[list,np.ndarray]]=None,
           gnnm: typing.Optional[tuple]=None,
+          EGGNOG: typing.Optional[bool]=False,
+          taxa: typing.Optional[int]=33208,
+          Ea: typing.Optional[pd.DataFrame]=None,
+          Eb: typing.Optional[pd.DataFrame]=None,
           reciprocal_blast: typing.Optional[bool]=True,
           key1: typing.Optional[str]='leiden_clusters',
           key2: typing.Optional[str]='leiden_clusters',
@@ -130,11 +169,19 @@ class SAMAP(object):
     
     
         if gnnm is None:
-            gnnm,gn1,gn2,gn = calculate_blast_graph(id1 , id2,
-                                                    f_maps = f_maps,
-                                                    reciprocate = reciprocal_blast,
-                                                    namesA = names1,
-                                                    namesB = names2)
+            if not EGGNOG:
+                gnnm,gn1,gn2,gn = calculate_blast_graph(id1,id2,
+                                                        f_maps = f_maps,
+                                                        reciprocate = reciprocal_blast,
+                                                        namesA = names1,
+                                                        namesB = names2)
+            else:                                                    
+                gnnm,gn1,gn2,gn = calculate_eggnog_graph(Ea,Eb,id1,id2,taxa=taxa)
+                
+            if names1 is not None or names2 is not None:
+                gnnm,gn1,gn2,gn = coarsen_blast_graph(gnnm,gn1,gn2,gn,id1,id2,names1,names2)
+            
+            gnnm = _filter_gnnm(gnnm,thr=0.25)                   
         else:
             gnnm,gn1,gn2,gn = gnnm
             id1 = gn1[0].split('_')[0]
@@ -232,7 +279,7 @@ class SAMAP(object):
         self.smap = smap
         
         ITER_DATA = smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
-                             NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS,use_seq=USE_SEQ)
+                             NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS)
         samap=smap.final_sam        
         self.final_samap = samap
         self.ITER_DATA = ITER_DATA
@@ -253,7 +300,7 @@ class SAMAP(object):
 
 
 def _prepend_var_prefix(s,pre):
-    x = ['_'.join(x.split('_')[1:]) for x in s.adata.var_names]
+    x = [x.split('_')[0] for x in s.adata.var_names]
     if not (np.unique(x).size == 1 and x[0] == pre):
         y = list(s.adata.var_names)
         vn=[pre+'_'+x for x in y]
@@ -794,8 +841,7 @@ def _filter_gnnm(gnnm,thr=0.25):
     return gnnm4
 
 def calculate_blast_graph(id1,id2,f_maps = 'maps/',
-                          namesA = None, namesB = None,
-                          eval_thr = 1e-6, ew_thr = 0.25, reciprocate=False):
+                          eval_thr = 1e-6, reciprocate=False):
     
     if os.path.exists(f_maps+'{}{}'.format(id1,id2)):
         fA = f_maps + '{}{}/{}_to_{}.txt'.format(id1,id2,id1,id2)
@@ -805,26 +851,6 @@ def calculate_blast_graph(id1,id2,f_maps = 'maps/',
         fB = f_maps + '{}{}/{}_to_{}.txt'.format(id2,id1,id2,id1)        
     else:
         raise FileExistsError('BLAST mapping tables with the input IDs ({} and {}) not found in the specified path.'.format(id1,id2))
-    
-    if namesA is not None:
-        groupsA = {}
-        for i in range(len(namesA)):
-            name = namesA[i][1]                        
-            L = groupsA.get(name,[])
-            L.append(namesA[i][0])
-            groupsA[name] = L
-    else:
-        groupsA = None
-
-    if namesB is not None:
-        groupsB = {}
-        for i in range(len(namesB)):
-            name = namesB[i][1]                        
-            L = groupsB.get(name,[])
-            L.append(namesB[i][0])
-            groupsB[name] = L
-    else:
-        groupsB = None    
         
     A=pd.read_csv(fA,sep='\t',header=None,index_col=0)
     B=pd.read_csv(fB,sep='\t',header=None,index_col=0)
@@ -879,6 +905,29 @@ def calculate_blast_graph(id1,id2,f_maps = 'maps/',
         gnnms = gnnms.multiply(gnnm).multiply(gnnm.T).tocsr()
     gnnm=gnnms
     
+    return gnnm,gn1,gn2,gn
+    
+def coarsen_blast_graph(gnnm,gn1,gn2,gn,id1,id2,namesA,namesB):
+    if namesA is not None:
+        groupsA = {}
+        for i in range(len(namesA)):
+            name = namesA[i][1]                        
+            L = groupsA.get(name,[])
+            L.append(namesA[i][0])
+            groupsA[name] = L
+    else:
+        groupsA = None
+
+    if namesB is not None:
+        groupsB = {}
+        for i in range(len(namesB)):
+            name = namesB[i][1]                        
+            L = groupsB.get(name,[])
+            L.append(namesB[i][0])
+            groupsB[name] = L
+    else:
+        groupsB = None    
+        
     for n,groups,ids,g in zip(['A','B'],[groupsA,groupsB],[id1,id2],[gn1,gn2]):
         if groups is not None:
             if isinstance(groups,dict):
@@ -930,11 +979,8 @@ def calculate_blast_graph(id1,id2,f_maps = 'maps/',
     gn1 = gn1[np.in1d(gn1,gn)]
     gn2 = gn2[np.in1d(gn2,gn)]
     gnnm=gnnm[f,:][:,f]
-    gnnm = _filter_gnnm(gnnm,thr=ew_thr)
-    
     return gnnm,gn1,gn2,gn
-    
-    
+ 
 
 def get_pairs(sam1,sam2,gnnm,gn1,gn2,NOPs1=2,NOPs2=5):
     #gnnm = filter_gnnm(gnnm)
@@ -1191,7 +1237,7 @@ class Samap(object):
         self.gn2=gn2
 
 
-    def run(self,NUMITERS=3,NOPs1=4,NOPs2=8,NH1=2,NH2=2,K=20,NCLUSTERS=1,use_seq=False):
+    def run(self,NUMITERS=3,NOPs1=0,NOPs2=0,NH1=2,NH2=2,K=20,NCLUSTERS=1):
         sam1=self.sam1
         sam2=self.sam2
         gnnm=self.gnnm
@@ -1199,67 +1245,47 @@ class Samap(object):
         gn2=self.gn2
         gn=np.append(gn1,gn2)
 
-        self.max_score = 0
-        coarsen = False
-        gnnm2 = get_pairs(sam1,sam2,gnnm,gn1,gn2,NOPs1=NOPs1,NOPs2=NOPs2)
-        sam_def = samap([sam1,sam2],gnnm2,gn, umap=False, NH1=NH1, NH2=NH2,
-                                    coarsen=coarsen,K=K)
-        self.sam_def = sam_def
-        sam4=sam_def
+        self.SCORE_VEC=[]
+        self.GNNMS_corr=[]
+        self.GNNMS_pruned=[]
+        self.GNNMS_nnm=[]
 
-        _, _, _, CSIMth = compute_csim(sam4,'leiden_clusters')
-        new = CSIMth.flatten()
-        old=20
-
-        self.SCORES = [np.abs(new-old).max()]
-        self.SCORE_VEC=[new]
-        self.GNNMS_corr=[None]
-        self.GNNMS_pruned=[gnnm2]
-        i=0
-        self.GNNMS_nnm=[sam_def.adata.obsp['connectivities']]
-        BURN_IN = 0
-        FLAG = True
-        while i < BURN_IN+1:
-            print('ITERATION: ' + str(i),
-                  '\nAverage alignment score (A.S.): ',avg_as(sam4).mean(),
-                  '\nMax A.S. improvement:',np.max(new-old),
-                  '\nMin A.S. improvement:',np.min(new-old))
-            i+=1
-            sam_def=sam4
-            gc.collect()
-            print('Calculating gene-gene correlations in the homology graph...')
-            gnnmu = refine_corr(sam1,sam2,sam_def,gnnm,gn1,gn2, THR = 0, use_seq=use_seq,corr_mode='pearson',T1=0,T2=0,NCLUSTERS=NCLUSTERS)
-
-            self.GNNMS_corr.append(gnnmu)
-            self.gnnmu = gnnmu
-
+        gnnmu = gnnm
+        for i in range(NUMITERS):
             gnnm2  = get_pairs(sam1,sam2,gnnmu,gn1,gn2,NOPs1=NOPs1,NOPs2=NOPs2)
             self.GNNMS_pruned.append(gnnm2)
 
-            gc.collect()
-
-            sam4 = samap([sam1,sam2],gnnm2,gn,umap=False,K=K,NH1=NH1,NH2=NH2,coarsen=coarsen)
+            sam4 = samap([sam1,sam2],gnnm2,gn,umap=False,K=K,NH1=NH1,NH2=NH2,coarsen=True)
             self.samap = sam4
             self.GNNMS_nnm.append(sam4.adata.uns['nnm'])
 
             _, _, _, CSIMth = compute_csim(sam4,'leiden_clusters')
-            old=new
-            new=CSIMth.flatten()
-            self.SCORES.append(np.abs(new-old).max())
-            self.SCORE_VEC.append(new)
-
-            self.last_score = self.SCORES[-1]
             
-            if i==BURN_IN+1 and FLAG:
-                FLAG=False
-                BURN_IN += NUMITERS
-                coarsen=True
+            
+            self.SCORE_VEC.append(CSIMth.flatten())            
+            if len(self.SCORE_VEC) > 1:
+                diff=(self.SCORE_VEC[-1]-self.SCORE_VEC[-2])            
+            elif len(self.SCORE_VEC)> 0:
+                diff=(self.SCORE_VEC[-1]-np.zeros(self.SCORE_VEC[-1].size))
+
+            diffmax = diff.max()
+            diffmin = diff.min()
+            print('ITERATION: ' + str(i),
+                  '\nAverage alignment score (A.S.): ',avg_as(sam4).mean(),
+                  '\nMax A.S. improvement:',diffmax,
+                  '\nMin A.S. improvement:',diffmin)
+
+
+            print('Calculating gene-gene correlations in the homology graph...')
+            gnnmu = refine_corr(sam1,sam2,sam4,gnnm,gn1,gn2, THR = 0, use_seq=False,corr_mode='pearson',T1=0,T2=0,NCLUSTERS=NCLUSTERS)
+
+            self.GNNMS_corr.append(gnnmu)
+            self.gnnmu = gnnmu            
                 
             gc.collect()
 
         self.final_sam=sam4
         self.final_sam.adata.var['edge_weights'] = self.final_sam.adata.uns['mdata']['edge_weights']
-
         self.ITER_DATA = (self.GNNMS_nnm,self.GNNMS_corr,self.GNNMS_pruned,self.SCORE_VEC)
 
 def get_mu_std(sam3,sam1,sam2,knn=False):
