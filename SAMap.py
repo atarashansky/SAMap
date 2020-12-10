@@ -9,6 +9,7 @@ import scipy as sp
 from samalg import SAM
 import numpy as np
 import samalg.utilities as ut
+import time
 from sklearn.preprocessing import StandardScaler
 import scanpy as sc
 import warnings
@@ -172,9 +173,7 @@ class SAMAP(object):
             if not EGGNOG:
                 gnnm,gn1,gn2,gn = calculate_blast_graph(id1,id2,
                                                         f_maps = f_maps,
-                                                        reciprocate = reciprocal_blast,
-                                                        namesA = names1,
-                                                        namesB = names2)
+                                                        reciprocate = reciprocal_blast)
             else:                                                    
                 gnnm,gn1,gn2,gn = calculate_eggnog_graph(Ea,Eb,id1,id2,taxa=taxa)
                 
@@ -209,7 +208,9 @@ class SAMAP(object):
         gn2 = ge[np.in1d(ge,gn2)]        
     
         print('{} `{}` genes and {} `{}` gene symbols match between the datasets and the BLAST graph.'.format(gn1.size,id1,gn2.size,id2))
-
+        
+        
+        smap = Samap(sam1,sam2,gnnm,gn1,gn2)
         self.sam1 = sam1
         self.sam2 = sam2
         self.gnnm = gnnm
@@ -218,6 +219,8 @@ class SAMAP(object):
         self.gn = gn        
         self.id1 = id1
         self.id2 = id2
+        self.smap = smap
+        
         
     def run(self,NUMITERS: typing.Optional[int] = 3,
           NH1: typing.Optional[int] = 3,
@@ -267,16 +270,15 @@ class SAMAP(object):
         -------
         samap - Species-merged SAM object
         """
+        start_time = time.time()
+        
         sam1 = self.sam1
         sam2 = self.sam2
         gnnm = self.gnnm
         gn1 = self.gn1
         gn2 = self.gn2
-        gn = self.gn
-        
-        smap = Samap(sam1,sam2,gnnm,gn1,gn2)        
-        # assign to self
-        self.smap = smap
+        gn = self.gn     
+        smap = self.smap
         
         ITER_DATA = smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
                              NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS)
@@ -296,6 +298,9 @@ class SAMAP(object):
         samap.adata.uns['homology_gene_names'] = gn
     
         samap.adata.obs['species'] = pd.Categorical([self.id1]*sam1.adata.shape[0]+[self.id2]*sam2.adata.shape[0])
+        
+        self.run_time = time.time()-start_time
+        print('Elapsed time: {} minutes.'.format(self.run_time/60))
         return samap
 
 
@@ -1233,9 +1238,15 @@ class Samap(object):
         self.sam1=sam1
         self.sam2=sam2
         self.gnnm=gnnm
+        self.gnnmu = gnnm
         self.gn1=gn1
         self.gn2=gn2
 
+        self.SCORE_VEC=[]
+        self.GNNMS_corr=[]
+        self.GNNMS_pruned=[]
+        self.GNNMS_nnm=[]
+        self.iter = 0
 
     def run(self,NUMITERS=3,NOPs1=0,NOPs2=0,NH1=2,NH2=2,K=20,NCLUSTERS=1):
         sam1=self.sam1
@@ -1243,19 +1254,27 @@ class Samap(object):
         gnnm=self.gnnm
         gn1=self.gn1
         gn2=self.gn2
+        gnnmu = self.gnnmu
+        
         gn=np.append(gn1,gn2)
 
-        self.SCORE_VEC=[]
-        self.GNNMS_corr=[]
-        self.GNNMS_pruned=[]
-        self.GNNMS_nnm=[]
-
-        gnnmu = gnnm
+        if self.iter > 0:
+            sam4 = self.samap
+            
         for i in range(NUMITERS):
+            if self.iter > 0 and i == 0:
+                print('Calculating gene-gene correlations in the homology graph...')
+                gnnmu = refine_corr(sam1,sam2,sam4,gnnm,gn1,gn2, THR = 0, use_seq=False,corr_mode='pearson',T1=0,T2=0,NCLUSTERS=NCLUSTERS)
+    
+                self.GNNMS_corr.append(gnnmu)
+                self.gnnmu = gnnmu  
+                
             gnnm2  = get_pairs(sam1,sam2,gnnmu,gn1,gn2,NOPs1=NOPs1,NOPs2=NOPs2)
-            self.GNNMS_pruned.append(gnnm2)
-
+            self.GNNMS_pruned.append(gnnm2)        
+                
             sam4 = samap([sam1,sam2],gnnm2,gn,umap=False,K=K,NH1=NH1,NH2=NH2,coarsen=True)
+
+                
             self.samap = sam4
             self.GNNMS_nnm.append(sam4.adata.uns['nnm'])
 
@@ -1274,13 +1293,13 @@ class Samap(object):
                   '\nAverage alignment score (A.S.): ',avg_as(sam4).mean(),
                   '\nMax A.S. improvement:',diffmax,
                   '\nMin A.S. improvement:',diffmin)
-
-
-            print('Calculating gene-gene correlations in the homology graph...')
-            gnnmu = refine_corr(sam1,sam2,sam4,gnnm,gn1,gn2, THR = 0, use_seq=False,corr_mode='pearson',T1=0,T2=0,NCLUSTERS=NCLUSTERS)
-
-            self.GNNMS_corr.append(gnnmu)
-            self.gnnmu = gnnmu            
+            self.iter += 1
+            if i < NUMITERS - 1:
+                print('Calculating gene-gene correlations in the homology graph...')
+                gnnmu = refine_corr(sam1,sam2,sam4,gnnm,gn1,gn2, THR = 0, use_seq=False,corr_mode='pearson',T1=0,T2=0,NCLUSTERS=NCLUSTERS)
+    
+                self.GNNMS_corr.append(gnnmu)
+                self.gnnmu = gnnmu            
                 
             gc.collect()
 
