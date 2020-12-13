@@ -280,11 +280,11 @@ class SAMAP(object):
         gn = self.gn     
         smap = self.smap
         
-        ITER_DATA = smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
-                             NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS)
+        smap.run(NUMITERS=NUMITERS,NOPs1=NOPs1,NOPs2=NOPs2,
+                 NH1=NH1,NH2=NH2,K=K,NCLUSTERS=N_GENE_CHUNKS)
         samap=smap.final_sam        
         self.final_samap = samap
-        self.ITER_DATA = ITER_DATA
+        self.ITER_DATA = smap.ITER_DATA
         
         print('Alignment score ---',avg_as(samap).mean())
     
@@ -1246,6 +1246,7 @@ class Samap(object):
         self.GNNMS_corr=[]
         self.GNNMS_pruned=[]
         self.GNNMS_nnm=[]
+        self.ITER_DATA = [self.GNNMS_nnm,self.GNNMS_corr,self.GNNMS_pruned,self.SCORE_VEC]        
         self.iter = 0
 
     def run(self,NUMITERS=3,NOPs1=0,NOPs2=0,NH1=2,NH2=2,K=20,NCLUSTERS=1):
@@ -1305,7 +1306,6 @@ class Samap(object):
 
         self.final_sam=sam4
         self.final_sam.adata.var['edge_weights'] = self.final_sam.adata.uns['mdata']['edge_weights']
-        self.ITER_DATA = (self.GNNMS_nnm,self.GNNMS_corr,self.GNNMS_pruned,self.SCORE_VEC)
 
 def get_mu_std(sam3,sam1,sam2,knn=False):
     g1,g2 = ut.extract_annotation(sam3.adata.var_names,0,';'),ut.extract_annotation(sam3.adata.var_names,1,';')
@@ -1326,11 +1326,20 @@ def q(x):
 
 class GenePairFinder(object):
     def __init__(self,s1,s2,s3,k1='leiden_clusters',k2='leiden_clusters'):
+        self.id1 = s3.adata.var_names[0].split(';')[0].split('_')[0]
+        self.id2 = s3.adata.var_names[0].split(';')[1].split('_')[0]        
+        
+        _prepend_var_prefix(s1,self.id1)
+        _prepend_var_prefix(s2,self.id2)     
+       
+        s1.adata.obs[k1]=s1.adata.obs[k1].astype('str')
+        s2.adata.obs[k2]=s2.adata.obs[k2].astype('str')
+        
         self.s1=s1
         self.s2=s2
         self.s3=s3
-        self.s1.dispersion_ranking_NN();
-        self.s2.dispersion_ranking_NN();
+        self.s1.dispersion_ranking_NN(save_avgs=True);
+        self.s2.dispersion_ranking_NN(save_avgs=True);
         mu1,v1,mu2,v2 = get_mu_std(self.s3,self.s1,self.s2)
         self.mu1=mu1
         self.v1=v1
@@ -1338,17 +1347,28 @@ class GenePairFinder(object):
         self.v2=v2
         self.k1 = k1
         self.k2 = k2
+        
         self.find_markers()
     
     def find_markers(self):
-        print('Finding cluster-specific markers in {} and {}.'.format(self.k1,self.k2))
+        print('Finding cluster-specific markers in {}:{} and {}:{}.'.format(self.id1,self.k1,
+                                                                            self.id2,self.k2))
         find_cluster_markers(self.s1,self.k1)
         find_cluster_markers(self.s2,self.k2)
+        self.s1.identify_marker_genes_sw(labels=self.k1)
+        self.s2.identify_marker_genes_sw(labels=self.k2)        
         
-    def find_genes(self,n1,n2,w1t=0.2,w2t=0.2,n_pairs=500,n_genes=1000,thr=1e-2):
+    def find_genes(self,n1,n2,w1t=0.2,w2t=0.2,n_pairs=500,n_genes=1000,thr=1e-2,avgmode=True):
         assert n1 in q(self.s1.adata.obs[self.k1])
         assert n2 in q(self.s2.adata.obs[self.k2])
-        m = self.find_link_genes(n1,n2,w1t=w1t,w2t=w2t,n_pairs=n_pairs)
+        
+        if avgmode:
+            m = self.find_link_genes_avg(n1,n2,w1t=w1t,w2t=w2t,expr_thr=0.05)
+        else:
+            m = self.find_link_genes(n1,n2,w1t=w1t,w2t=w2t,n_pairs=n_pairs,expr_thr=0.05)
+            
+        self.gene_pair_scores = pd.Series(index=self.s3.adata.var_names,data=m)
+
         G = q(self.s3.adata.var_names[np.argsort(-m)[:n_genes]])
         G1 = substr(G,';',0)
         G2 = substr(G,';',1)
@@ -1361,6 +1381,45 @@ class GenePairFinder(object):
         G2 = G2[np.sort(ix2)]
         return G,G1,G2
         
+    def find_link_genes_avg(self,c1,c2,w1t=0.35,w2t=0.35,expr_thr=0.05):
+        mu1 = self.mu1
+        std1 = self.v1
+        mu2 = self.mu2
+        std2 = self.v2
+        sam1 = self.s1
+        sam2 = self.s2
+        key1 = self.k1
+        key2 = self.k2
+        sam3 = self.s3
+        
+        x1 = sam1.get_labels(key1)
+        x2 = sam2.get_labels(key2)
+        g1,g2 = ut.extract_annotation(sam3.adata.var_names,0,';'),ut.extract_annotation(sam3.adata.var_names,1,';')
+        X1 = _sparse_sub_standardize(sam1.adata[:,g1].X[x1==c1,:],mu1,std1)
+        X2 = _sparse_sub_standardize(sam2.adata[:,g2].X[x2==c2,:],mu2,std2)
+        a,b = sam3.adata.obsp['connectivities'][:sam1.adata.shape[0],sam1.adata.shape[0]:][x1==c1,:][:,x2==c2].nonzero()
+        c,d = sam3.adata.obsp['connectivities'][sam1.adata.shape[0]:,:sam1.adata.shape[0]][x2==c2,:][:,x1==c1].nonzero()
+    
+        pairs = np.unique(np.vstack((np.vstack((a,b)).T,np.vstack((d,c)).T)),axis=0)
+    
+        av1=X1[np.unique(pairs[:,0]),:].mean(0).A.flatten()
+        av2=X2[np.unique(pairs[:,1]),:].mean(0).A.flatten()
+        sav1 = (av1-av1.mean())/av1.std()
+        sav2 = (av2-av2.mean())/av2.std()
+        sav1[sav1<0]=0
+        sav2[sav2<0]=0
+        val = sav1*sav2/sav1.size
+        X1.data[:]=1
+        X2.data[:]=1
+        min_expr = (X1.mean(0).A.flatten()>expr_thr)*(X2.mean(0).A.flatten()>expr_thr)
+        
+        w1 = sam1.adata.var['weights'][g1].values.copy()
+        w2 = sam2.adata.var['weights'][g2].values.copy()
+        w1[w1<0.2]=0
+        w2[w2<0.2]=0
+        w1[w1>0]=1
+        w2[w2>0]=1
+        return val*w1*w2*min_expr
         
     def find_link_genes(self,c1,c2,w1t=0.35,w2t=0.35,knn=False,n_pairs = 250,expr_thr = 0.05):
         mu1 = self.mu1
@@ -1440,7 +1499,7 @@ def substr(x, s="_", ix=None,obj=False):
         MS = []
         for i in range(ms.shape[1]):
             MS.append(ms[:, i])
-            return MS
+        return MS
             
 def _knndist(nnma,k):
     x, y = nnma.nonzero()
@@ -1457,8 +1516,11 @@ def _knndist(nnma,k):
     data=np.array(newdata)
     val = data.reshape((nnma.shape[0], k))
     return val 
+
 def find_cluster_markers(sam,key,layer=None,inplace=True):
-    sc.tl.rank_genes_groups(sam.adata_raw,key,method='wilcoxon',n_genes=sam.adata.shape[1],use_raw=True,layer=layer)
+    sc.tl.rank_genes_groups(sam.adata_raw,key,method='wilcoxon',
+                            n_genes=sam.adata.shape[1],use_raw=True,layer=layer)
+
     NAMES = pd.DataFrame(sam.adata_raw.uns['rank_genes_groups']['names'])
     PVALS = pd.DataFrame(sam.adata_raw.uns['rank_genes_groups']['pvals'])
     SCORES = pd.DataFrame(sam.adata_raw.uns['rank_genes_groups']['scores'])
