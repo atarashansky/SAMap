@@ -20,7 +20,7 @@ Create and activate a new environment for SAMap as follows:
 
 ```bash
 # Install SAMap dependencies availabe in conda
-conda create -n SAMap -c conda-forge python=3.6 scanpy=1.5.1 matplotlib=3.1.3 pip pybind11 h5py leidenalg python-igraph texttable
+conda create -n SAMap -c conda-forge python=3.7 scanpy=1.5.1 matplotlib=3.1.3 pip pybind11 h5py leidenalg python-igraph texttable
 conda activate SAMap
 
 # Install dependencies not available in conda via pip.
