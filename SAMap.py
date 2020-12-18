@@ -16,7 +16,7 @@ import warnings
 from numba.core.errors import NumbaPerformanceWarning, NumbaWarning
 warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
 warnings.filterwarnings("ignore", category=NumbaWarning)
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 
 # Making SAMAP a class to keep internal objects persistent after early terminations.
 
@@ -159,12 +159,16 @@ class SAMAP(object):
     
     
         print('Preparing data 1 for SAMap.')
-        sam1.leiden_clustering(res=leiden_res1)
+        if key1 == 'leiden_clusters':
+            sam1.leiden_clustering(res=leiden_res1)
+            
         if 'PCs_SAMap' not in sam1.adata.varm.keys():
             prepare_SAMap_loadings(sam1)
     
         print('Preparing data 2 for SAMap.')
-        sam2.leiden_clustering(res=leiden_res2)
+        if key2 == 'leiden_clusters':
+            sam2.leiden_clustering(res=leiden_res2)
+        
         if 'PCs_SAMap' not in sam2.adata.varm.keys():
             prepare_SAMap_loadings(sam2)
     
@@ -210,7 +214,7 @@ class SAMAP(object):
         print('{} `{}` genes and {} `{}` gene symbols match between the datasets and the BLAST graph.'.format(gn1.size,id1,gn2.size,id2))
         
         
-        smap = Samap(sam1,sam2,gnnm,gn1,gn2)
+        smap = Samap(sam1,sam2,gnnm,gn1,gn2,key1=key1,key2=key2)
         self.sam1 = sam1
         self.sam2 = sam2
         self.gnnm = gnnm
@@ -539,7 +543,7 @@ def _smart_expand(nnm,cl,NH=3):
     return res
 
 def samap(sams,gnnm,gn,NH1=3,NH2=3,umap=False,mdata=None,k=None,K=20,
-                   chunksize=20000,coarsen=True,**kwargs):
+                   chunksize=20000,coarsen=True,key1='leiden_clusters',key2='leiden_clusters',**kwargs):
     n = len(sams)
     DS = {}
     for I in range(n):
@@ -547,14 +551,6 @@ def samap(sams,gnnm,gn,NH1=3,NH2=3,umap=False,mdata=None,k=None,K=20,
         for J in range(I+1,n):
             print('Stitching SAM ' + str(I) + ' and SAM ' + str(J))
             sam2 = sams[J]
-
-            if len(list(sam2.adata.obs.keys())) > 0 and len(list(sam2.adata.obs.keys()))>0:
-                key1 = ut.search_string(np.array(list(sam.adata.obs.keys())),'_clusters')[0][0]
-                key2 = ut.search_string(np.array(list(sam2.adata.obs.keys())),'_clusters')[0][0]
-            else:
-                print('Generate clusters first')
-                return;
-
 
             if mdata is None:
                 mdata = _mapping_window(sam,sam2,gnnm,gn,K=K)
@@ -1234,14 +1230,15 @@ def prepare_SAMap_loadings(sam,npcs=300):
     sam.adata.varm['PCs_SAMap'] = A
 
 class Samap(object):
-    def __init__(self,sam1,sam2,gnnm,gn1,gn2):
+    def __init__(self,sam1,sam2,gnnm,gn1,gn2,key1='leiden_clusters',key2='leiden_clusters'):
         self.sam1=sam1
         self.sam2=sam2
         self.gnnm=gnnm
         self.gnnmu = gnnm
         self.gn1=gn1
         self.gn2=gn2
-
+        self.key1=key1
+        self.key2=key2
         self.SCORE_VEC=[]
         self.GNNMS_corr=[]
         self.GNNMS_pruned=[]
@@ -1273,7 +1270,7 @@ class Samap(object):
             gnnm2  = get_pairs(sam1,sam2,gnnmu,gn1,gn2,NOPs1=NOPs1,NOPs2=NOPs2)
             self.GNNMS_pruned.append(gnnm2)        
                 
-            sam4 = samap([sam1,sam2],gnnm2,gn,umap=False,K=K,NH1=NH1,NH2=NH2,coarsen=True)
+            sam4 = samap([sam1,sam2],gnnm2,gn,umap=False,K=K,NH1=NH1,NH2=NH2,coarsen=True,key1=self.key1,key2=self.key2)
 
                 
             self.samap = sam4
