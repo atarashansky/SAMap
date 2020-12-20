@@ -300,6 +300,8 @@ class SAMAP(object):
         samap.adata.uns['homology_graph_reweighted'] = hom_graph
         samap.adata.uns['homology_graph'] = gnnm
         samap.adata.uns['homology_gene_names'] = gn
+        samap.adata.uns['homology_gene_names1'] = gn1
+        samap.adata.uns['homology_gene_names2'] = gn2        
     
         samap.adata.obs['species'] = pd.Categorical([self.id1]*sam1.adata.shape[0]+[self.id2]*sam2.adata.shape[0])
         
@@ -1548,3 +1550,134 @@ def _sparse_sub_standardize(X,mu,var,rows=False):
     Xs.data[Xs.data<0]=0
     Xs.eliminate_zeros()
     return Xs
+
+def _df_to_dict(DF,key_key=None,val_key=[]):
+    if key_key is None:
+        index = list(DF.index)
+    else:
+        index = list(DF[key_key].values)
+
+    if len(val_key) == 0:
+        val_key = list(DF.columns)
+
+    a=[]; b=[];
+    for key in val_key:
+        if key != key_key:
+            a.extend(index)
+            b.extend(list(DF[key].values))
+    a=np.array(a); b=np.array(b);
+
+
+    idx = np.argsort(a)
+    a = a[idx]
+    b = b[idx]
+    bounds = np.where(a[:-1]!=a[1:])[0]+1
+    bounds = np.append(np.append(0,bounds),a.size)
+    bounds_left=bounds[:-1]
+    bounds_right=bounds[1:]
+    slists = [b[bounds_left[i]:bounds_right[i]]
+                    for i in range(bounds_left.size)]
+    d = dict(zip(np.unique(a),slists))
+    return d
+
+def ParalogSubstitutions(smp,ortholog_pairs,paralog_pairs):
+    paralog_pairs = paralog_pairs[np.in1d(to_vn(paralog_pairs),to_vn(ortholog_pairs),invert=True)]    
+    gnnm = smp.adata.uns['homology_graph_reweighted']        
+    gn = smp.adata.uns['homology_gene_names']
+
+
+    A = pd.DataFrame(data = np.arange(gn.size)[None,:],columns=gn)
+    xp,yp = A[paralog_pairs[:,0]].values.flatten(),A[paralog_pairs[:,1]].values.flatten()
+    xp,yp = np.unique(np.vstack((np.vstack((xp,yp)).T,np.vstack((yp,xp)).T)),axis=0).T
+
+    xo,yo = A[ortholog_pairs[:,0]].values.flatten(),A[ortholog_pairs[:,1]].values.flatten()
+    xo,yo = np.unique(np.vstack((np.vstack((xo,yo)).T,np.vstack((yo,xo)).T)),axis=0).T
+    A = pd.DataFrame(data = np.vstack((xp,yp)).T,columns=['x','y'])
+    pairdict = _df_to_dict(A,key_key='x',val_key='y')
+    Xp=[]
+    Yp=[]
+    Xo=[]
+    Yo=[]
+    for i in range(xo.size):     
+        try:
+            y = pairdict[xo[i]]
+        except KeyError:
+            y=np.array([])
+        Yp.extend(y)
+        Xp.extend([xo[i]]*y.size)
+        Xo.extend([xo[i]]*y.size)
+        Yo.extend([yo[i]]*y.size)
+
+    orths = to_vn(gn[np.vstack((np.array(Xo),np.array(Yo))).T])
+    paras = to_vn(gn[np.vstack((np.array(Xp),np.array(Yp))).T])
+    orth_corrs = gnnm[Xo,Yo].A.flatten()
+    par_corrs = gnnm[Xp,Yp].A.flatten()
+    diff_corrs = par_corrs - orth_corrs
+
+    RES = pd.DataFrame(data=np.vstack((orths,paras)).T,
+                 columns=['ortholog pairs','paralog pairs'])
+    RES['ortholog corrs'] = orth_corrs
+    RES['paralog corrs'] = par_corrs
+    RES['corr diff'] = diff_corrs                      
+    RES = RES.sort_values('corr diff',ascending=False)
+    RES = RES[RES['corr diff']>0]    
+    return RES
+        
+def convert_eggnog_to_homologs(smp,A,B,taxon=2759):
+    taxon = str(taxon)
+    A=A.copy()
+    B=B.copy()
+    s = q(smp.adata.obs['species'])
+    _,ix = np.unique(s,return_index=True)
+    id1,id2 = s[np.sort(ix)][:2]
+    A.index = id1+'_'+A.index
+    B.index = id2+'_'+B.index
+    A = pd.concat((A,B),axis=0)
+    gn = q(smp.adata.uns['homology_gene_names'])
+    A = A[np.in1d(q(A.index),gn)]
+
+    orthology_groups = A['18']
+    og = q(orthology_groups)
+    x=np.unique(','.join(og).split(','))
+    D = pd.DataFrame(data = np.arange(x.size)[None,:],columns=x)
+
+
+    for i in range(og.size):
+        n=orthology_groups[i].split(',')
+        taxa = substr(n,'@',1)
+        if (taxa=='2759').sum() > 1:
+            og[i] = ''
+        else:
+            og[i] = ''.join(np.array(n)[taxa == taxon])
+
+    A['18'] = og
+
+    og = q(A['18'][gn])
+    og[og=='nan'] = ''
+
+    X = []
+    Y = []
+    for i in range(og.size):
+        x = og[i]
+        if x !='':
+            X.extend(D[x].values.flatten())
+            Y.extend([i])
+
+    X=np.array(X)
+    Y=np.array(Y)    
+    B = sp.sparse.lil_matrix((og.size,D.size))
+    B[Y,X]=1
+    B=B.tocsr()
+    gnf = q([x.split('_')[0] for x in gn])
+    id1,id2 = gnf[np.sort(np.unique(gnf,return_index=True)[1])]
+    B1 = B[gnf==id1]
+    B2 = B[gnf==id2]
+    B = B1.dot(B2.T)
+    B = sp.sparse.vstack((sp.sparse.hstack((sp.sparse.csr_matrix((B1.shape[0],)*2),B)),
+    sp.sparse.hstack((B.T,sp.sparse.csr_matrix((B2.shape[0],)*2))))).tocsr()
+    B.data[:]=1
+    return gn[np.vstack((B.nonzero())).T]
+
+    
+        
+        
