@@ -8,9 +8,9 @@ import time
 from sklearn.preprocessing import StandardScaler
 import scanpy as sc
 
-from . import q, ut, utils, pd, sp, np, warnings, analysis
-from analysis import compute_csim
-from utils import prepend_var_prefix, to_vn, substr, sparse_knn
+from . import q, ut, pd, sp, np, warnings
+from .analysis import compute_csim
+from .utils import prepend_var_prefix, to_vn, substr, sparse_knn
 
 from numba.core.errors import NumbaPerformanceWarning, NumbaWarning
 

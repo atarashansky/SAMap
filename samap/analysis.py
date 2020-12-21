@@ -1,6 +1,6 @@
 import sklearn.utils.sparsefuncs as sf
-from . import q, ut, utils, pd, sp, np, warnings
-from utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
+from . import q, ut, pd, sp, np, warnings
+from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
 
 
 def get_mu_std(sam3, sam1, sam2, knn=False):
