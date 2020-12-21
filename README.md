@@ -6,10 +6,9 @@ Hello! Just a friendly reminder that if any of you have trouble getting SAMap up
 
 ## Requirements
 SAMap was developed and tested in an Anaconda python environment with the following dependencies:
- - `sam-algorithm==0.7.6`
- - `scanpy==1.5.1`
- - `hnswlib==0.3.4`
- - `matplotlib==3.1.3`
+ - `sam-algorithm`
+ - `scanpy`
+ - `hnswlib`
 
 ## Installation
 
@@ -20,11 +19,11 @@ Create and activate a new environment for SAMap as follows:
 
 ```bash
 # Install SAMap dependencies availabe in conda
-conda create -n SAMap -c conda-forge python=3.7 scanpy=1.5.1 matplotlib=3.1.3 pip pybind11 h5py leidenalg python-igraph texttable
+conda create -n SAMap -c conda-forge python=3.7 pip pybind11 h5py<=2.10.0 leidenalg python-igraph texttable
 conda activate SAMap
 
 # Install dependencies not available in conda via pip.
-pip install sam-algorithm==0.7.6 hnswlib==0.3.4
+pip install sam-algorithm hnswlib
 ```
 
 Having activated the environment, install SAMap like so:
