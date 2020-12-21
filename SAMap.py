@@ -746,7 +746,7 @@ def _concatenate_sam(sams,nnm,op):
     for i in range(len(sams)):
         acns.append(np.array(list(sams[i].adata.obs_names)))
         obsks.append(np.array(sams[i].adata.obs_keys()))
-    obsk = list(set(obsks[0]).intersection(*obsks))
+    obsk = np.unique(np.concatenate(obsks))
 
     acn = np.concatenate(acns)
 
@@ -766,7 +766,12 @@ def _concatenate_sam(sams,nnm,op):
     for k in obsk:
         ann = []
         for i in range(len(sams)):
-            ann.append(sams[i].get_labels(k))
+            try:
+                ann.append(sams[i].adata.var_names[0].split('_')[0]+'_'+
+                           sams[i].get_labels(k).astype('object'))
+            except:
+                ann.append(q(['']*sams[i].adata.shape[0]))
+
         sam.adata.obs[k] = pd.Categorical(np.concatenate(ann))
 
 
@@ -1580,12 +1585,14 @@ def _df_to_dict(DF,key_key=None,val_key=[]):
     d = dict(zip(np.unique(a),slists))
     return d
 
-def ParalogSubstitutions(smp,ortholog_pairs,paralog_pairs):
-    paralog_pairs = paralog_pairs[np.in1d(to_vn(paralog_pairs),to_vn(ortholog_pairs),invert=True)]    
+def ParalogSubstitutions(smp,ortholog_pairs,paralog_pairs=None):
+
     gnnm = smp.adata.uns['homology_graph_reweighted']        
     gn = smp.adata.uns['homology_gene_names']
-
-
+    if paralog_pairs is None:
+        paralog_pairs = gn[np.vstack(smp.adata.uns['homology_graph'].nonzero()).T]        
+    paralog_pairs = paralog_pairs[np.in1d(to_vn(paralog_pairs),to_vn(ortholog_pairs),invert=True)]            
+    
     A = pd.DataFrame(data = np.arange(gn.size)[None,:],columns=gn)
     xp,yp = A[paralog_pairs[:,0]].values.flatten(),A[paralog_pairs[:,1]].values.flatten()
     xp,yp = np.unique(np.vstack((np.vstack((xp,yp)).T,np.vstack((yp,xp)).T)),axis=0).T
@@ -1678,6 +1685,193 @@ def convert_eggnog_to_homologs(smp,A,B,taxon=2759):
     B.data[:]=1
     return gn[np.vstack((B.nonzero())).T]
 
+def CellTypeTriangles(smp1,smp2,smp3,key1,key2,key3,tr=1):
+    s = q(smp1.adata.obs['species'])
+    A,B = s[np.sort(np.unique(s,return_index=True)[1])][:2]
     
+    s = q(smp2.adata.obs['species'])
+    B1,B2 = s[np.sort(np.unique(s,return_index=True)[1])][:2]
+    C = B1 if B1 not in [A,B] else B2
+    
+    A1,A2=A,B
+    s = q(smp1.adata.obs['species'])
+    C1,C2 = s[np.sort(np.unique(s,return_index=True)[1])][:2]
+    
+    codes = dict(zip([A,B,C],[key1,key2,key3]))
+    X=[]
+    W=[]
+    for i in [[A1,A2,smp1],[B1,B2,smp2],[C1,C2,smp3]]:
+        x,y,smp = i
+        k1,k2 = codes[x],codes[y]
+    
+        cl1 = q(smp.adata.obs[k1])        
+        if k1!=k2:            
+            cl2 = q(smp.adata.obs[k2])
+            cl1[cl1=='']=cl2[cl2!='']
+        smp.adata.obs['triangle_{}{}'.format(x,y)] = pd.Categorical(cl1)
+    
+        _,ax,bx,CSIMt = compute_csim(smp,key='triangle_{}{}'.format(x,y))
+        pairsi = np.vstack(CSIMt.nonzero()).T
+        pairs = np.vstack((ax[pairsi[:,0]],bx[pairsi[:,1]])).T
+        X.append(pairs)
+        W.append(CSIMt[pairsi[:,0],pairsi[:,1]])
         
+    all_pairsf = np.vstack(X)
+    alignmentf = np.concatenate(W)
+    alignment = alignmentf.copy()
+    all_pairs=all_pairsf.copy()
+    all_pairs = all_pairs[alignment>tr]
+    alignment = alignment[alignment>tr]
+    all_pairs = to_vn(np.sort(all_pairs,axis=1))
+    
+    x,y = substr(all_pairs,';')
+    ctu = np.unique(np.concatenate((x,y)))
+    Z = pd.DataFrame(data=np.arange(ctu.size)[None,:],columns=ctu)
+    nnm = sp.sparse.lil_matrix((ctu.size,)*2)
+    p1,p2 = Z[x].values.flatten(),Z[y].values.flatten()
+    nnm[Z[x].values.flatten(),Z[y].values.flatten()] = alignment
+    nnm[Z[y].values.flatten(),Z[x].values.flatten()] = alignment
+    nnm=nnm.tocsr()
+    pairs = np.vstack((x,y)).T
+    
+    import networkx as nx
+    G=nx.Graph()
+    G.add_edges_from(ctu[np.vstack(nnm.nonzero()).T])
+    all_cliques=nx.enumerate_all_cliques(G)
+    all_triangles = [x for x in all_cliques if len(x)==3 ]    
+    Z = np.sort(np.vstack(all_triangles),axis=1)
+    DF = pd.DataFrame(data=Z,columns = [x[i].split('_')[0] for x in Z[0]])
+    DF = DF[[A,B,C]]
+    return DF
+    
+def GeneTriangles(smp1,smp2,smp3,orth1,orth2,orth3):
+    s = q(smp1.adata.obs['species'])
+    A,B = s[np.sort(np.unique(s,return_index=True)[1])][:2]
+    
+    s = q(smp2.adata.obs['species'])
+    B1,B2 = s[np.sort(np.unique(s,return_index=True)[1])][:2]
+    C = B1 if B1 not in [A,B] else B2
+
+    A1,A2=A,B
+    s = q(smp1.adata.obs['species'])
+    C1,C2 = s[np.sort(np.unique(s,return_index=True)[1])][:2]
+    
+    RES = []
+    for i in [[smp1,orth1],[smp2,orth2],[smp3,orth3]]:
+        smp,orth = i
+        RES.append(ParalogSubstitutions(smp,orth))
+    RES1,RES2,RES3 = RES
+
+    op1 = to_vo(q(RES1['ortholog pairs']))
+    op2 = to_vo(q(RES2['ortholog pairs']))
+    op3 = to_vo(q(RES3['ortholog pairs']))
+    pp1 = to_vo(q(RES1['paralog pairs']))
+    pp2 = to_vo(q(RES2['paralog pairs']))
+    pp3 = to_vo(q(RES3['paralog pairs']))
+    
+    
+    gnnm1 = smp1.adata.uns['homology_graph_reweighted']
+    gnnm2 = smp2.adata.uns['homology_graph_reweighted']
+    gnnm3 = smp3.adata.uns['homology_graph_reweighted']
+    gn1 = smp1.adata.uns['homology_gene_names']
+    gn2 = smp2.adata.uns['homology_gene_names']
+    gn3 = smp3.adata.uns['homology_gene_names']
+    
+    #suppress warning
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")    
+        T1 = pd.DataFrame(data = np.arange(gn1.size)[None,:],columns=gn1)
+        x,y = T1[op1[:,0]].values.flatten(),T1[op1[:,1]].values.flatten()
+        gnnm1[x,y] = gnnm1[x,y]
+        gnnm1[y,x] = gnnm1[y,x]    
         
+        T1 = pd.DataFrame(data = np.arange(gn2.size)[None,:],columns=gn2)
+        x,y = T1[op2[:,0]].values.flatten(),T1[op2[:,1]].values.flatten()
+        gnnm2[x,y] = gnnm2[x,y]
+        gnnm2[y,x] = gnnm2[y,x]    
+    
+        T1 = pd.DataFrame(data = np.arange(gn3.size)[None,:],columns=gn3)
+        x,y = T1[op3[:,0]].values.flatten(),T1[op3[:,1]].values.flatten()
+        gnnm3[x,y] = gnnm3[x,y]        
+        gnnm3[y,x] = gnnm3[y,x]        
+    
+    pairs1 = gn1[np.vstack(gnnm1.nonzero()).T]
+    pairs2 = gn2[np.vstack(gnnm2.nonzero()).T]
+    pairs3 = gn3[np.vstack(gnnm3.nonzero()).T]
+    data = np.concatenate((gnnm1.data,gnnm2.data,gnnm3.data))
+    CORR1 = pd.DataFrame(data = gnnm1.data[None,:],columns=to_vn(pairs1))
+    CORR2 = pd.DataFrame(data = gnnm2.data[None,:],columns=to_vn(pairs2))
+    CORR3 = pd.DataFrame(data = gnnm3.data[None,:],columns=to_vn(pairs3))
+    
+    pairs = np.vstack((pairs1,pairs2,pairs3))
+    all_genes = np.unique(pairs.flatten())
+    Z = pd.DataFrame(data = np.arange(all_genes.size)[None,:],columns=all_genes)
+    x,y = Z[pairs[:,0]].values.flatten(),Z[pairs[:,1]].values.flatten()
+    GNNM = sp.sparse.lil_matrix((all_genes.size,)*2)
+    GNNM[x,y] = data
+    
+    import networkx as nx
+    G = nx.from_scipy_sparse_matrix(GNNM, create_using=nx.Graph)    
+    all_cliques=nx.enumerate_all_cliques(G)
+    all_triangles = [x for x in all_cliques if len(x)==3 ]
+    Z = np.sort(np.vstack(all_triangles),axis=1)
+    DF = pd.DataFrame(data=Z,columns = [x[i].split('_')[0] for x in Z[0]])
+    DF = DF[[A,B,C]]
+    
+    orth1DF = pd.DataFrame(data = orth1,columns = [x[i].split('_')[0] for x in orth1[0]])[[A,B]]
+    orth2DF = pd.DataFrame(data = orth2,columns = [x[i].split('_')[0] for x in orth2[0]])[[A,C]]
+    orth3DF = pd.DataFrame(data = orth3,columns = [x[i].split('_')[0] for x in orth3[0]])[[B,C]]  
+  
+    ps1DF = pd.DataFrame(data = np.sort(ps1,axis=1), 
+                         columns = [x[i].split('_')[0] for x in np.sort(ps1,axis=1)[0]])[[A,B]]
+    ps2DF = pd.DataFrame(data = np.sort(ps2,axis=1), 
+                         columns = [x[i].split('_')[0] for x in np.sort(ps2,axis=1)[0]])[[A,C]]
+    ps3DF = pd.DataFrame(data = np.sort(ps3,axis=1), 
+                         columns = [x[i].split('_')[0] for x in np.sort(ps3,axis=1)[0]])[[B,C]]
+    
+    A_AB = pd.DataFrame(data = op1[None,:],columns=to_vn(ps1DF.values))
+    A_AC = pd.DataFrame(data = op2[None,:],columns=to_vn(ps2DF.values))
+    A_BC = pd.DataFrame(data = op3[None,:],columns=to_vn(ps3DF.values))
+    
+    AB = to_vn(DF[[A,B]].values)
+    AC = to_vn(DF[[A,C]].values)
+    BC = to_vn(DF[[B,C]].values)
+    
+    AVs = []
+    CATs = []
+    CORRs = []
+    for i,X,O,P,Z,R in zip([0,1,2],[AB,AC,BC],[orth1DF,orth2DF,orth3DF],
+                         [ps1DF,ps2DF,ps3DF],[A_AB,A_AC,A_BC],[CORR1,CORR2,CORR3]):
+        cat = q(['homolog']*X.size).astype('object')
+        cat[np.in1d(X,to_vn(O.values))] = 'ortholog'
+        ff = np.in1d(X,to_vn(P.values))
+        cat[ff] = 'substitution'
+        z = Z[X[ff]]
+        x = X[ff]
+        b=z.values.flatten()
+        av = np.zeros(x.size,dtype='object')
+        for ai in range(x.size):
+            av[ai] = ';'.join(np.unique(substr(b[Z.columns==x[ai]],';',1)))        
+        AV = np.zeros(X.size,dtype='object')    
+        AV[ff] = av
+        corr = CORR1[X].values.flatten()
+        
+        AVs.append(AV)
+        CATs.append(cat)
+        CORRs.append(corr)
+           
+
+    tri_pairs = np.vstack((AB,AC,BC)).T
+    cat_pairs = np.vstack(CATs).T
+    corr_pairs = np.vstack(CORRs).T
+    homology_triangles = DF.values
+    substituted_genes=np.vstack(AVs).T
+    substituted_genes[substituted_genes==0]='N.S.'
+    data = np.hstack((homology_triangles.astype('object'),
+                      substituted_genes.astype('object'),
+                      tri_pairs.astype('object'),
+                      corr_pairs.astype('object'),
+                      cat_pairs.astype('object')))
+    return data
+
+    
