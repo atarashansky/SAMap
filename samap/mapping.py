@@ -979,13 +979,13 @@ def _concatenate_sam(sams, nnm, op):
     for k in obsk:
         ann = []
         for i in range(len(sams)):
-            try:
+            if k in sams[i].adata.obs.keys():
                 ann.append(
                     sams[i].adata.var_names[0].split("_")[0]
                     + "_"
-                    + sams[i].get_labels(k).astype("object")
+                    + sams[i].get_labels(k).astype('str').astype("object")
                 )
-            except:
+            else:
                 ann.append(q([""] * sams[i].adata.shape[0]))
 
         sam.adata.obs[k] = pd.Categorical(np.concatenate(ann))
