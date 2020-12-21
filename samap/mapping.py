@@ -224,8 +224,8 @@ class SAMAP(object):
         NH1: typing.Optional[int] = 3,
         NH2: typing.Optional[int] = 3,
         K: typing.Optional[int] = 20,
-        NOPs1: typing.Optional[int] = 4,
-        NOPs2: typing.Optional[int] = 8,
+        NOPs1: typing.Optional[int] = 0,
+        NOPs2: typing.Optional[int] = 0,
         N_GENE_CHUNKS: typing.Optional[int] = 1,
         USE_SEQ: typing.Optional[bool] = False,
     ):
