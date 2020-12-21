@@ -646,9 +646,7 @@ def mapper(
     if umap:
         print("Computing UMAP projection...")
         sc.tl.umap(sam3.adata, min_dist=0.1)
-
-        return sam3
-
+    return sam3
 
 def refine_corr(
     sam1,
@@ -1432,4 +1430,4 @@ def _smart_expand(nnm, cl, NH=3):
     res = S[0]
     for i in range(1, len(S)):
         res = res + S[i]
-        return res
+    return res
