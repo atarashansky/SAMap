@@ -1,5 +1,5 @@
 import sklearn.utils.sparsefuncs as sf
-from . import q, ut, pd, sp, np, warnings
+from . import q, ut, pd, sp, np, warnings, sc
 from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
 
 

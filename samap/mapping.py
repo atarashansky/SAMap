@@ -6,9 +6,8 @@ import hnswlib
 from samalg import SAM
 import time
 from sklearn.preprocessing import StandardScaler
-import scanpy as sc
 
-from . import q, ut, pd, sp, np, warnings
+from . import q, ut, pd, sp, np, warnings, sc
 from .analysis import compute_csim
 from .utils import prepend_var_prefix, to_vn, substr, sparse_knn
 
