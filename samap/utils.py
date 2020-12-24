@@ -77,7 +77,7 @@ def substr(x, s="_", ix=None, obj=False):
         MS = []
         for i in range(ms.shape[1]):
             MS.append(ms[:, i])
-            return MS
+        return MS
 
 
 def sparse_knn(D, k):
