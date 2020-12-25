@@ -21,7 +21,7 @@ def get_mu_std(sam3, sam1, sam2, knn=False):
 
 
 class GenePairFinder(object):
-    def __init__(self, s1, s2, s3, k1="leiden_clusters", k2="leiden_clusters",compute_markers=True):
+    def __init__(self, s1, s2, s3, k1="leiden_clusters", k2="leiden_clusters",layer=None,compute_markers=True):
         self.id1 = s3.adata.var_names[0].split(";")[0].split("_")[0]
         self.id2 = s3.adata.var_names[0].split(";")[1].split("_")[0]
 
@@ -44,16 +44,16 @@ class GenePairFinder(object):
         self.k1 = k1
         self.k2 = k2
         if compute_markers:
-            self.find_markers()
+            self.find_markers(layer=layer)
 
-    def find_markers(self):
+    def find_markers(self,layer=None):
         print(
             "Finding cluster-specific markers in {}:{} and {}:{}.".format(
                 self.id1, self.k1, self.id2, self.k2
             )
-        )
-        find_cluster_markers(self.s1, self.k1)
-        find_cluster_markers(self.s2, self.k2)
+        )        
+        find_cluster_markers(self.s1, self.k1,layer=layer)
+        find_cluster_markers(self.s2, self.k2,layer=layer)
         self.s1.identify_marker_genes_sw(labels=self.k1)
         self.s2.identify_marker_genes_sw(labels=self.k2)
 
