@@ -310,6 +310,16 @@ class SAMAP(object):
         self.run_time = time.time() - start_time
         print("Elapsed time: {} minutes.".format(self.run_time / 60))
         return samap
+    
+    def gui(self):
+        try:
+            from samalg.gui import SAMGUI
+        except ImportError:
+            raise ImportError('Please install SAMGUI dependencies. See the README in the SAM github repository.')
+        self.sam1.adata.obsm['X_umap_samap'] = self.final_samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
+        self.sam2.adata.obsm['X_umap_samap'] = self.final_samap.adata[self.sam2.adata.obs_names].obsm['X_umap']
+        sg = SAMGUI([self.sam1,self.sam2])
+        return sg.SamPlot
 
 
 class Samap_Iter(object):
