@@ -30,8 +30,7 @@ class SAMAP(object):
         gnnm: typing.Optional[tuple] = None,
         EGGNOG: typing.Optional[bool] = False,
         taxa: typing.Optional[int] = 33208,
-        Ea: typing.Optional[pd.DataFrame] = None,
-        Eb: typing.Optional[pd.DataFrame] = None,
+        E: typing.Optional[pd.DataFrame] = None,
         reciprocal_blast: typing.Optional[bool] = True,
         key1: typing.Optional[str] = "leiden_clusters",
         key2: typing.Optional[str] = "leiden_clusters",
@@ -77,20 +76,33 @@ class SAMAP(object):
             names1 corresponds to the mapping for organism 1 and names2 corresponds to
             the mapping for organism 2.
 
+        gnnm : tuple(scipy.sparse.csr_matrix,numpy array, numpy array)
+            If the homology graph was already computed, you can pass it here in the form of a tuple:
+            (sparse adjacency matrix, species 1 genes, species 2 genes).
+            This is the tuple returned by `calculate_blast_graph(...)` or `coarsen_eggnog_graph(...)`.
+
+        EGGNOG : bool, optional, default False
+            If True, instructs SAMap to expect orthology group mapping tables output by Eggnog.
+
+        taxa : int, optional, default 33208
+            Specifies the taxonomic level at which genes with overlapping orthology groups will be linked.
+            Only used if EGGNOG is True.
+
+        E : tuple(pd.DataFrame,pd.DataFrame), optional, default None
+            A tuple of EGGNOG orthology group mapping tables corresponding to species 1 and 2,
+            respectively.
+        
         reciprocal_blast : bool, optional, default True
             If True, only keep reciprocal edges in the computed BLAST graph.
 
-        NUMITERS : int, optional, default 3
-            Runs SAMap for `NUMITERS` iterations using the mutual-nearest
-            neighborhood criterion.
-
-        leiden_res1 : float, optional, default 3
-            The resolution parameter for the leiden clustering to be done on the manifold of organism 1.
-            Each cell's neighborhood size will be capped to be the size of its leiden cluster.
-
-        leiden_res2 : float, optional, default 3
-            The resolution parameter for the leiden clustering to be done on the manifold of organism 2.
-            Each cell's neighborhood size will be capped to be the size of its leiden cluster.
+        key1 & key2 : str, optional, default 'leiden_clusters'
+            The `sam.adata.obs` key to use for determining maximum neighborhood size of each cell. 
+            If set to 'leiden_clusters', leiden clustering will be performed using the resolution
+            parameter specified by `leiden_res1/2`
+            
+        leiden_res1 & leiden_res2 : float, optional, default 3
+            The resolution parameter for the leiden clustering to be done on the manifold of organisms
+            1/2. Each cell's neighborhood size will be capped to be the size of its leiden cluster.
         """
 
         if not (isinstance(data1, str) or isinstance(data1, SAM)):
@@ -163,12 +175,14 @@ class SAMAP(object):
 
         if gnnm is None:
             if not EGGNOG:
-                gnnm, gn1, gn2, gn = calculate_blast_graph(
+                gnnm, gn1, gn2 = calculate_blast_graph(
                     id1, id2, f_maps=f_maps, reciprocate=reciprocal_blast
                 )
             else:
-                gnnm, gn1, gn2, gn = calculate_eggnog_graph(Ea, Eb, id1, id2, taxa=taxa)
+                gnnm, gn1, gn2 = calculate_eggnog_graph(E[0], E[1], id1, id2, taxa=taxa)
 
+            gn = np.append(gn1,gn2)
+            
             if names1 is not None or names2 is not None:
                 gnnm, gn1, gn2, gn = coarsen_blast_graph(
                     gnnm, gn1, gn2, gn, id1, id2, names1, names2
@@ -232,6 +246,9 @@ class SAMAP(object):
 
         Parameters
         ----------
+        NUMITERS : int, optional, default 3
+            Runs SAMap for `NUMITERS` iterations.        
+            
         NH1 : int, optional, default 3
             Cells up to `NH1` hops away from a particular cell in organism 1
             will be included in its neighborhood.
@@ -243,14 +260,14 @@ class SAMAP(object):
         K : int, optional, default 20
             The number of cross-species edges to identify per cell.
 
-        NOPs1 : int, optional, default 4
+        NOPs1 : int, optional, default 0
             Keeps the `NOPs1` largest outgoing edges in the homology graph, pruning
-            the rest.
+            the rest. If 0, no pruning is done.
 
-        NOPs2 : int, optional, default 8
+        NOPs2 : int, optional, default 0
             Keeps the `NOPs2` largest incoming edges in the homology graph, pruning
             the rest. The final homology graph is the union of the outgoing- and
-            incoming-edge filtered graphs.
+            incoming-edge filtered graphs. If 0, no pruning is done.
 
         N_GENE_CHUNKS: int, optional, default 1
             When updating the edge weights in the BLAST homology graph, the operation
@@ -288,7 +305,7 @@ class SAMAP(object):
             NCLUSTERS=N_GENE_CHUNKS,
         )
         samap = smap.final_sam
-        self.final_samap = samap
+        self.samap = samap
         self.ITER_DATA = smap.ITER_DATA
 
         print("Alignment score ---", _avg_as(samap).mean())
@@ -312,19 +329,35 @@ class SAMAP(object):
         return samap
             
     def gui(self):
+        """Launches a SAMGUI instance containing the two SAM objects."""
         try:
             from samalg.gui import SAMGUI
         except ImportError:
             raise ImportError('Please install SAMGUI dependencies. See the README in the SAM github repository.')
-        self.sam1.adata.obsm['X_umap_samap'] = self.final_samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
-        self.sam2.adata.obsm['X_umap_samap'] = self.final_samap.adata[self.sam2.adata.obs_names].obsm['X_umap']
+        self.sam1.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
+        self.sam2.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam2.adata.obs_names].obsm['X_umap']
         sg = SAMGUI([self.sam1,self.sam2])
         return sg.SamPlot
         
     def display_heatmap(self,key1='leiden_clusters',key2='leiden_clusters',colorbar=True,**kwargs):
+        """Displays a heatmap of mapping scores.
+        
+        Parameters
+        ----------
+        key1 & key2: str, optional, default 'leiden_clusters'
+            The keys corresponding to the annotation vector in `.adata.obs` for the two SAM objects.
+        
+        colorbar: bool, optional, default True
+            If True, displays colorbar next to the heatmap.
+        
+        Keyword Arguments
+        -----------------
+        Keyword arguments passed into `matplotlib.pyplot.imshow`.
+        
+        """
         sam1=self.sam1
         sam2=self.sam2
-        samap=self.final_samap
+        samap=self.samap
         from samap import q, pd
         import matplotlib.pyplot as plt
         cl1 = q(sam1.adata.obs[key1])
@@ -795,7 +828,7 @@ def calculate_eggnog_graph(A, B, id1, id2, taxa=33208):
 
     gn1 = gn[np.array([x.split("_")[0] for x in gn]) == id1]
     gn2 = gn[np.array([x.split("_")[0] for x in gn]) == id2]
-    return gnnm, gn1, gn2, gn
+    return gnnm, gn1, gn2
 
 
 def calculate_blast_graph(id1, id2, f_maps="maps/", eval_thr=1e-6, reciprocate=False):
@@ -873,7 +906,7 @@ def calculate_blast_graph(id1, id2, f_maps="maps/", eval_thr=1e-6, reciprocate=F
         gnnms = gnnms.multiply(gnnm).multiply(gnnm.T).tocsr()
     gnnm = gnnms
 
-    return gnnm, gn1, gn2, gn
+    return gnnm, gn1, gn2
 
 
 def coarsen_blast_graph(gnnm, gn1, gn2, gn, id1, id2, namesA, namesB):

@@ -3,25 +3,26 @@ from . import q, ut, pd, sp, np, warnings, sc
 from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
 
 
-def get_mu_std(sam3, sam1, sam2, knn=False):
-    g1, g2 = ut.extract_annotation(sam3.adata.var_names, 0, ";"), ut.extract_annotation(
-        sam3.adata.var_names, 1, ";"
-    )
-    if knn:
-        mu1, var1 = sf.mean_variance_axis(sam1.adata[:, g1].layers["X_knn_avg"], axis=0)
-        mu2, var2 = sf.mean_variance_axis(sam2.adata[:, g2].layers["X_knn_avg"], axis=0)
-    else:
-        mu1, var1 = sf.mean_variance_axis(sam1.adata[:, g1].X, axis=0)
-        mu2, var2 = sf.mean_variance_axis(sam2.adata[:, g2].X, axis=0)
-    var1[var1 == 0] = 1
-    var2[var2 == 0] = 1
-    var1 = var1 ** 0.5
-    var2 = var2 ** 0.5
-    return mu1, var1, mu2, var2
-
-
 class GenePairFinder(object):
-    def __init__(self, s1, s2, s3, k1="leiden_clusters", k2="leiden_clusters",layer=None,compute_markers=True):
+    def __init__(self, s1, s2, s3, k1="leiden_clusters",
+                 k2="leiden_clusters",compute_markers=True):
+        """Find enriched gene pairs in cell type mappings.
+        
+        s1: SAM object for species 1
+
+        s2: SAM object for species 2
+        
+        s3: SAMAP object
+
+        k1 & k2: str, optional, default 'leiden_clusers'
+            Keys corresponding to the annotation vector in `s1.adata.obs` and `s2.adata.obs`.
+
+        compute_markers: bool, optional, default True
+            If True, compute differentially expressed genes using `find_cluster_markers`. 
+            If False, assumes differentially expressed genes were already computed and stored
+            in `.adata.var`.
+        
+        """
         self.id1 = s3.adata.var_names[0].split(";")[0].split("_")[0]
         self.id2 = s3.adata.var_names[0].split(";")[1].split("_")[0]
 
@@ -36,7 +37,7 @@ class GenePairFinder(object):
         self.s3 = s3
         self.s1.dispersion_ranking_NN(save_avgs=True)
         self.s2.dispersion_ranking_NN(save_avgs=True)
-        mu1, v1, mu2, v2 = get_mu_std(self.s3, self.s1, self.s2)
+        mu1, v1, mu2, v2 = _get_mu_std(self.s3, self.s1, self.s2)
         self.mu1 = mu1
         self.v1 = v1
         self.mu2 = mu2
@@ -44,16 +45,16 @@ class GenePairFinder(object):
         self.k1 = k1
         self.k2 = k2
         if compute_markers:
-            self.find_markers(layer=layer)
+            self.find_markers()
 
-    def find_markers(self,layer=None):
+    def find_markers(self):
         print(
             "Finding cluster-specific markers in {}:{} and {}:{}.".format(
                 self.id1, self.k1, self.id2, self.k2
             )
         )        
-        find_cluster_markers(self.s1, self.k1,layer=layer)
-        find_cluster_markers(self.s2, self.k2,layer=layer)
+        find_cluster_markers(self.s1, self.k1)
+        find_cluster_markers(self.s2, self.k2)
         self.s1.identify_marker_genes_sw(labels=self.k1)
         self.s2.identify_marker_genes_sw(labels=self.k2)
 
@@ -63,19 +64,43 @@ class GenePairFinder(object):
         n2,
         w1t=0.2,
         w2t=0.2,
-        n_pairs=500,
         n_genes=1000,
         thr=1e-2,
-        avgmode=True,
     ):
+        """Find enriched gene pairs in a particular pair of cell types.
+        
+        n1: str, cell type ID from species 1
+        
+        n2: str, cell type ID from species 2
+        
+        w1t & w2t: float, optional, default 0.2
+            SAM weight threshold for species 1 and 2. Genes with below this threshold will not be
+            included in any enriched gene pairs.
+        
+        n_genes: int, optional, default 1000
+            Takes the top 1000 ranked gene pairs before filtering based on differential expressivity and
+            SAM weights.
+        
+        thr: float, optional, default 0.01
+            Excludes genes with greater than 0.01 differential expression p-value.
+            
+        Returns
+        -------
+        G - Enriched gene pairs
+        G1 - Genes from species 1 involved in enriched gene pairs
+        G2 - Genes from species 2 involved in enriched gene pairs
+        """
+        n1 = str(n1)
+        n2 = str(n2)
+        
         assert n1 in q(self.s1.adata.obs[self.k1])
         assert n2 in q(self.s2.adata.obs[self.k2])
 
-        if avgmode:
+        if True:
             m = self.find_link_genes_avg(n1, n2, w1t=w1t, w2t=w2t, expr_thr=0.05)
         else:
             m = self.find_link_genes(
-                n1, n2, w1t=w1t, w2t=w2t, n_pairs=n_pairs, expr_thr=0.05
+                n1, n2, w1t=w1t, w2t=w2t, n_pairs=500, expr_thr=0.05
             )
 
         self.gene_pair_scores = pd.Series(index=self.s3.adata.var_names, data=m)
@@ -243,7 +268,25 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
 
 
 def ParalogSubstitutions(smp, ortholog_pairs, paralog_pairs=None):
-
+    """Identify paralog substitutions
+    
+    Parameters
+    ----------
+    smp - SAM object of the combined manifold output by SAMAP.
+    
+    ortholog_pairs - n x 2 numpy array of ortholog pairs
+    
+    paralog_pairs - n x 2 numpy array of paralog pairs, optional, default None
+        If None, assumes every pair in the homology graph that is not an ortholog is a paralog.
+        Note that this would essentially result in the more generic 'homolog substitutions' rather
+        than paralog substitutions.
+        
+    Returns
+    -------
+    RES - pandas.DataFrame
+        A table of paralog substitutions.
+        
+    """
     gnnm = smp.adata.uns["homology_graph_reweighted"]
     gn = smp.adata.uns["homology_gene_names"]
     if paralog_pairs is None:
@@ -302,6 +345,24 @@ def ParalogSubstitutions(smp, ortholog_pairs, paralog_pairs=None):
 
 
 def convert_eggnog_to_homologs(smp, A, B, taxon=2759):
+    """Gets an n x 2 array of homologs at some taxonomic level based on Eggnog results.
+    
+    Parameters
+    ----------
+    smp: SAM object of the combined manifold output by SAMAP
+    
+    A: pandas.DataFrame, Eggnog output table
+    
+    B: pandas.DataFrame, Eggnog output table
+    
+    taxon: int, optional, default 2759
+        Taxonomic ID corresponding to the level at which genes with overlapping orthology groups
+        will be considered homologs. Defaults to the Eukaryotic level.
+        
+    Returns
+    -------
+    homolog_pairs: n x 2 numpy array of homolog pairs.
+    """
     taxon = str(taxon)
     A = A.copy()
     B = B.copy()
@@ -679,3 +740,19 @@ def _sparse_sub_standardize(X, mu, var, rows=False):
     Xs.data[Xs.data < 0] = 0
     Xs.eliminate_zeros()
     return Xs
+
+def _get_mu_std(sam3, sam1, sam2, knn=False):
+    g1, g2 = ut.extract_annotation(sam3.adata.var_names, 0, ";"), ut.extract_annotation(
+        sam3.adata.var_names, 1, ";"
+    )
+    if knn:
+        mu1, var1 = sf.mean_variance_axis(sam1.adata[:, g1].layers["X_knn_avg"], axis=0)
+        mu2, var2 = sf.mean_variance_axis(sam2.adata[:, g2].layers["X_knn_avg"], axis=0)
+    else:
+        mu1, var1 = sf.mean_variance_axis(sam1.adata[:, g1].X, axis=0)
+        mu2, var2 = sf.mean_variance_axis(sam2.adata[:, g2].X, axis=0)
+    var1[var1 == 0] = 1
+    var2[var2 == 0] = 1
+    var1 = var1 ** 0.5
+    var2 = var2 ** 0.5
+    return mu1, var1, mu2, var2    
