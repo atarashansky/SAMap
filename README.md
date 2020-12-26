@@ -86,4 +86,4 @@ Depending on the number of cores available on your machine and the size/type of 
 
 ## Running SAMap
 
-To run SAMap, use the `SAMAP` function in `SAMap.py`. Please see its function documentation for a description of the inputs and outputs. Take a look at the provided Jupyter notebook to get started (`SAMap_quickstart.ipynb`).
+To run SAMap, use the `SAMAP` function in `samap/mapping.py`. Please see its function documentation for a description of the inputs and outputs. Take a look at the provided Jupyter notebook to get started (`SAMap_quickstart.ipynb`).
