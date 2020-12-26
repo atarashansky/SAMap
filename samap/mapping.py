@@ -336,7 +336,7 @@ class SAMAP(object):
             raise ImportError('Please install SAMGUI dependencies. See the README in the SAM github repository.')
         self.sam1.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
         self.sam2.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam2.adata.obs_names].obsm['X_umap']
-        sg = SAMGUI([self.sam1,self.sam2])
+        sg = SAMGUI(sam = [self.sam1,self.sam2], title = [self.id1,self.id2],default_proj='X_umap_samap')
         return sg.SamPlot
         
     def display_heatmap(self,key1='leiden_clusters',key2='leiden_clusters',colorbar=True,**kwargs):
@@ -455,7 +455,7 @@ class Samap_Iter(object):
             )
 
             self.samap = sam4
-            self.GNNMS_nnm.append(sam4.adata.uns["nnm"])
+            self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
 
             _, _, _, CSIMth = compute_csim(sam4, "leiden_clusters")
 
@@ -1032,8 +1032,6 @@ def _concatenate_sam(sams, nnm, op):
     nnm = nnm.tocsr()
     nnm.eliminate_zeros()
     sam.adata.obsp["connectivities"] = nnm
-    sam.adata.uns["nnm"] = sam.adata.obsp["connectivities"]
-    sam.adata.obsp["connectivities"] = sam.adata.uns["nnm"]
     sam.adata.uns["neighbors"]["params"] = {
         "n_neighbors": 15,
         "method": "umap",
