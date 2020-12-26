@@ -77,10 +77,9 @@ First, we need to map the transcriptomes to generate the homology graph. For con
 Run the mapping bash script:
 
 ```bash
-bash map_genes.sh
+bash map_genes.sh --tr1 path/to/transcriptome/proteome1 --t1 nucl/prot --tr2 path/to/transcriptome/proteome2 --t2 nucl/prot --n1 'hu' --n2 'mo'
 ```
-
-The script will ask you for the paths to your fasta files and whether they are transcriptomes (`nucl`) or proteomes (`prot`). It will also ask you to assign a two-character ID for each dataset (e.g. `ze` for Zebrafish). These IDs will be input by the user into the SAMap algorithm (see `SAMap_quickstart.ipynb`).
+`--n1` and `--n2` expect a 2-character ID corresponding to species 1 and 2, respectively (e.g. `ze` for Zebrafish and `xe` for Xenopus). These IDs will be input by the user into the SAMap algorithm (see `SAMap_quickstart.ipynb`).
 
 Depending on the number of cores available on your machine and the size/type of the input fasta files, this step may take up to around 4 hours.
 
