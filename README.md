@@ -12,6 +12,7 @@ SAMap was developed and tested in an Anaconda python environment with the follow
 
 ## Installation
 
+### Manual installation
 Download Anacodna from here:
     https://www.anaconda.com/download/
 
@@ -68,18 +69,19 @@ echo "export PATH=\"$PATH:/your/directory/ncbi-blast-${ncbi_blast_version}+/bin\
 source ~/.bashrc
 ```
 
+### Dockerfile installation
+Assumes Docker is installed on your computer.
+
+Run `bash build_image.sh` to build the Docker image.
+Run `bash run_image.sh` to run the Docker image.
+
+The Docker image will spawn a jupyter notebook server on your specified port.
+
 *Installation time should take no more than 5 minutes.*
 
 ## Running BLAST
 
-First, we need to map the transcriptomes to generate the homology graph. For convenience, you may wish to place the transcriptomes/proteomes and the `map_genes.sh` bash script in the same directory as your data (which should be `AnnData` `.h5ad` files).
-
-Run the mapping bash script:
-
-```bash
-bash map_genes.sh --tr1 path/to/transcriptome/proteome1 --t1 nucl/prot --tr2 path/to/transcriptome/proteome2 --t2 nucl/prot --n1 'hu' --n2 'mo'
-```
-`--n1` and `--n2` expect a 2-character ID corresponding to species 1 and 2, respectively (e.g. `hu` for Human and `mo` for Mouse). These IDs will be input by the user into the SAMap algorithm (see `SAMap_quickstart.ipynb`).
+The BLAST mapping script can be run from the `SAMap_quickstart.ipynb` Jupyter notebook.
 
 Depending on the number of cores available on your machine and the size/type of the input fasta files, this step may take up to around 4 hours.
 
