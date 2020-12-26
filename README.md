@@ -79,7 +79,7 @@ Run the mapping bash script:
 ```bash
 bash map_genes.sh --tr1 path/to/transcriptome/proteome1 --t1 nucl/prot --tr2 path/to/transcriptome/proteome2 --t2 nucl/prot --n1 'hu' --n2 'mo'
 ```
-`--n1` and `--n2` expect a 2-character ID corresponding to species 1 and 2, respectively (e.g. `ze` for Zebrafish and `xe` for Xenopus). These IDs will be input by the user into the SAMap algorithm (see `SAMap_quickstart.ipynb`).
+`--n1` and `--n2` expect a 2-character ID corresponding to species 1 and 2, respectively (e.g. `hu` for Human and `mo` for Mouse). These IDs will be input by the user into the SAMap algorithm (see `SAMap_quickstart.ipynb`).
 
 Depending on the number of cores available on your machine and the size/type of the input fasta files, this step may take up to around 4 hours.
 
