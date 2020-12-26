@@ -320,7 +320,32 @@ class SAMAP(object):
         self.sam2.adata.obsm['X_umap_samap'] = self.final_samap.adata[self.sam2.adata.obs_names].obsm['X_umap']
         sg = SAMGUI([self.sam1,self.sam2])
         return sg.SamPlot
-
+        
+    def display_heatmap(self,key1='leiden_clusters',key2='leiden_clusters',colorbar=True,**kwargs):
+        sam1=self.sam1
+        sam2=self.sam2
+        samap=self.final_samap
+        from samap import q, pd
+        import matplotlib.pyplot as plt
+        cl1 = q(sam1.adata.obs[key1])
+        cl2 = q(sam2.adata.obs[key2])
+        species = q(samap.adata.obs['species']).astype('object')
+        samap.adata.obs['mapping_labels'] = pd.Categorical(species + '_' + np.append(cl1,cl2).astype('str').astype('object'))
+        _,labels1,labels2,mapping_scores = compute_csim(samap,key='mapping_labels')
+        mapping_scores/=20
+        fig,ax = plt.subplots(nrows=1,ncols=1)
+        im = ax.imshow(mapping_scores,**kwargs)
+        ax.set_xticks(np.arange(labels2.size))
+        ax.set_yticks(np.arange(labels1.size))
+        ax.set_xticklabels(labels2,rotation=90)
+        ax.set_yticklabels(labels1)
+        h = 10
+        w = labels2.size*10/labels1.size
+        fig.set_size_inches((w,h))
+        if colorbar:
+            fig.colorbar(im,shrink=0.5)
+        fig.tight_layout()
+        return fig,pd.DataFrame(data=mapping_scores,index=labels1,columns=labels2)
 
 class Samap_Iter(object):
     def __init__(
