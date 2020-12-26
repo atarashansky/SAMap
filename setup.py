@@ -15,6 +15,7 @@ setup(
         "sam-algorithm==0.7.7",
         "scanpy",
         "hnswlib",
+        "dill",
         "h5py<=2.10",
         "leidenalg",
     ],
