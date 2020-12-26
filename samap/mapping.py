@@ -310,17 +310,6 @@ class SAMAP(object):
         self.run_time = time.time() - start_time
         print("Elapsed time: {} minutes.".format(self.run_time / 60))
         return samap
-    
-    def save(self,fn):
-        import dill
-        self.path_to_file = fn
-        with open(fn,'wb') as f:
-            dill.dump(self.__dict__,f)
-    
-    def load(self,fn):
-        import dill
-        with open(fn,'rb') as f:
-            self.__dict__ = dill.load(f)
             
     def gui(self):
         try:

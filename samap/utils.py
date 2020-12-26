@@ -1,6 +1,21 @@
 from . import np, ut
 
-
+def save_samap(sm,fn):
+    import dill
+    if len(fn.split('.pkl')) == 1:
+        fn = fn + '.pkl'
+    sm.path_to_file = fn
+    with open(fn,'wb') as f:
+        dill.dump(sm,f)
+        
+def load_samap(fn):
+    import dill
+    if len(fn.split('.pkl')) == 1:
+        fn = fn + '.pkl'    
+    with open(fn,'rb') as f:
+        sm = dill.load(f)
+    return sm
+        
 def prepend_var_prefix(s, pre):
     x = [x.split("_")[0] for x in s.adata.var_names]
     if not (np.unique(x).size == 1 and x[0] == pre):
