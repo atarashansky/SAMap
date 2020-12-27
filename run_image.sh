@@ -1,7 +1,7 @@
 #!/bin/bash
 read -e -p "Docker image name: " image
 read -e -p "Docker container name: " name
-read -e -p "Volume name: " folder
+read -e -p "Mount volume path: " folder
 read -e -p "Jupyter notebook port: " port
 
 path="${folder/#\~/$HOME}"
