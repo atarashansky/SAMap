@@ -1,4 +1,4 @@
-# SAMap -- version 0.1.3
+# SAMap -- version 0.1.4
 The SAMap algorithm.
 
 # Beta
