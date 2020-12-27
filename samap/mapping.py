@@ -330,14 +330,18 @@ class SAMAP(object):
             
     def gui(self):
         """Launches a SAMGUI instance containing the two SAM objects."""
-        try:
-            from samalg.gui import SAMGUI
-        except ImportError:
-            raise ImportError('Please install SAMGUI dependencies. See the README in the SAM github repository.')
-        self.sam1.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
-        self.sam2.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam2.adata.obs_names].obsm['X_umap']
-        sg = SAMGUI(sam = [self.sam1,self.sam2], title = [self.id1,self.id2],default_proj='X_umap_samap')
-        return sg.SamPlot
+        if 'SamapGui' not in self.__dict__:
+            try:
+                from samalg.gui import SAMGUI
+            except ImportError:
+                raise ImportError('Please install SAMGUI dependencies. See the README in the SAM github repository.')
+            self.sam1.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
+            self.sam2.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam2.adata.obs_names].obsm['X_umap']
+            sg = SAMGUI(sam = [self.sam1,self.sam2], title = [self.id1,self.id2],default_proj='X_umap_samap')
+            self.SamapGui = sg
+            return sg.SamPlot
+        else:
+            return self.SamapGui.SamPlot
         
     def display_heatmap(self,key1='leiden_clusters',key2='leiden_clusters',colorbar=True,**kwargs):
         """Displays a heatmap of mapping scores.
