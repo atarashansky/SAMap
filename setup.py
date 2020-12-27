@@ -12,7 +12,7 @@ setup(
     python_requires=">=3.7",
     py_modules=["SAMap"],
     install_requires=[
-        "sam-algorithm",
+        "sam-algorithm>=0.8.1",
         "scanpy",
         "hnswlib",
         "dill",
