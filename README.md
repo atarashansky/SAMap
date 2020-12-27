@@ -73,9 +73,10 @@ source ~/.bashrc
 Assumes Docker is installed on your computer.
 
 Run `bash build_image.sh` to build the Docker image.
+
 Run `bash run_image.sh` to run the Docker image.
 
-The Docker image will spawn a jupyter notebook server on your specified port.
+Running the Docker image will spawn a jupyter notebook server on your specified port.
 
 *Installation time should take no more than 5 minutes.*
 
