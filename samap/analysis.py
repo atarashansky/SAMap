@@ -4,15 +4,11 @@ from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_pre
 
 
 class GenePairFinder(object):
-    def __init__(self, s1, s2, s3, k1="leiden_clusters",
+    def __init__(self, sm, k1="leiden_clusters",
                  k2="leiden_clusters",compute_markers=True):
         """Find enriched gene pairs in cell type mappings.
         
-        s1: SAM object for species 1
-
-        s2: SAM object for species 2
-        
-        s3: SAMAP object
+        sm: SAMAP object
 
         k1 & k2: str, optional, default 'leiden_clusers'
             Keys corresponding to the annotation vector in `s1.adata.obs` and `s2.adata.obs`.
@@ -23,18 +19,19 @@ class GenePairFinder(object):
             in `.adata.var`.
         
         """
-        self.id1 = s3.adata.var_names[0].split(";")[0].split("_")[0]
-        self.id2 = s3.adata.var_names[0].split(";")[1].split("_")[0]
+        self.s1 = sm.sam1
+        self.s2 = sm.sam2
+        self.s3 = sm.samap
 
-        prepend_var_prefix(s1, self.id1)
-        prepend_var_prefix(s2, self.id2)
+        self.id1 = self.s3.adata.var_names[0].split(";")[0].split("_")[0]
+        self.id2 = self.s3.adata.var_names[0].split(";")[1].split("_")[0]
 
-        s1.adata.obs[k1] = s1.adata.obs[k1].astype("str")
-        s2.adata.obs[k2] = s2.adata.obs[k2].astype("str")
+        prepend_var_prefix(self.s1, self.id1)
+        prepend_var_prefix(self.s2, self.id2)
 
-        self.s1 = s1
-        self.s2 = s2
-        self.s3 = s3
+        self.s1.adata.obs[k1] = self.s1.adata.obs[k1].astype("str")
+        self.s2.adata.obs[k2] = self.s2.adata.obs[k2].astype("str")
+
         self.s1.dispersion_ranking_NN(save_avgs=True)
         self.s2.dispersion_ranking_NN(save_avgs=True)
         mu1, v1, mu2, v2 = _get_mu_std(self.s3, self.s1, self.s2)
@@ -670,7 +667,23 @@ def compute_csim(sam3, key, X=None):
     return CSIM, clu1, clu2, CSIMth
 
 
-def get_mapping_scores(sam1, sam2, samap, key1, key2):
+def get_mapping_scores(sm, key1, key2):
+    """Calculate mapping scores
+    Parameters
+    ----------
+    sm: SAMAP object
+    
+    key1 & key2: str, annotation vector keys for species 1 and 2
+
+    Returns
+    -------
+    D1 - table of highest mapping scores for cell types in species 1
+    D2 - table of highest mapping scores for cell types in species 2
+    A - pairwise table of mapping scores between cell types in species 1 (row) and 2 (columns)
+    """
+    sam1=sm.sam1
+    sam2=sm.sam2
+    samap=sm.samap
 
     cl1 = q(sam1.adata.obs[key1])
     cl2 = q(sam2.adata.obs[key2])
@@ -682,6 +695,7 @@ def get_mapping_scores(sam1, sam2, samap, key1, key2):
 
     samap.adata.obs["mapping_score_labels"] = pd.Categorical(cl)
     _, clu1, clu2, CSIMth = compute_csim(samap, "mapping_score_labels")
+    CSIMth = CSIMth / samap.adata.uns['mdata']['knn_1v2'][0].data.size
 
     A = pd.DataFrame(data=CSIMth, index=clu1, columns=clu2)
     i = np.argsort(-A.values.max(0).flatten())
@@ -693,7 +707,7 @@ def get_mapping_scores(sam1, sam2, samap, key1, key2):
         C.append(A.columns[i[I]])
         C.append(A.columns[i[I]])
     H = np.hstack(H)
-    D1 = pd.DataFrame(data=H, columns=[C, np.arange(H.shape[1])])
+    D2 = pd.DataFrame(data=H, columns=[C, ["Cluster","Alignment score"]*(H.shape[1]//2)])
 
     A = pd.DataFrame(data=CSIMth, index=clu1, columns=clu2).T
     i = np.argsort(-A.values.max(0).flatten())
@@ -705,8 +719,8 @@ def get_mapping_scores(sam1, sam2, samap, key1, key2):
         C.append(A.columns[i[I]])
         C.append(A.columns[i[I]])
     H = np.hstack(H)
-    D2 = pd.DataFrame(data=H, columns=[C, np.arange(H.shape[1])])
-    return D1, D2
+    D1 = pd.DataFrame(data=H, columns=[C, ["Cluster","Alignment score"]*(H.shape[1]//2)])
+    return D1, D2, A
 
 
 def _knndist(nnma, k):
