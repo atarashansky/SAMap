@@ -70,12 +70,7 @@ class GenePairFinder(object):
         
         Returns
         -------
-        Dictionary of enriched gene pairs for each cell type pair
-        
-        Cell type pair:
-            G - Enriched gene pairs
-            G1 - Genes from species 1 involved in enriched gene pairs
-            G2 - Genes from species 2 involved in enriched gene pairs            
+        Table of enriched gene pairs for each cell type pair
         """        
         _,_,M = get_mapping_scores(self.sm, self.k1, self.k2)
         M=M.T
@@ -92,6 +87,7 @@ class GenePairFinder(object):
             print('Calculating gene pairs for the mapping: {};{} to {};{}'.format(self.id1,a,self.id2,b))
             res['{};{}'.format(ct1[i],ct2[i])] = self.find_genes(a,b,**kwargs)
             
+        res = pd.DataFrame([res[k][0] for k in res.keys()],index=res.keys()).fillna(np.nan).T            
         return res
         
     def find_genes(
