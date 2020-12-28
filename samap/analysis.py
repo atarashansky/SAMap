@@ -19,6 +19,7 @@ class GenePairFinder(object):
             in `.adata.var`.
         
         """
+        self.sm = sm
         self.s1 = sm.sam1
         self.s2 = sm.sam2
         self.s3 = sm.samap
@@ -55,6 +56,44 @@ class GenePairFinder(object):
         self.s1.identify_marker_genes_sw(labels=self.k1)
         self.s2.identify_marker_genes_sw(labels=self.k2)
 
+    def find_all(self,thr=0.1,**kwargs):
+        """Find enriched gene pairs in all pairs of mapped cell types.
+        
+        Parameters
+        ----------
+        thr: float, optional, default 0.2
+            Alignment score threshold above which to consider cell type pairs mapped.
+        
+        Keyword arguments
+        -----------------
+        Keyword arguments to `find_genes` accepted here.
+        
+        Returns
+        -------
+        Dictionary of enriched gene pairs for each cell type pair
+        
+        Cell type pair:
+            G - Enriched gene pairs
+            G1 - Genes from species 1 involved in enriched gene pairs
+            G2 - Genes from species 2 involved in enriched gene pairs            
+        """        
+        _,_,M = get_mapping_scores(self.sm, self.k1, self.k2)
+        M=M.T
+        ax = q(M.index)
+        bx = q(M.columns)
+        data = M.values.copy()
+        data[data<thr]=0
+        x,y = data.nonzero()
+        ct1,ct2 = ax[x],bx[y]
+        res={}
+        for i in range(ct1.size):
+            a = '_'.join(ct1[i].split('_')[1:])
+            b = '_'.join(ct2[i].split('_')[1:])
+            print('Calculating gene pairs for the mapping: {};{} to {};{}'.format(self.id1,a,self.id2,b))
+            res['{};{}'.format(ct1[i],ct2[i])] = self.find_genes(a,b,**kwargs)
+            
+        return res
+        
     def find_genes(
         self,
         n1,
@@ -693,8 +732,8 @@ def get_mapping_scores(sm, key1, key2):
         + np.append(cl1, cl2).astype("str").astype("object")
     )
 
-    samap.adata.obs["mapping_score_labels"] = pd.Categorical(cl)
-    _, clu1, clu2, CSIMth = compute_csim(samap, "mapping_score_labels")
+    samap.adata.obs["{};{}_mapping_scores".format(key1,key2)] = pd.Categorical(cl)
+    _, clu1, clu2, CSIMth = compute_csim(samap, "{};{}_mapping_scores".format(key1,key2))
     CSIMth = CSIMth / samap.adata.uns['mdata']['knn_1v2'][0].data.size
 
     A = pd.DataFrame(data=CSIMth, index=clu1, columns=clu2)
