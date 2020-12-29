@@ -270,15 +270,23 @@ class GenePairFinder(object):
 
 def find_cluster_markers(sam, key, layer=None, inplace=True):
     sam.adata.raw = sam.adata_raw
+    a,c = np.unique(q(sam.adata.obs[key]),return_counts=True)
+    t = a[c==1]
+    for i in range(t.size):
+        sam.adata.var[key+';;'+t[i]]=0
+        sam.adata.var[key+';;'+t[i]+'_pval']=1
+        
+    adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)]
     sc.tl.rank_genes_groups(
-        sam.adata,
+        adata,
         key,
         method="wilcoxon",
         n_genes=sam.adata.shape[1],
         use_raw=True,
         layer=layer,
     )
-
+    sam.adata.uns['rank_genes_groups'] = adata.uns['rank_genes_groups']
+    
     NAMES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["names"])
     PVALS = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["pvals"])
     SCORES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["scores"])
@@ -298,6 +306,7 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
         sam.adata.var[key + ";;" + SCORES.columns[i] + "_pval"] = pd.DataFrame(
             data=pvals[None, :], columns=names
         )[sam.adata.var_names].values.flatten()
+    
 
 
 def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None):
