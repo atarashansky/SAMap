@@ -279,9 +279,9 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
         layer=layer,
     )
 
-    NAMES = pd.DataFrame(sam.adata_raw.uns["rank_genes_groups"]["names"])
-    PVALS = pd.DataFrame(sam.adata_raw.uns["rank_genes_groups"]["pvals"])
-    SCORES = pd.DataFrame(sam.adata_raw.uns["rank_genes_groups"]["scores"])
+    NAMES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["names"])
+    PVALS = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["pvals"])
+    SCORES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["scores"])
     if not inplace:
         return NAMES, PVALS, SCORES
     for i in range(SCORES.shape[1]):
