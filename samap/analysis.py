@@ -269,8 +269,9 @@ class GenePairFinder(object):
 
 
 def find_cluster_markers(sam, key, layer=None, inplace=True):
+    sam.adata.raw = sam.adata_raw
     sc.tl.rank_genes_groups(
-        sam.adata_raw,
+        sam.adata,
         key,
         method="wilcoxon",
         n_genes=sam.adata.shape[1],
@@ -299,12 +300,12 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
         )[sam.adata.var_names].values.flatten()
 
 
-def ParalogSubstitutions(smp, ortholog_pairs, paralog_pairs=None):
+def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None):
     """Identify paralog substitutions
     
     Parameters
     ----------
-    smp - SAM object of the combined manifold output by SAMAP.
+    sm - SAMAP object
     
     ortholog_pairs - n x 2 numpy array of ortholog pairs
     
@@ -319,8 +320,11 @@ def ParalogSubstitutions(smp, ortholog_pairs, paralog_pairs=None):
         A table of paralog substitutions.
         
     """
+    smp = sm.samap
+    
     gnnm = smp.adata.uns["homology_graph_reweighted"]
-    gn = smp.adata.uns["homology_gene_names"]
+    gn = sm.gn
+    
     if paralog_pairs is None:
         paralog_pairs = gn[np.vstack(smp.adata.uns["homology_graph"].nonzero()).T]
     paralog_pairs = paralog_pairs[
@@ -376,12 +380,12 @@ def ParalogSubstitutions(smp, ortholog_pairs, paralog_pairs=None):
     return RES
 
 
-def convert_eggnog_to_homologs(smp, A, B, taxon=2759):
+def convert_eggnog_to_homologs(sm, A, B, taxon=2759):
     """Gets an n x 2 array of homologs at some taxonomic level based on Eggnog results.
     
     Parameters
     ----------
-    smp: SAM object of the combined manifold output by SAMAP
+    smp: SAMAP object
     
     A: pandas.DataFrame, Eggnog output table
     
@@ -395,6 +399,8 @@ def convert_eggnog_to_homologs(smp, A, B, taxon=2759):
     -------
     homolog_pairs: n x 2 numpy array of homolog pairs.
     """
+    smp = sm.samap
+    
     taxon = str(taxon)
     A = A.copy()
     B = B.copy()
@@ -453,7 +459,30 @@ def convert_eggnog_to_homologs(smp, A, B, taxon=2759):
     return gn[np.vstack((B.nonzero())).T]
 
 
-def CellTypeTriangles(smp1, smp2, smp3, key1, key2, key3, tr=1):
+def CellTypeTriangles(sms,keys, align_thr=1):
+    """Outputs a table of cell type triangles.
+    
+    Parameters
+    ----------
+    sms: list or tuple of three SAMAP objects for three different species mappings
+       
+    keys: list or tuple of three strings corresponding to each species annotation column, optional, default None
+        If you'd like to include information about where each gene is differentially expressed, you can specify the
+        annotation column to compute differential expressivity from for each species.
+        Let `sms[0]` be the mapping for species A to B. Each element of `keys` corresponds to an
+        annotation column in species `[A, B, C]`, respectively.
+
+    align_thr: float, optional, default, 0.1
+        Only keep triangles with minimum `align_thr` alignment score.        
+    """
+    
+    sm1,sm2,sm3 = sms
+    key1,key2,key3 = keys
+    
+    smp1 = sm1.samap
+    smp2 = smp2.samap
+    smp3 = smp3.samap
+    
     s = q(smp1.adata.obs["species"])
     A, B = s[np.sort(np.unique(s, return_index=True)[1])][:2]
 
@@ -488,8 +517,8 @@ def CellTypeTriangles(smp1, smp2, smp3, key1, key2, key3, tr=1):
     alignmentf = np.concatenate(W)
     alignment = alignmentf.copy()
     all_pairs = all_pairsf.copy()
-    all_pairs = all_pairs[alignment > tr]
-    alignment = alignment[alignment > tr]
+    all_pairs = all_pairs[alignment > align_thr]
+    alignment = alignment[alignment > align_thr]
     all_pairs = to_vn(np.sort(all_pairs, axis=1))
 
     x, y = substr(all_pairs, ";")
@@ -509,27 +538,61 @@ def CellTypeTriangles(smp1, smp2, smp3, key1, key2, key3, tr=1):
     all_cliques = nx.enumerate_all_cliques(G)
     all_triangles = [x for x in all_cliques if len(x) == 3]
     Z = np.sort(np.vstack(all_triangles), axis=1)
-    DF = pd.DataFrame(data=Z, columns=[x[i].split("_")[0] for x in Z[0]])
+    DF = pd.DataFrame(data=Z, columns=[x.split("_")[0] for x in Z[0]])
     DF = DF[[A, B, C]]
     return DF
 
 
-def GeneTriangles(smp1, smp2, smp3, orth1, orth2, orth3):
+def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,pval_thr=1e-10):
+    """Outputs a table of homolog substitution triangles.
+    
+    Parameters
+    ----------
+    sms: list or tuple of three SAMAP objects for three different species mappings
+    
+    orths: list or tuple of three (n x 2) ortholog pairs corresponding to each species mapping
+    
+    keys: list or tuple of three strings corresponding to each species annotation column, optional, default None
+        If you'd like to include information about where each gene is differentially expressed, you can specify the
+        annotation column to compute differential expressivity from for each species.
+        Let `sms[0]` be the mapping for species A to B. Each element of `keys` corresponds to an
+        annotation column in species `[A, B, C]`, respectively.
+
+    compute_markers: bool, optional, default True
+        Set this to False if you already precomputed differential expression for the input keys.
+        
+    corr_thr: float, optional, default, 0.3
+        Only keep triangles with minimum `corr_thr` correlation.
+        
+    pval_thr: float, optional, defaul, 1e-10
+        Consider cell types as differentially expressed if their p-values are less than `pval_thr`.
+    """
+    sm1,sm2,sm3 = sms
+    orth1,orth2,orth3 = orths
+    
+    smp1 = sm1.samap
+    smp2 = sm2.samap
+    smp3 = sm3.samap
+
     s = q(smp1.adata.obs["species"])
     A, B = s[np.sort(np.unique(s, return_index=True)[1])][:2]
-
+    sam1,sam2 = sm1.sam1,sm1.sam2
+    
+    
     s = q(smp2.adata.obs["species"])
     B1, B2 = s[np.sort(np.unique(s, return_index=True)[1])][:2]
     C = B1 if B1 not in [A, B] else B2
-
+    sam3 = sm2.sam1 if B1 not in [A, B] else sm2.sam2
+    
+    
     A1, A2 = A, B
     s = q(smp1.adata.obs["species"])
     C1, C2 = s[np.sort(np.unique(s, return_index=True)[1])][:2]
 
     RES = []
-    for i in [[smp1, orth1], [smp2, orth2], [smp3, orth3]]:
-        smp, orth = i
-        RES.append(ParalogSubstitutions(smp, orth))
+    for i in [[sm1, orth1], [sm2, orth2], [sm3, orth3]]:
+        sm, orth = i
+        RES.append(ParalogSubstitutions(sm, orth))
     RES1, RES2, RES3 = RES
 
     op1 = to_vo(q(RES1["ortholog pairs"]))
@@ -564,10 +627,14 @@ def GeneTriangles(smp1, smp2, smp3, orth1, orth2, orth3):
         gnnm3[x, y] = gnnm3[x, y]
         gnnm3[y, x] = gnnm3[y, x]
 
+    gnnm1.data[gnnm1.data==0]=1e-4
+    gnnm2.data[gnnm2.data==0]=1e-4
+    gnnm3.data[gnnm3.data==0]=1e-4
     pairs1 = gn1[np.vstack(gnnm1.nonzero()).T]
     pairs2 = gn2[np.vstack(gnnm2.nonzero()).T]
     pairs3 = gn3[np.vstack(gnnm3.nonzero()).T]
     data = np.concatenate((gnnm1.data, gnnm2.data, gnnm3.data))
+
     CORR1 = pd.DataFrame(data=gnnm1.data[None, :], columns=to_vn(pairs1))
     CORR2 = pd.DataFrame(data=gnnm2.data[None, :], columns=to_vn(pairs2))
     CORR3 = pd.DataFrame(data=gnnm3.data[None, :], columns=to_vn(pairs3))
@@ -584,36 +651,36 @@ def GeneTriangles(smp1, smp2, smp3, orth1, orth2, orth3):
     G = nx.from_scipy_sparse_matrix(GNNM, create_using=nx.Graph)
     all_cliques = nx.enumerate_all_cliques(G)
     all_triangles = [x for x in all_cliques if len(x) == 3]
-    Z = np.sort(np.vstack(all_triangles), axis=1)
-    DF = pd.DataFrame(data=Z, columns=[x[i].split("_")[0] for x in Z[0]])
+    Z = all_genes[np.sort(np.vstack(all_triangles), axis=1)]
+    DF = pd.DataFrame(data=Z, columns=[x.split("_")[0] for x in Z[0]])
     DF = DF[[A, B, C]]
 
-    orth1DF = pd.DataFrame(data=orth1, columns=[x[i].split("_")[0] for x in orth1[0]])[
+    orth1DF = pd.DataFrame(data=orth1, columns=[x.split("_")[0] for x in orth1[0]])[
         [A, B]
     ]
-    orth2DF = pd.DataFrame(data=orth2, columns=[x[i].split("_")[0] for x in orth2[0]])[
+    orth2DF = pd.DataFrame(data=orth2, columns=[x.split("_")[0] for x in orth2[0]])[
         [A, C]
     ]
-    orth3DF = pd.DataFrame(data=orth3, columns=[x[i].split("_")[0] for x in orth3[0]])[
+    orth3DF = pd.DataFrame(data=orth3, columns=[x.split("_")[0] for x in orth3[0]])[
         [B, C]
     ]
 
     ps1DF = pd.DataFrame(
-        data=np.sort(ps1, axis=1),
-        columns=[x[i].split("_")[0] for x in np.sort(ps1, axis=1)[0]],
+        data=np.sort(pp1, axis=1),
+        columns=[x.split("_")[0] for x in np.sort(pp1, axis=1)[0]],
     )[[A, B]]
     ps2DF = pd.DataFrame(
-        data=np.sort(ps2, axis=1),
-        columns=[x[i].split("_")[0] for x in np.sort(ps2, axis=1)[0]],
+        data=np.sort(pp2, axis=1),
+        columns=[x.split("_")[0] for x in np.sort(pp2, axis=1)[0]],
     )[[A, C]]
     ps3DF = pd.DataFrame(
-        data=np.sort(ps3, axis=1),
-        columns=[x[i].split("_")[0] for x in np.sort(ps3, axis=1)[0]],
+        data=np.sort(pp3, axis=1),
+        columns=[x.split("_")[0] for x in np.sort(pp3, axis=1)[0]],
     )[[B, C]]
 
-    A_AB = pd.DataFrame(data=op1[None, :], columns=to_vn(ps1DF.values))
-    A_AC = pd.DataFrame(data=op2[None, :], columns=to_vn(ps2DF.values))
-    A_BC = pd.DataFrame(data=op3[None, :], columns=to_vn(ps3DF.values))
+    A_AB = pd.DataFrame(data=to_vn(op1)[None, :], columns=to_vn(ps1DF.values))
+    A_AC = pd.DataFrame(data=to_vn(op2)[None, :], columns=to_vn(ps2DF.values))
+    A_BC = pd.DataFrame(data=to_vn(op3)[None, :], columns=to_vn(ps3DF.values))
 
     AB = to_vn(DF[[A, B]].values)
     AC = to_vn(DF[[A, C]].values)
@@ -634,15 +701,18 @@ def GeneTriangles(smp1, smp2, smp3, orth1, orth2, orth3):
         cat[np.in1d(X, to_vn(O.values))] = "ortholog"
         ff = np.in1d(X, to_vn(P.values))
         cat[ff] = "substitution"
-        z = Z[X[ff]]
+        z = Z[X[ff]] #problem line here
         x = X[ff]
-        b = z.values.flatten()
         av = np.zeros(x.size, dtype="object")
         for ai in range(x.size):
-            av[ai] = ";".join(np.unique(substr(b[Z.columns == x[ai]], ";", 1)))
+            v=pd.DataFrame(z[x[ai]]) #get ortholog pairs - paralog pairs dataframe
+            vd=v.values.flatten() #get ortholog pairs
+            vc=q(';'.join(v.columns).split(';')) # get paralogous genes
+            temp = np.unique(q(';'.join(vd).split(';'))) #get orthologous genes
+            av[ai] = ';'.join(temp[np.in1d(temp,vc,invert=True)]) #get orthologous genes not present in paralogous genes
         AV = np.zeros(X.size, dtype="object")
         AV[ff] = av
-        corr = CORR1[X].values.flatten()
+        corr = R[X].values.flatten()
 
         AVs.append(AV)
         CATs.append(cat)
@@ -663,7 +733,36 @@ def GeneTriangles(smp1, smp2, smp3, orth1, orth2, orth3):
             cat_pairs.astype("object"),
         )
     )
-    return data
+
+    FINAL = pd.DataFrame(data = data, columns = [f'{A} gene',f'{B} gene',f'{C} gene',
+                                                 f'{A}/{B} subbed',f'{A}/{C} subbed',f'{B}/{C} subbed',
+                                                 f'{A}/{B}',f'{A}/{C}',f'{B}/{C}',
+                                                 f'{A}/{B} corr',f'{A}/{C} corr',f'{B}/{C} corr',
+                                                 f'{A}/{B} type',f'{A}/{C} type',f'{B}/{C} type'])
+    FINAL['#orthologs'] = (cat_pairs=='ortholog').sum(1)
+    FINAL['#substitutions'] = (cat_pairs=='substitution').sum(1)    
+    FINAL = FINAL[(FINAL['#orthologs']+FINAL['#substitutions'])==3]
+    FINAL = FINAL[FINAL[[f'{A}/{B} corr',f'{A}/{C} corr',f'{B}/{C} corr']].min(1)>corr_thr]
+    
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if keys is not None:
+            for i,sam,n in zip([0,1,2],[sam1,sam2,sam3],[A,B,C]):
+                if compute_markers:
+                    find_cluster_markers(sam,keys[i])
+                a = sam.adata.var[keys[i]+';;'+sam.adata.obs[keys[i]].cat.categories.astype('object')].T[q(FINAL[n+' gene'])].T
+                p = sam.adata.var[keys[i]+';;'+sam.adata.obs[keys[i]].cat.categories.astype('object')+'_pval'].T[q(FINAL[n+' gene'])].T.values
+                p[p>pval_thr]=1
+                p[p<1]=0
+                p=1-p
+                f = substr(a.columns[a.values.argmax(1)],';;',1)
+                res=[]
+                for i in range(p.shape[0]):
+                    res.append(';'.join(np.unique(np.append(f[i],substr(a.columns[p[i,:]==1],';;',1)))))            
+                FINAL[n+' cell type'] = res
+            
+    return FINAL
 
 
 def compute_csim(sam3, key, X=None):
@@ -690,7 +789,7 @@ def compute_csim(sam3, key, X=None):
                 X[cl == c1, :][:, cl == c2].sum(1).A.flatten(),
                 X[cl == c2, :][:, cl == c1].sum(1).A.flatten(),
             ).mean()
-    CSIMth = CSIM1
+    CSIMth = CSIM1 / sam3.adata.uns['mdata']['knn_1v2'][0].data.size    
     s1 = CSIMth.sum(1).flatten()[:, None]
     s2 = CSIMth.sum(0).flatten()[None, :]
     s1[s1 == 0] = 1
@@ -730,7 +829,6 @@ def get_mapping_scores(sm, key1, key2):
 
     samap.adata.obs["{};{}_mapping_scores".format(key1,key2)] = pd.Categorical(cl)
     _, clu1, clu2, CSIMth = compute_csim(samap, "{};{}_mapping_scores".format(key1,key2))
-    CSIMth = CSIMth / samap.adata.uns['mdata']['knn_1v2'][0].data.size
 
     A = pd.DataFrame(data=CSIMth, index=clu1, columns=clu2)
     i = np.argsort(-A.values.max(0).flatten())
