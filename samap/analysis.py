@@ -276,7 +276,7 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
         sam.adata.var[key+';;'+t[i]]=0
         sam.adata.var[key+';;'+t[i]+'_pval']=1
         
-    adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)]
+    adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)].copy()
     sc.tl.rank_genes_groups(
         adata,
         key,
