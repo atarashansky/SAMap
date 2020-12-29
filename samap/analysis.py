@@ -337,7 +337,7 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None):
     if paralog_pairs is None:
         paralog_pairs = gn[np.vstack(smp.adata.uns["homology_graph"].nonzero()).T]
     paralog_pairs = paralog_pairs[
-        np.in1d(to_vn(paralog_pairs), to_vn(ortholog_pairs), invert=True)
+        np.in1d(to_vn(paralog_pairs), np.append(to_vn(ortholog_pairs),to_vn(ortholog_pairs[:,::-1])), invert=True)
     ]
 
     A = pd.DataFrame(data=np.arange(gn.size)[None, :], columns=gn)
@@ -751,8 +751,9 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
     FINAL['#orthologs'] = (cat_pairs=='ortholog').sum(1)
     FINAL['#substitutions'] = (cat_pairs=='substitution').sum(1)    
     FINAL = FINAL[(FINAL['#orthologs']+FINAL['#substitutions'])==3]
-    FINAL = FINAL[FINAL[[f'{A}/{B} corr',f'{A}/{C} corr',f'{B}/{C} corr']].min(1)>corr_thr]
-    
+    x = FINAL[[f'{A}/{B} corr',f'{A}/{C} corr',f'{B}/{C} corr']].min(1)
+    FINAL['min_corr'] = x
+    FINAL = FINAL[x>corr_thr]
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -770,7 +771,7 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
                 for i in range(p.shape[0]):
                     res.append(';'.join(np.unique(np.append(f[i],substr(a.columns[p[i,:]==1],';;',1)))))            
                 FINAL[n+' cell type'] = res
-            
+    FINAL = FINAL.sort_values('min_corr',ascending=False)
     return FINAL
 
 
