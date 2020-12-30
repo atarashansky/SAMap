@@ -24,7 +24,7 @@ def sankey_plot(sm,key1,key2,thr=0.1):
         from holoviews import dim
         from bokeh.models import Label
         import holoviews as hv
-        hv.extension('bokeh')
+        hv.extension('bokeh',logo=False)
     except:
         raise ImportError('Please install holoviews with `!pip install holoviews`.')
 
