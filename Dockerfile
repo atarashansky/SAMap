@@ -44,7 +44,7 @@ RUN wget "ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.9.0/ncbi-blast-2
     
 COPY . /tmp/SAMap
 RUN /root/miniconda/bin/pip install /tmp/SAMap/. && rm -rf ~/.cache
-RUN /root/miniconda/bin/pip install hnswlib==0.4.0 && rm -rf ~/.cache
+RUN /root/miniconda/bin/pip install hnswlib==0.4.0 holoviews && rm -rf ~/.cache
                 
 RUN chmod ugo+rwx /root
 RUN chmod ugo+rwx /tmp && mkdir /jupyter && mkdir /jupyter/notebooks

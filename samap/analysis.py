@@ -3,6 +3,49 @@ from . import q, ut, pd, sp, np, warnings, sc
 from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
 
 
+def sankey_plot(sm,key1,key2,thr=0.1):
+    _,_,M = get_mapping_scores(sm,key1,key2)
+    
+    id1 = M.index[0].split('_')[0]
+    id2 = M.columns[0].split('_')[0]
+    d = M.values.copy()
+    d[d<thr]=0
+    x,y = d.nonzero()
+    values = d[x,y]
+    y = y + M.index.size
+    nodes = np.append(q(M.index),q(M.columns))
+    xPos = [0]*M.index.size + [1]*M.columns.size
+
+
+    R = pd.DataFrame(data = nodes[np.vstack((x,y))].T,columns=['source','target'])
+    R['Value'] = values
+    
+    try:
+        from holoviews import dim
+        from bokeh.models import Label
+        import holoviews as hv
+        hv.extension('bokeh')
+    except:
+        raise ImportError('Please install holoviews with `!pip install holoviews`.')
+
+    def f(plot,element):
+        plot.handles['plot'].sizing_mode='scale_width'    
+        plot.handles['plot'].x_range.start = -600    
+        plot.handles['plot'].add_layout(Label(x=plot.handles['plot'].x_range.end*0.78, y=plot.handles['plot'].y_range.end*0.96, text=id2))
+        plot.handles['plot'].x_range.end = 1500    
+        plot.handles['plot'].add_layout(Label(x=0, y=plot.handles['plot'].y_range.end*0.96, text=id1))
+
+    sankey1 = hv.Sankey(R, kdims=["source", "target"], vdims=["Value"])
+
+
+    sankey1.opts(cmap='Colorblind',label_position='outer', edge_line_width=0, show_values=False,
+                                     node_alpha=1.0, node_width=40, node_sort=True,frame_height=1000,frame_width=800,
+                                     bgcolor="snow",apply_ranges = True,hooks=[f])
+
+    return sankey1
+
+
+
 class GenePairFinder(object):
     def __init__(self, sm, k1="leiden_clusters",
                  k2="leiden_clusters",compute_markers=True):
