@@ -3,13 +3,24 @@ from . import q, ut, pd, sp, np, warnings, sc
 from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
 
 
-def sankey_plot(sm,key1,key2,thr=0.1):
+def sankey_plot(sm,key1,key2,align_thr=0.1):
+    """Generate a sankey plot
+    
+    Parameters
+    ----------
+    sm: SAMAP object
+    
+    key1 & key2: str, annotation vector keys for species 1 and 2
+
+    align_thr: float, optional, default 0.1
+        The alignment score threshold below which to remove cell type mappings.
+    """    
     _,_,M = get_mapping_scores(sm,key1,key2)
     
     id1 = M.index[0].split('_')[0]
     id2 = M.columns[0].split('_')[0]
     d = M.values.copy()
-    d[d<thr]=0
+    d[d<align_thr]=0
     x,y = d.nonzero()
     values = d[x,y]
     y = y + M.index.size
