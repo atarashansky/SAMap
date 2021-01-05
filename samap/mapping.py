@@ -1,8 +1,8 @@
+import hnswlib
 import typing
 import os
 from os import path
 import gc
-import hnswlib
 from samalg import SAM
 import time
 from sklearn.preprocessing import StandardScaler
