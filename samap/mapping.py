@@ -1014,6 +1014,7 @@ def prepare_SAMap_loadings(sam, npcs=300):
         weight_PCs=weight_PCs,
         sparse_pca=True,
         update_manifold=False,
+        weight_mode='dispersion'
     )
     sam.adata.varm["PCs_SAMap"] = A
 
