@@ -1165,7 +1165,7 @@ def _get_pairs(sam1, sam2, gnnm, gn1, gn2, NOPs1=2, NOPs2=5):
 
 
 def _avg_as(s):
-    return np.append(
+    return (np.append(
         s.adata.obsp["connectivities"][np.array(s.adata.obs["batch"]) == "batch1", :][
             :, np.array(s.adata.obs["batch"]) == "batch2"
         ]
@@ -1175,8 +1175,8 @@ def _avg_as(s):
             :, np.array(s.adata.obs["batch"]) == "batch1"
         ]
         .sum(1)
-        .A.flatten() / s.adata.uns['mdata']['knn_1v2'][0].data.size   ,
-    )
+        .A.flatten()
+    )  / s.adata.uns['mdata']['knn_1v2'][0].data.size )
 
 
 def _parallel_init(ipl1x, isc1x, ipairs, ign1O, ign2O, iT2, iCORR, icorr_mode):
