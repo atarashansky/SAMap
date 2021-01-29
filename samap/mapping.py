@@ -1172,7 +1172,7 @@ def _avg_as(s):
             :, np.array(s.adata.obs["batch"]) == "batch1"
         ]
         .sum(1)
-        .A.flatten(),
+        .A.flatten() / s.adata.uns['mdata']['knn_1v2'][0].data.size   ,
     )
 
 
