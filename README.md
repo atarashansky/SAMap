@@ -22,9 +22,6 @@ Create and activate a new environment for SAMap as follows:
 # Install SAMap dependencies availabe in conda
 conda create -n SAMap -c conda-forge python=3.7 pip pybind11 h5py=2.10.0 leidenalg python-igraph texttable
 conda activate SAMap
-
-# Install dependencies not available in conda via pip.
-pip install sam-algorithm hnswlib
 ```
 
 Having activated the environment, install SAMap like so:
