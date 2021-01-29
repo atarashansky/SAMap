@@ -128,6 +128,7 @@ class SAMAP(object):
                 weight_PCs=False,
                 k=20,
                 n_genes=3000,
+                weight_mode='dispersion'
             )
             f1n = ".".join(data1.split(".")[:-1]) + "_pr.h5ad"
             print("Saving processed data to:\n{}".format(f1n))
@@ -152,6 +153,7 @@ class SAMAP(object):
                 weight_PCs=False,
                 k=20,
                 n_genes=3000,
+                weight_mode='dispersion'
             )
             f2n = ".".join(data2.split(".")[:-1]) + "_pr.h5ad"
             print("Saving processed data to:\n{}".format(f2n))
