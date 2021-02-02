@@ -105,11 +105,20 @@ class GenePairFinder(object):
                 self.id1, self.k1, self.id2, self.k2
             )
         )        
+        import gc
+        
         find_cluster_markers(self.s1, self.k1)
         find_cluster_markers(self.s2, self.k2)
+        gc.collect()
+        self.s1.dispersion_ranking_NN(save_avgs=True)        
         self.s1.identify_marker_genes_sw(labels=self.k1)
+        del self.s1.adata.layers['X_knn_avg']        
+        gc.collect()        
+        self.s2.dispersion_ranking_NN(save_avgs=True)        
         self.s2.identify_marker_genes_sw(labels=self.k2)
-
+        del self.s2.adata.layers['X_knn_avg']
+        gc.collect() # the collects are trying to deal with a weird memory leak issue
+        
     def find_all(self,thr=0.1,**kwargs):
         """Find enriched gene pairs in all pairs of mapped cell types.
         
