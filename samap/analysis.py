@@ -87,8 +87,6 @@ class GenePairFinder(object):
         self.s1.adata.obs[k1] = self.s1.adata.obs[k1].astype("str")
         self.s2.adata.obs[k2] = self.s2.adata.obs[k2].astype("str")
 
-        self.s1.dispersion_ranking_NN(save_avgs=True)
-        self.s2.dispersion_ranking_NN(save_avgs=True)
         mu1, v1, mu2, v2 = _get_mu_std(self.s3, self.s1, self.s2)
         self.mu1 = mu1
         self.v1 = v1
