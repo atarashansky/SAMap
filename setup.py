@@ -7,6 +7,7 @@ setup(
     long_description="The Self-Assembling Manifold Mapping algorithm for mapping single-cell datasets across species.",
     long_description_content_type="text/markdown",
     author="Alexander J. Tarashansky",
+    url="https://github.com/atarashansky/SAMap",
     author_email="tarashan@stanford.edu",
     keywords="scrnaseq analysis manifold reconstruction cross-species mapping",
     python_requires=">=3.7",
