@@ -96,7 +96,7 @@ rule samap:
         maps = lambda wildcards: [ "%s/maps/%s" % (config.get('outdir'), file) for file in [ '%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcards.prefix2, wildcards.prefix1, wildcards.prefix2), '%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcards.prefix2, wildcards.prefix2, wildcards.prefix1) ] ]
 
     output:
-        pkl="{path}/{prefix1}_{prefix2}.sam.pkl"
+        pkl=protected("{path}/{prefix1}_{prefix2}.sam.pkl")
 
     params:
         maps="%s/maps/" % config.get('outdir'),
