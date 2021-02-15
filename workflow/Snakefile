@@ -6,7 +6,7 @@ wildcard_constraints:
 
 rule all:
     input:    
-        sam="{path}/hu_mu.sam.pkl"
+        sam="%s/hu_mu.sam.pkl" % config.get('outdir')
 
 rule unzip_transcriptome:
     input:
@@ -80,32 +80,28 @@ rule transcript_to_gene:
     input:
         fa=lambda wildcards: config["data"][wildcards.prefix]['transcriptome']
     output:
-        txt="{prefix}.t2gene"
+        txt="{path}/{prefix}.t2gene"
 
-    """
-    zcat {input.fa} |  grep '>' | awk '{print $1"\t"$4}' | sed 's/>//' | sed 's/gene://g' | sed -r 's/\.[0-9]+//g' > {output.txt}
-    """
+    shell:
+        """
+        zcat {input.fa} |  grep '>' | awk '{{print $1"\\t"$4}}' | sed 's/>//' | sed 's/gene://g' | sed -r 's/\.[0-9]+//g' > {output.txt}
+        """
 
 rule samap:
-    
     conda: 'envs/samap.yml'
 
     input:
-        transcript_to_gene1="{prefix1}.t2gene",
-        transcript_to_gene2="{prefix2}.t2gene",
-        maps = lambda wildards: [ "%s/maps/%s" % (config.get('outdir'), file) for file in [ '%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcars.prefix2, wildcards.prefix1, wildcards.prefix2), 'maps/%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcars.prefix2, wildcards.prefix2, wildcards.prefix1) ] ]
+        transcript_to_gene1="{path}/{prefix1}.t2gene",
+        transcript_to_gene2="{path}/{prefix2}.t2gene",
+        maps = lambda wildcards: [ "%s/maps/%s" % (config.get('outdir'), file) for file in [ '%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcards.prefix2, wildcards.prefix1, wildcards.prefix2), '%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcards.prefix2, wildcards.prefix2, wildcards.prefix1) ] ]
 
     output:
         pkl="{path}/{prefix1}_{prefix2}.sam.pkl"
 
     params:
-        maps="%s/maps/" % (config.get('outdir')
-        anndata1=lambda wildcards: config["data"][wildcards.prefix1]['anndata']
+        maps="%s/maps/" % config.get('outdir'),
+        anndata1=lambda wildcards: config["data"][wildcards.prefix1]['anndata'],
         anndata2=lambda wildcards: config["data"][wildcards.prefix2]['anndata']
-
-    resources:
-        mem_mb=lambda wildcards, attempt: attempt * 32000
 
     shell:
         "samap-run --id1={wildcards.prefix1} --id2={wildcards.prefix2} {params.anndata1} {params.anndata2} {params.maps} {input.transcript_to_gene1} {input.transcript_to_gene2} {output.pkl}"
-
