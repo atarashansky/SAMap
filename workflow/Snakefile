@@ -87,7 +87,7 @@ rule transcript_to_gene:
         zcat {input.fa} |  grep '>' | awk '{{print $1"\\t"$4}}' | sed 's/>//' | sed 's/gene://g' | sed -r 's/\.[0-9]+//g' > {output.txt}
         """
 
-rule samap:
+rule samap_samap:
     conda: 'envs/samap.yml'
 
     input:
@@ -109,3 +109,19 @@ rule samap:
 
     shell:
         "samap-run --id1={wildcards.prefix1} --id2={wildcards.prefix2} {params.anndata1} {params.anndata2} {params.maps} {input.transcript_to_gene1} {input.transcript_to_gene2} {output.pkl}"
+
+rule samap_run:
+    conda: 'envs/samap.yml'
+    
+    input:
+        sam="{path}/hu_mu.sam.pkl"
+
+    output:
+        sam="{path}/hu_mu.run.sam.pkl"
+        tsv="{path}/hu_mu.celltype_map.tsv"
+        png="{path}/hu_mu.celltype_map_heatmap.tsv"
+        
+    params:
+         
+
+
