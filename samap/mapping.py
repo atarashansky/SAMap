@@ -1267,7 +1267,7 @@ def _refine_corr_parallel(
     pc_chunksize = pl1.shape[1] // ncpus + 1
 
     pool = Pool(
-        npus, _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode]
+        ncpus, _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode]
     )
     try:
         pool.map(_parallel_wrapper, range(p.shape[0]), chunksize=pc_chunksize)
