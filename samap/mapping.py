@@ -243,6 +243,7 @@ class SAMAP(object):
         NOPs2: typing.Optional[int] = 0,
         N_GENE_CHUNKS: typing.Optional[int] = 1,
         USE_SEQ: typing.Optional[bool] = False,
+        ncpus=os.cpu_count(),
     ):
         """Runs the SAMap algorithm.
 
@@ -305,6 +306,7 @@ class SAMAP(object):
             NH2=NH2,
             K=K,
             NCLUSTERS=N_GENE_CHUNKS,
+            ncpus=os.cpu_count(),
         )
         samap = smap.final_sam
         self.samap = samap
@@ -410,7 +412,7 @@ class Samap_Iter(object):
         ]
         self.iter = 0
 
-    def run(self, NUMITERS=3, NOPs1=0, NOPs2=0, NH1=2, NH2=2, K=20, NCLUSTERS=1):
+    def run(self, NUMITERS=3, NOPs1=0, NOPs2=0, NH1=2, NH2=2, K=20, NCLUSTERS=1, ncpus=os.cpu_count()):
         sam1 = self.sam1
         sam2 = self.sam2
         gnnm = self.gnnm
@@ -439,6 +441,7 @@ class Samap_Iter(object):
                     T1=0,
                     T2=0,
                     NCLUSTERS=NCLUSTERS,
+                    ncpus=ncpus,
                 )
 
                 self.GNNMS_corr.append(gnnmu)
@@ -734,6 +737,7 @@ def refine_corr(
     T1=0.25,
     T2=0,
     NCLUSTERS=1,
+    ncpus=os.cpu_count(),
 ):
     # import networkx as nx
     gn = np.append(gn1, gn2)
@@ -769,6 +773,7 @@ def refine_corr(
             use_seq=use_seq,
             T1=T1,
             T2=T2,
+            ncpus=ncpus,
         )
         GNNMSUBS.append(gnnm2_sub)
         CORRSUBS.append(CORR_sub)
@@ -1210,6 +1215,7 @@ def _refine_corr_parallel(
     use_seq=False,
     T1=0.0,
     T2=0.0,
+    ncpus=os.cpu_count(),
 ):
 
     import scipy as sp
@@ -1260,10 +1266,10 @@ def _refine_corr_parallel(
     p = pairs
     pl1 = pl1x
     sc1 = sc1x
-    pc_chunksize = pl1.shape[1] // os.cpu_count() + 1
+    pc_chunksize = pl1.shape[1] // ncpus + 1
 
     pool = Pool(
-        os.cpu_count(), _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode]
+        ncpus, _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode]
     )
     try:
         pool.map(_parallel_wrapper, range(p.shape[0]), chunksize=pc_chunksize)
