@@ -39,7 +39,7 @@ def run_samap(anndata1, anndata2, blastmaps, transcript_to_gene1, transcript_to_
     names2=pd.read_csv(transcript_to_gene2,sep='\t').values.tolist() 
 
     sm = SAMAP(anndata1,anndata2,id1,id2,f_maps = blastmaps, names1=names1, names2=names2) 
-    save_samap(sm,'path/to/file')    
+    save_samap(sm,outfile)    
 
 
 if __name__ == '__main__':
