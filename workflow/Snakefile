@@ -102,6 +102,10 @@ rule samap:
         maps="%s/maps/" % config.get('outdir'),
         anndata1=lambda wildcards: config["data"][wildcards.prefix1]['anndata'],
         anndata2=lambda wildcards: config["data"][wildcards.prefix2]['anndata']
+    
+    resources:
+        mem_mb=lambda wildcards, attempt: attempt * 32684
+
 
     shell:
         "samap-run --id1={wildcards.prefix1} --id2={wildcards.prefix2} {params.anndata1} {params.anndata2} {params.maps} {input.transcript_to_gene1} {input.transcript_to_gene2} {output.pkl}"
