@@ -243,6 +243,7 @@ class SAMAP(object):
         NOPs2: typing.Optional[int] = 0,
         N_GENE_CHUNKS: typing.Optional[int] = 1,
         USE_SEQ: typing.Optional[bool] = False,
+        ncpus=os.cpu_count(),
     ):
         """Runs the SAMap algorithm.
 
@@ -305,6 +306,7 @@ class SAMAP(object):
             NH2=NH2,
             K=K,
             NCLUSTERS=N_GENE_CHUNKS,
+            ncpus=os.cpu_count(),
         )
         samap = smap.final_sam
         self.samap = samap
