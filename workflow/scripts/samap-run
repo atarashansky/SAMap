@@ -6,41 +6,57 @@ import pandas as pd
 from samap.mapping import SAMAP
 from samap.analysis import get_mapping_scores, GenePairFinder
 from samalg import SAM
-from samap.utils import save_samap
+from samap.utils import save_samap, load_samap
+import matplotlib.pyplot as plt
 
 @click.command()
-@click.argument('annData1', type=click.Path(exists=True))
-@click.argument('annData2', type=click.Path(exists=True))
-@click.argument('blastmaps', type=click.Path(exists=True))
-@click.argument("transcript-to_gene1", type=click.Path(exists=True), default=None) 
-@click.argument("transcript-to_gene2", type=click.Path(exists=True), default=None )
-@click.argument("outfile", type=click.Path(exists=False), default=None )
-@click.option('--id1', help='Organism 1 identifier.')
-@click.option('--id2', help='Organism 2 identifier.')
+@click.argument('sm', type=click.Path(exists=True))
+@click.argument("out_samap", type=click.Path(exists=False), default=None )
+@click.argument("out_tsv", type=click.Path(exists=False), default=None )
+@click.argument("out_png", type=click.Path(exists=False), default=None )
+@click.option('--numiters', type=click.INT(exists=True), default=3, help="Runs SAMap for `NUMITERS` iterations.")
+@click.option('--nh1', type=click.INT(exists=True), default=3, help="Cells up to `NH1` hops away from a particular cell in organism 1 will be included in its neighborhood.")
+@click.option('--nh2', type=click.INT(exists=True), default=3, help="Cells up to `NH2` hops away from a particular cell in organism 2 will be included in its neighborhood.")
+@click.option('--celltype_field1', help='Cell type field from first anndata file originally input to SAMap.', default='cell_type')
+@click.option('--celltype_field2', help='Cell type field from second anndata file originally input to SAMap.', default='cell_type')
+@click.option('--k', type=click.INT(exists=True), default=20, help="The number of cross-species edges to identify per cell.")
+@click.option('--nops1', type=click.INT(exists=True), default=0, help="Keeps the `NOPs1` largest outgoing edges in the homology graph, pruning the rest. If 0, no pruning is done.")
+@click.option('--nops2', type=click.INT(exists=True), default=0, help="Keeps the `NOPs2` largest incoming edges in the homology graph, pruning the rest. The final homology graph is the union of the outgoing- and incoming-edge filtered graphs. If 0, no pruning is done."
+@click.option('--n-gene-chunks', type=click.INT(exists=True), default=1, help="When updating the edge weights in the BLAST homology graph, the operation will be split up into `N_GENE_CHUNKS` chunks. For large datasets (>50,000 cells), use more chunks (e.g. 4) to avoid running out of memory."
+@click.option('--use-seq', default=False, help="If `USE_SEQ` is False, gene-gene correlations replace the BLAST sequence similarity edge weights when refining the edge weights in the homology graph. If `USE_SEQ` is True, gene-gene correlations scale the BLAST sequence similarity edge weights. `USE_SEQ` is False by default.")
 
-def run_samap(anndata1, anndata2, blastmaps, transcript_to_gene1, transcript_to_gene2, outfile, id1=None, id2=None):
-    """Initializes and preprocess data structures for SAMap algorithm.
+def samap_run(sm_file, NH1=nh1, NH2=nh2, K=k, NOPs1=nops1, NOPs2=nops2, n_gene_chunks=n_gene_chunks, use_seq=use_seq):
 
-    annData1 - The path to a '.h5ad' `AnnData` object for organism 1.\n
-    annData2 - The path to a '.h5ad' `AnnData` object for organism 2.\n
-    blastmaps - The path to a directory containing reciprocal blast maps.\n
-    transcript-to-gene1 - The path to a transcript/gene mapping for organism1.\n
-    transcript-to-gene2 - The path to a transcript/gene mapping for organism2.\n
-    outfile - a file to which the SAMap object should be output\n
+
+    """Runs the SAMap algorithm and writes output files.
+
+    sm_file - A previously generated and pickled SAM object
+    out_samap - a file to which the SAMap object should be output\n
+    out_tsv - a file to which the Mapping table should be output\n
+    out_png - a file to which the Mapping heatmap should be written\n
+
+    Returns
+    -------
+    samap - Species-merged SAM object
     """
 
-    if transcript_to_gene1 is not None:
-        names1=pd.read_csv(transcript_to_gene1, sep='\t').values.tolist()
+    sm = load_samap(sm_file)
+    samap = sm.run(NUMINTERS)
 
-    if transcript_to_gene2 is not None:
-        names2=pd.read_csv(transcript_to_gene2, sep='\t').values.tolist()
-    
-    names1=pd.read_csv(transcript_to_gene1,sep='\t').values.tolist() 
-    names2=pd.read_csv(transcript_to_gene2,sep='\t').values.tolist() 
+    # Generate the mapping table
 
-    sm = SAMAP(anndata1,anndata2,id1,id2,f_maps = blastmaps, names1=names1, names2=names2) 
-    save_samap(sm,outfile)    
+    D1,D2,MappingTable = get_mapping_scores(sam,k1,k2)
+    MappingTable.to_csv(outtsv, sep = '\t')
+
+    # Generate a heatmap for a visual representation
+
+    sm.display_heatmap(key1=celltype_field1,key2=celltype_field2)
+    plt.savefig(out_png) 
+
+    # Write object out again
+
+    save_samap(sm,out_samap)    
 
 
 if __name__ == '__main__':
-    run_samap()
+    samap_run()
