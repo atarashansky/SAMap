@@ -4,9 +4,12 @@ wildcard_constraints:
     prefix1 = "[^\/\.]+",
     prefix2 = "[^\/\.]+",
 
+name1, name2 = config.get('data').keys()
+
 rule all:
     input:    
-        sam="%s/hu_mu.sam.pkl" % config.get('outdir')
+        map="%s/%s_%s.celltype_map.tsv" % (config.get('outdir'), name1, name2),
+        heatmap="%s/%s_%s.celltype_map_heatmap.png" % (config.get('outdir'), name1, name2)
 
 rule unzip_transcriptome:
     input:
@@ -93,35 +96,38 @@ rule samap_samap:
     input:
         transcript_to_gene1="{path}/{prefix1}.t2gene",
         transcript_to_gene2="{path}/{prefix2}.t2gene",
-        maps = lambda wildcards: [ "%s/maps/%s" % (config.get('outdir'), file) for file in [ '%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcards.prefix2, wildcards.prefix1, wildcards.prefix2), '%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcards.prefix2, wildcards.prefix2, wildcards.prefix1) ] ]
+        maps = lambda wildcards: [ "%s/maps/%s" % (wildcards.path, file) for file in [ '%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcards.prefix2, wildcards.prefix1, wildcards.prefix2), '%s%s/%s_to_%s.txt' % (wildcards.prefix1, wildcards.prefix2, wildcards.prefix2, wildcards.prefix1) ] ]
 
     output:
         pkl=protected("{path}/{prefix1}_{prefix2}.sam.pkl")
 
     params:
-        maps="%s/maps/" % config.get('outdir'),
         anndata1=lambda wildcards: config["data"][wildcards.prefix1]['anndata'],
         anndata2=lambda wildcards: config["data"][wildcards.prefix2]['anndata']
     
     resources:
         mem_mb=lambda wildcards, attempt: attempt * 32684
 
-
     shell:
-        "samap-run --id1={wildcards.prefix1} --id2={wildcards.prefix2} {params.anndata1} {params.anndata2} {params.maps} {input.transcript_to_gene1} {input.transcript_to_gene2} {output.pkl}"
+        "samap-samap --id1={wildcards.prefix1} --id2={wildcards.prefix2} {params.anndata1} {params.anndata2} {wildcards.path}/maps {input.transcript_to_gene1} {input.transcript_to_gene2} {output.pkl}"
 
 rule samap_run:
     conda: 'envs/samap.yml'
     
     input:
-        sam="{path}/hu_mu.sam.pkl"
+        sam="{path}/{prefix1}_{prefix2}.sam.pkl"
 
     output:
-        sam="{path}/hu_mu.run.sam.pkl"
-        tsv="{path}/hu_mu.celltype_map.tsv"
-        png="{path}/hu_mu.celltype_map_heatmap.tsv"
-        
-    params:
+        sam="{path}/{prefix1}_{prefix2}.run.sam.pkl",
+        tsv="{path}/{prefix1}_{prefix2}.celltype_map.tsv",
+        png="{path}/{prefix1}_{prefix2}.celltype_map_heatmap.png"
+    
+    resources:
+        mem_mb=lambda wildcards, attempt: attempt * 8092
          
+    params:
+        cell_type_field=config.get('cell_type_field')       
 
+    shell:
+        "samap-run --celltype_field1 {params.cell_type_field} --celltype_field2 {params.cell_type_field} {input.sam} {output.sam} {output.tsv} {output.png}"
 

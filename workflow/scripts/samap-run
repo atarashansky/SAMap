@@ -10,38 +10,33 @@ from samap.utils import save_samap, load_samap
 import matplotlib.pyplot as plt
 
 @click.command()
-@click.argument('sm', type=click.Path(exists=True))
+@click.argument('sm_file', type=click.Path(exists=True))
 @click.argument("out_samap", type=click.Path(exists=False), default=None )
 @click.argument("out_tsv", type=click.Path(exists=False), default=None )
 @click.argument("out_png", type=click.Path(exists=False), default=None )
-@click.option('--numiters', type=click.INT(exists=True), default=3, help="Runs SAMap for `NUMITERS` iterations.")
-@click.option('--nh1', type=click.INT(exists=True), default=3, help="Cells up to `NH1` hops away from a particular cell in organism 1 will be included in its neighborhood.")
-@click.option('--nh2', type=click.INT(exists=True), default=3, help="Cells up to `NH2` hops away from a particular cell in organism 2 will be included in its neighborhood.")
+@click.option('--numiters', type=click.INT, default=3, help="Runs SAMap for `NUMITERS` iterations.")
+@click.option('--nh1', type=click.INT, default=3, help="Cells up to `NH1` hops away from a particular cell in organism 1 will be included in its neighborhood.")
+@click.option('--nh2', type=click.INT, default=3, help="Cells up to `NH2` hops away from a particular cell in organism 2 will be included in its neighborhood.")
 @click.option('--celltype_field1', help='Cell type field from first anndata file originally input to SAMap.', default='cell_type')
 @click.option('--celltype_field2', help='Cell type field from second anndata file originally input to SAMap.', default='cell_type')
-@click.option('--k', type=click.INT(exists=True), default=20, help="The number of cross-species edges to identify per cell.")
-@click.option('--nops1', type=click.INT(exists=True), default=0, help="Keeps the `NOPs1` largest outgoing edges in the homology graph, pruning the rest. If 0, no pruning is done.")
-@click.option('--nops2', type=click.INT(exists=True), default=0, help="Keeps the `NOPs2` largest incoming edges in the homology graph, pruning the rest. The final homology graph is the union of the outgoing- and incoming-edge filtered graphs. If 0, no pruning is done."
-@click.option('--n-gene-chunks', type=click.INT(exists=True), default=1, help="When updating the edge weights in the BLAST homology graph, the operation will be split up into `N_GENE_CHUNKS` chunks. For large datasets (>50,000 cells), use more chunks (e.g. 4) to avoid running out of memory."
+@click.option('--k', type=click.INT, default=20, help="The number of cross-species edges to identify per cell.")
+@click.option('--nops1', type=click.INT, default=0, help="Keeps the `NOPs1` largest outgoing edges in the homology graph, pruning the rest. If 0, no pruning is done.")
+@click.option('--nops2', type=click.INT, default=0, help="Keeps the `NOPs2` largest incoming edges in the homology graph, pruning the rest. The final homology graph is the union of the outgoing- and incoming-edge filtered graphs. If 0, no pruning is done.")
+@click.option('--n-gene-chunks', type=click.INT, default=1, help="When updating the edge weights in the BLAST homology graph, the operation will be split up into `N_GENE_CHUNKS` chunks. For large datasets (>50,000 cells), use more chunks (e.g. 4) to avoid running out of memory.")
 @click.option('--use-seq', default=False, help="If `USE_SEQ` is False, gene-gene correlations replace the BLAST sequence similarity edge weights when refining the edge weights in the homology graph. If `USE_SEQ` is True, gene-gene correlations scale the BLAST sequence similarity edge weights. `USE_SEQ` is False by default.")
 
-def samap_run(sm_file, NH1=nh1, NH2=nh2, K=k, NOPs1=nops1, NOPs2=nops2, n_gene_chunks=n_gene_chunks, use_seq=use_seq):
-
-
+def samap_run(sm_file, out_samap, out_tsv, out_png, numiters, nh1, nh2, celltype_field1, celltype_field2, k, nops1, nops2, n_gene_chunks, use_seq):
     """Runs the SAMap algorithm and writes output files.
 
-    sm_file - A previously generated and pickled SAM object
-    out_samap - a file to which the SAMap object should be output\n
-    out_tsv - a file to which the Mapping table should be output\n
-    out_png - a file to which the Mapping heatmap should be written\n
-
-    Returns
-    -------
-    samap - Species-merged SAM object
+    Keyword arguments:\n
+    \nsm_file -- A previously generated and pickled SAM object
+    \nout_samap -- a file to which the SAMap object should be output
+    \nout_tsv -- a file to which the Mapping table should be output
+    \nout_png -- a file to which the Mapping heatmap should be written
     """
 
     sm = load_samap(sm_file)
-    samap = sm.run(NUMINTERS)
+    samap = sm.run(NUMITERS=numiters, NH1=nh1, NH2=nh2, K=k, NOPs1=nops1, NOPs2=nops2, N_GENE_CHUNKS=n_gene_chunks, USE_SEQ=use_seq)
 
     # Generate the mapping table
 

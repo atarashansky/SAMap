@@ -1,0 +1,46 @@
+#!/usr/bin/env python
+
+import click
+import scanpy as sc
+import pandas as pd
+from samap.mapping import SAMAP
+from samap.analysis import get_mapping_scores, GenePairFinder
+from samalg import SAM
+from samap.utils import save_samap
+
+@click.command()
+@click.argument('annData1', type=click.Path(exists=True))
+@click.argument('annData2', type=click.Path(exists=True))
+@click.argument('blastmaps', type=click.Path(exists=True))
+@click.argument("transcript-to_gene1", type=click.Path(exists=True), default=None) 
+@click.argument("transcript-to_gene2", type=click.Path(exists=True), default=None )
+@click.argument("outfile", type=click.Path(exists=False), default=None )
+@click.option('--id1', help='Organism 1 identifier.')
+@click.option('--id2', help='Organism 2 identifier.')
+
+def samap_samap(anndata1, anndata2, blastmaps, transcript_to_gene1, transcript_to_gene2, outfile, id1=None, id2=None):
+    """Initializes and preprocess data structures for SAMap algorithm.
+
+    annData1 - The path to a '.h5ad' `AnnData` object for organism 1.\n
+    annData2 - The path to a '.h5ad' `AnnData` object for organism 2.\n
+    blastmaps - The path to a directory containing reciprocal blast maps.\n
+    transcript-to-gene1 - The path to a transcript/gene mapping for organism1.\n
+    transcript-to-gene2 - The path to a transcript/gene mapping for organism2.\n
+    outfile - a file to which the SAMap object should be output\n
+    """
+
+    if transcript_to_gene1 is not None:
+        names1=pd.read_csv(transcript_to_gene1, sep='\t').values.tolist()
+
+    if transcript_to_gene2 is not None:
+        names2=pd.read_csv(transcript_to_gene2, sep='\t').values.tolist()
+    
+    names1=pd.read_csv(transcript_to_gene1,sep='\t').values.tolist() 
+    names2=pd.read_csv(transcript_to_gene2,sep='\t').values.tolist() 
+
+    sm = SAMAP(anndata1,anndata2,id1,id2,f_maps = blastmaps, names1=names1, names2=names2) 
+    save_samap(sm,outfile)    
+
+
+if __name__ == '__main__':
+    samap_samap()
