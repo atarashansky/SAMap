@@ -9,7 +9,7 @@ data:
         anndata: hu.h5ad
         transcriptome: Homo_sapiens.GRCh38.cdna.all.99.fa.gz
     mu:
-        anndata: hu.h5ad
+        anndata: mu.h5ad
         transcriptome: Mus_musculus.GRCm38.cdna.all.99.fa.gz
 
 cell_type_field: 'inferred_cell_type_-_ontology_labels'
