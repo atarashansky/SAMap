@@ -1,6 +1,6 @@
 # SAMap automated workflow
 
-This is a workflow, built in [Snakemake](https://snakemake.readthedocs.io/en/stable/), to automate the running of SAMap, mapping cell gropus between species for arbitrary input data. It will:
+This is a workflow, built in [Snakemake](https://snakemake.readthedocs.io/en/stable/), to automate the running of SAMap, mapping cell groups between species for arbitrary input data. It will:
 
  * Split the input transcriptomes and run the BLAST operations required prior to SAMap. This is instead of [map_genes.sh](map_genes.sh).
  * Generate the initial SAMAP object.
