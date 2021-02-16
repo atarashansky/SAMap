@@ -109,7 +109,7 @@ rule samap_samap:
         mem_mb=lambda wildcards, attempt: attempt * 32684
 
     shell:
-        "samap-samap --id1={wildcards.prefix1} --id2={wildcards.prefix2} {params.anndata1} {params.anndata2} {wildcards.path}/maps {input.transcript_to_gene1} {input.transcript_to_gene2} {output.pkl}"
+        "samap-samap --id1={wildcards.prefix1} --id2={wildcards.prefix2} {params.anndata1} {params.anndata2} {wildcards.path}/maps/ {input.transcript_to_gene1} {input.transcript_to_gene2} {output.pkl}"
 
 rule samap_run:
     conda: 'envs/samap.yml'
