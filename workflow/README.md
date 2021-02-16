@@ -51,6 +51,16 @@ The key section is 'data'. Create your own species prefixes in place of 'hu' and
 
 The 'cell_type_field' tells SAMap which of the columns in .obs from your input objects should be used to define cell types. 'outdir' just specifies where the results go.
 
+### PATH variable
+
+The workflow has couple of scripts providing CLI access to SAMAP. Add them to your PATH like:
+
+```
+export PATH=/path/to/scripts:$PATH
+```
+
+Where /path/to is the workflow directory location. 
+
 ## Running
 
 With the above config done, you can execute the workflow:
