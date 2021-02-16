@@ -16,7 +16,7 @@ rule unzip_transcriptome:
         fagz=lambda wildcards: config["data"][wildcards.prefix]['transcriptome']
 
     output:
-        fa='{prefix}.fa'
+        fa=temp('{prefix}.fa')
 
     shell:
         "zcat {input.fagz} > {output.fa}"
@@ -64,7 +64,7 @@ rule tblastx:
         dbfa="{prefix2}.fa"
 
     output:
-        map = "{dir}/{prefix1}_to_{prefix2}.{n}.txt"
+        map = temp("{dir}/{prefix1}_to_{prefix2}.{n}.txt")
 
     shell:
         "tblastx -query {input.query} -db {input.dbfa} -outfmt 6 -out {output.map} -num_threads {threads} -max_hsps 1 -evalue 1e-6"
@@ -83,7 +83,7 @@ rule transcript_to_gene:
     input:
         fa=lambda wildcards: config["data"][wildcards.prefix]['transcriptome']
     output:
-        txt="{path}/{prefix}.t2gene"
+        txt=temp("{path}/{prefix}.t2gene")
 
     shell:
         """
