@@ -82,3 +82,22 @@ snakemake -s /path/to/Snakefile --profile lsf
 
 ## Output
 
+Outputs are produced at the location specified in the configuration, and are currently:
+
+```
+out
+├── hu_mu.celltype_map_heatmap.png
+├── hu_mu.celltype_map.tsv
+├── hu_mu.run.sam.pkl
+├── hu_mu.sam.pkl
+├── hu.t2gene
+├── maps
+│   └── humu
+│       ├── hu_to_mu.txt
+│       └── mu_to_hu.txt
+
+```
+
+(where 'hu' and 'mu' are replaced by your own species prefixes). BLAST maps are stored under 'maps', the primary cell type mappings and associated heatmap graphic are stored at the top level
+
+You will see some examples under 'example_outputs'. 
