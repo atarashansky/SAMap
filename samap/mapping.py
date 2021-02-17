@@ -306,7 +306,7 @@ class SAMAP(object):
             NH2=NH2,
             K=K,
             NCLUSTERS=N_GENE_CHUNKS,
-            ncpus=os.cpu_count(),
+            ncpus=ncpus,
         )
         samap = smap.final_sam
         self.samap = samap
@@ -419,7 +419,7 @@ class Samap_Iter(object):
         gn1 = self.gn1
         gn2 = self.gn2
         gnnmu = self.gnnmu
-
+        
         gn = np.append(gn1, gn2)
 
         if self.iter > 0:
@@ -501,6 +501,7 @@ class Samap_Iter(object):
                     T1=0,
                     T2=0,
                     NCLUSTERS=NCLUSTERS,
+                    ncpus=ncpus,
                 )
 
                 self.GNNMS_corr.append(gnnmu)
