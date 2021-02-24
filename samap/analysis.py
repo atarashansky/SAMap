@@ -857,7 +857,7 @@ def compute_csim(sam3, key, X=None, n_top = 100):
     for i, c1 in enumerate(clu1s):
         for j, c2 in enumerate(clu2s):
             CSIM1[i, j] = np.append(
-                np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top]
+                np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top],
                 np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top],
             ).mean()
     CSIMth = CSIM1 / sam3.adata.uns['mdata']['knn_1v2'][0].data.size    
