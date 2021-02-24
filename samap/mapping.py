@@ -313,9 +313,12 @@ class SAMAP(object):
         self.ITER_DATA = smap.ITER_DATA
 
         print("Alignment score ---", _avg_as(samap).mean())
-
-        print("Running UMAP on the stitched manifolds.")
-        sc.tl.umap(samap.adata, min_dist=0.1, init_pos="random")
+        
+        try:
+            print("Running UMAP on the stitched manifolds.")
+            sc.tl.umap(samap.adata, min_dist=0.1, init_pos="random")
+        except:
+            print('UMAP failed due to version incompatibility.')
 
         hom_graph = smap.GNNMS_corr[-1]
         samap.adata.uns["homology_graph_reweighted"] = hom_graph
