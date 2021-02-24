@@ -36,6 +36,7 @@ class SAMAP(object):
         key2: typing.Optional[str] = "leiden_clusters",
         leiden_res1: typing.Optional[int] = 3,
         leiden_res2: typing.Optional[int] = 3,
+        save_processed: typing.Optional[bool] = False
     ):
 
         """Initializes and preprocess data structures for SAMap algorithm.
@@ -103,6 +104,10 @@ class SAMAP(object):
         leiden_res1 & leiden_res2 : float, optional, default 3
             The resolution parameter for the leiden clustering to be done on the manifold of organisms
             1/2. Each cell's neighborhood size will be capped to be the size of its leiden cluster.
+            
+        save_processed : bool, optional, default False
+            If True saves the processed SAM objects corresponding to each species to an `.h5ad` file.
+            This argument is unused if preloaded SAM objects are passed in to SAMAP.
         """
 
         if not (isinstance(data1, str) or isinstance(data1, SAM)):
@@ -131,10 +136,25 @@ class SAMAP(object):
                 weight_mode='dispersion'
             )
             f1n = ".".join(data1.split(".")[:-1]) + "_pr.h5ad"
-            print("Saving processed data to:\n{}".format(f1n))
-            sam1.save_anndata(f1n)
+            
+            print("Preparing data 1 for SAMap.")
+            if key1 == "leiden_clusters":
+                sam1.leiden_clustering(res=leiden_res1)
+
+            if "PCs_SAMap" not in sam1.adata.varm.keys():
+                prepare_SAMap_loadings(sam1)
+    
+            if save_processed:
+                print("Saving processed data to:\n{}".format(f1n))
+                sam1.save_anndata(f1n)
         else:
             sam1 = data1
+            print("Preparing data 1 for SAMap.")
+            if key1 == "leiden_clusters":
+                sam1.leiden_clustering(res=leiden_res1)
+
+            if "PCs_SAMap" not in sam1.adata.varm.keys():
+                prepare_SAMap_loadings(sam1)            
 
         if isinstance(data2, str):
             print("Processing data 2 from:\n{}".format(data2))
@@ -156,24 +176,25 @@ class SAMAP(object):
                 weight_mode='dispersion'
             )
             f2n = ".".join(data2.split(".")[:-1]) + "_pr.h5ad"
-            print("Saving processed data to:\n{}".format(f2n))
-            sam2.save_anndata(f2n)
-        else:
+            
+            print("Preparing data 2 for SAMap.")
+            if key2 == "leiden_clusters":
+                sam2.leiden_clustering(res=leiden_res2)
+
+            if "PCs_SAMap" not in sam2.adata.varm.keys():
+                prepare_SAMap_loadings(sam2)            
+            
+            if save_processed:            
+                print("Saving processed data to:\n{}".format(f2n))
+                sam2.save_anndata(f2n)
+        else:         
             sam2 = data2
+            print("Preparing data 2 for SAMap.")
+            if key2 == "leiden_clusters":
+                sam2.leiden_clustering(res=leiden_res2)
 
-        print("Preparing data 1 for SAMap.")
-        if key1 == "leiden_clusters":
-            sam1.leiden_clustering(res=leiden_res1)
-
-        if "PCs_SAMap" not in sam1.adata.varm.keys():
-            prepare_SAMap_loadings(sam1)
-
-        print("Preparing data 2 for SAMap.")
-        if key2 == "leiden_clusters":
-            sam2.leiden_clustering(res=leiden_res2)
-
-        if "PCs_SAMap" not in sam2.adata.varm.keys():
-            prepare_SAMap_loadings(sam2)
+            if "PCs_SAMap" not in sam2.adata.varm.keys():
+                prepare_SAMap_loadings(sam2)               
 
         if gnnm is None:
             if not EGGNOG:
@@ -313,12 +334,8 @@ class SAMAP(object):
         self.ITER_DATA = smap.ITER_DATA
 
         print("Alignment score ---", _avg_as(samap).mean())
-        
-        try:
-            print("Running UMAP on the stitched manifolds.")
-            sc.tl.umap(samap.adata, min_dist=0.1, init_pos="random")
-        except:
-            print('UMAP failed due to version incompatibility.')
+        print("Running UMAP on the stitched manifolds.")
+        sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random')
 
         hom_graph = smap.GNNMS_corr[-1]
         samap.adata.uns["homology_graph_reweighted"] = hom_graph
@@ -339,8 +356,12 @@ class SAMAP(object):
         return samap
     
     def scatter(self,axes=None, c1='blue', c2='red', **kwargs):
-        ax = self.sam1.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c1, **kwargs)
-        ax = self.sam2.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c2, **kwargs)
+        if self.sam1.adata.shape[0] >= self.sam2.adata.shape[0]:
+            ax = self.sam1.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c1, **kwargs)
+            ax = self.sam2.scatter(projection = 'X_umap_samap',axes=ax,colorspec=c2, **kwargs)
+        else:
+            ax = self.sam2.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c2, **kwargs)
+            ax = self.sam1.scatter(projection = 'X_umap_samap',axes=ax,colorspec=c1, **kwargs)
         return ax
         
     def gui(self):
