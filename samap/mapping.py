@@ -328,10 +328,18 @@ class SAMAP(object):
             [self.id1] * sam1.adata.shape[0] + [self.id2] * sam2.adata.shape[0]
         )
 
+        self.sam1.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
+        self.sam2.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam2.adata.obs_names].obsm['X_umap']        
+        
         self.run_time = time.time() - start_time
         print("Elapsed time: {} minutes.".format(self.run_time / 60))
         return samap
-            
+    
+    def scatter(self,axes=None, c1='blue', c2='red', **kwargs):
+        ax = self.sam1.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c1, **kwargs)
+        ax = self.sam2.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c2, **kwargs)
+        return ax
+        
     def gui(self):
         """Launches a SAMGUI instance containing the two SAM objects."""
         if 'SamapGui' not in self.__dict__:
@@ -339,8 +347,7 @@ class SAMAP(object):
                 from samalg.gui import SAMGUI
             except ImportError:
                 raise ImportError('Please install SAMGUI dependencies. See the README in the SAM github repository.')
-            self.sam1.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
-            self.sam2.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam2.adata.obs_names].obsm['X_umap']
+
             sg = SAMGUI(sam = [self.sam1,self.sam2], title = [self.id1,self.id2],default_proj='X_umap_samap')
             self.SamapGui = sg
             return sg.SamPlot
@@ -840,6 +847,13 @@ def calculate_eggnog_graph(A, B, id1, id2, taxa=33208):
 
     gn1 = gn[np.array([x.split("_")[0] for x in gn]) == id1]
     gn2 = gn[np.array([x.split("_")[0] for x in gn]) == id2]
+    
+    f1 = np.where(np.in1d(gn,gn1))[0]
+    f2 = np.where(np.in1d(gn,gn2))[0]
+    f = np.append(f1,f2)
+    gnnm = gnnm[f,:][:,f]
+    gn1 = gn[f1]
+    gn2 = gn[f2]
     return gnnm, gn1, gn2
 
 
@@ -918,6 +932,12 @@ def calculate_blast_graph(id1, id2, f_maps="maps/", eval_thr=1e-6, reciprocate=F
         gnnms = gnnms.multiply(gnnm).multiply(gnnm.T).tocsr()
     gnnm = gnnms
 
+    f1 = np.where(np.in1d(gn,gn1))[0]
+    f2 = np.where(np.in1d(gn,gn2))[0]
+    f = np.append(f1,f2)
+    gnnm = gnnm[f,:][:,f]
+    gn1 = gn[f1]
+    gn2 = gn[f2]    
     return gnnm, gn1, gn2
 
 
