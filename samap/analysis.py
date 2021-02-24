@@ -836,11 +836,11 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
     return FINAL
 
 
-def compute_csim(sam3, key, X=None):
+def compute_csim(sam3, key, X=None, n_top = 100):
     cl1 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch1"])
-    clu1 = np.unique(cl1)
+    clu1,cluc1 = np.unique(cl1,return_counts=True)
     cl2 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch2"])
-    clu2 = np.unique(cl2)
+    clu2,cluc2 = np.unique(cl2,return_counts=True)
 
     clu1s = q("batch1_" + clu1.astype("str").astype("object"))
     clu2s = q("batch2_" + clu2.astype("str").astype("object"))
@@ -857,8 +857,8 @@ def compute_csim(sam3, key, X=None):
     for i, c1 in enumerate(clu1s):
         for j, c2 in enumerate(clu2s):
             CSIM1[i, j] = np.append(
-                X[cl == c1, :][:, cl == c2].sum(1).A.flatten(),
-                X[cl == c2, :][:, cl == c1].sum(1).A.flatten(),
+                np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top]
+                np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top],
             ).mean()
     CSIMth = CSIM1 / sam3.adata.uns['mdata']['knn_1v2'][0].data.size    
     s1 = CSIMth.sum(1).flatten()[:, None]
