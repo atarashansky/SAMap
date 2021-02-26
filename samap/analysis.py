@@ -871,6 +871,92 @@ def compute_csim(sam3, key, X=None, n_top = 100):
 
     return CSIM, clu1, clu2, CSIMth
 
+def transfer_annotations(sm,reference=1, keys=[],num_iters=5):
+    """ Transfer annotations across species using label propagation along the combined manifold.
+    
+    Parameters
+    ----------
+    sm - SAMAP object
+    
+    reference - 1 or 2, optional, default 1
+        The reference species transfers its labels to the target species.
+        1 corresponds to species 1 (`sm.id1`) and 2 corresponds to species 2.
+        
+    keys - str or list, optional, default []
+        The `obs` key or list of keys corresponding to the labels to be propagated.
+        If passed an empty list, all keys in the reference species' `obs` dataframe
+        will be propagated.
+        
+    num_iters - int, optional, default 5
+        The number of steps to run the diffusion propagation.
+    """
+    
+    sam1 = sm.sam1
+    sam2 = sm.sam2
+    stitched = sm.samap
+    NNM = stitched.adata.obsp['connectivities'].copy()
+    NNM = NNM.multiply(1/NNM.sum(1).A).tocsr()
+    
+    if type(keys) is str:
+        keys = [keys]
+    elif len(keys) == 0:
+        if reference == 1:
+            keys = list(sam1.adata.obs.keys())
+        elif reference == 2:
+            keys = list(sam2.adata.obs.keys())
+        else:
+            raise ValueError('`reference` must be either 1 or 2`')
+    #stitched.load_obs_annotations()
+    for key in keys:
+        if reference == 1:
+            samref=sam1
+            sam=sam2
+        elif reference == 2:
+            samref=sam2
+            sam=sam1
+        else:
+            raise ValueError('`reference` must be either 1 or 2`')
+
+        ANN = samref.adata.obs
+        cl = ANN[key].values.astype('object').astype('<U300')
+        clu,clui = np.unique(cl,return_inverse=True)
+        P = np.zeros((NNM.shape[0],clu.size))
+        Pmask = np.ones((NNM.shape[0],clu.size))
+        if reference == 1:
+            for i in range(samref.adata.shape[0]):
+                P[i,clui[i]]=1.0
+            Pmask[:samref.adata.shape[0],:]=0
+        elif reference == 2:
+            for i in range(samref.adata.shape[0]):
+                P[i+sam.adata.shape[0],clui[i]]=1.0
+            Pmask[sam.adata.shape[0]:,:]=0
+        Pinit = P.copy()
+
+        for j in range(num_iters):
+            print(i)
+            P_new = NNM.dot(P)
+            if np.max(np.abs(P_new - P)) < 5e-3:
+                P = P_new
+                s=P.sum(1)[:,None]
+                s[s==0]=1
+                P = P/s
+                break
+            else:
+                P = P_new
+                s=P.sum(1)[:,None]
+                s[s==0]=1
+                P = P/s
+            P = P * Pmask + Pinit
+
+        uncertainty = 1-P.max(1)
+        labels = clu[np.argmax(P,axis=1)]
+        labels[uncertainty==1.0]='NAN'
+        sam.adata.obs[key+'_t'] = pd.Series(labels,index = stitched.adata.obs_names)
+        uncertainty[np.argmax(uncertainty)] = 1
+        sam.adata.obs[key+'_uncertainty'] = pd.Series(uncertainty,index=stitched.adata.obs_names)
+        res = pd.DataFrame(data=P,index=stitched.adata.obs_names,columns=clu)
+        res['labels'] = labels
+        return res
 
 def get_mapping_scores(sm, key1, key2):
     """Calculate mapping scores
