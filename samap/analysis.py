@@ -871,7 +871,7 @@ def compute_csim(sam3, key, X=None, n_top = 100):
 
     return CSIM, clu1, clu2, CSIMth
 
-def transfer_annotations(sm,reference=1, keys=[],num_iters=5):
+def transfer_annotations(sm,reference=1, keys=[],num_iters=5, inplace = True):
     """ Transfer annotations across species using label propagation along the combined manifold.
     
     Parameters
@@ -889,6 +889,15 @@ def transfer_annotations(sm,reference=1, keys=[],num_iters=5):
         
     num_iters - int, optional, default 5
         The number of steps to run the diffusion propagation.
+        
+    inplace - bool, optional, default True
+        If True, deposit propagated labels in the target species (`sm.sam1/sm.sam2`) `obs`
+        DataFrame. Otherwise, just return the soft-membership DataFrame.
+        
+    Returns
+    -------
+    A Pandas DataFrame with soft membership scores for each cluster in each cell.
+    
     """
     
     sam1 = sm.sam1
@@ -951,9 +960,12 @@ def transfer_annotations(sm,reference=1, keys=[],num_iters=5):
         uncertainty = 1-P.max(1)
         labels = clu[np.argmax(P,axis=1)]
         labels[uncertainty==1.0]='NAN'
-        sam.adata.obs[key+'_t'] = pd.Series(labels,index = stitched.adata.obs_names)
         uncertainty[np.argmax(uncertainty)] = 1
-        sam.adata.obs[key+'_uncertainty'] = pd.Series(uncertainty,index=stitched.adata.obs_names)
+        
+        if inplace:
+            sam.adata.obs[key+'_t'] = pd.Series(labels,index = stitched.adata.obs_names)        
+            sam.adata.obs[key+'_uncertainty'] = pd.Series(uncertainty,index=stitched.adata.obs_names)
+
         res = pd.DataFrame(data=P,index=stitched.adata.obs_names,columns=clu)
         res['labels'] = labels
         return res
