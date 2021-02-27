@@ -370,7 +370,7 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
     
 
 
-def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None):
+def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3):
     """Identify paralog substitutions
     
     Parameters
@@ -446,7 +446,7 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None):
     RES["paralog corrs"] = par_corrs
     RES["corr diff"] = diff_corrs
     RES = RES.sort_values("corr diff", ascending=False)
-    RES = RES[RES["corr diff"] > 0]
+    RES = RES[RES["corr diff"] > psub_thr]
     return RES
 
 
@@ -613,7 +613,7 @@ def CellTypeTriangles(sms,keys, align_thr=1):
     return DF
 
 
-def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,pval_thr=1e-10):
+def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3, psub_thr = 0.3, pval_thr=1e-10):
     """Outputs a table of homolog substitution triangles.
     
     Parameters
@@ -662,7 +662,7 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
     RES = []
     for i in [[sm1, orth1], [sm2, orth2], [sm3, orth3]]:
         sm, orth = i
-        RES.append(ParalogSubstitutions(sm, orth))
+        RES.append(ParalogSubstitutions(sm, orth, psub_thr = psub_thr))
     RES1, RES2, RES3 = RES
 
     op1 = to_vo(q(RES1["ortholog pairs"]))
