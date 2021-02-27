@@ -942,7 +942,6 @@ def transfer_annotations(sm,reference=1, keys=[],num_iters=5, inplace = True):
         Pinit = P.copy()
 
         for j in range(num_iters):
-            print(i)
             P_new = NNM.dot(P)
             if np.max(np.abs(P_new - P)) < 5e-3:
                 P = P_new
