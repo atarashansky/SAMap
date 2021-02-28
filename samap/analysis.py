@@ -370,7 +370,7 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
     
 
 
-def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None):
+def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3):
     """Identify paralog substitutions
     
     Parameters
@@ -446,7 +446,7 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None):
     RES["paralog corrs"] = par_corrs
     RES["corr diff"] = diff_corrs
     RES = RES.sort_values("corr diff", ascending=False)
-    RES = RES[RES["corr diff"] > 0]
+    RES = RES[RES["corr diff"] > psub_thr]
     return RES
 
 
@@ -613,7 +613,7 @@ def CellTypeTriangles(sms,keys, align_thr=1):
     return DF
 
 
-def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,pval_thr=1e-10):
+def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3, psub_thr = 0.3, pval_thr=1e-10):
     """Outputs a table of homolog substitution triangles.
     
     Parameters
@@ -662,7 +662,7 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
     RES = []
     for i in [[sm1, orth1], [sm2, orth2], [sm3, orth3]]:
         sm, orth = i
-        RES.append(ParalogSubstitutions(sm, orth))
+        RES.append(ParalogSubstitutions(sm, orth, psub_thr = psub_thr))
     RES1, RES2, RES3 = RES
 
     op1 = to_vo(q(RES1["ortholog pairs"]))
@@ -836,11 +836,11 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
     return FINAL
 
 
-def compute_csim(sam3, key, X=None):
+def compute_csim(sam3, key, X=None, n_top = 100):
     cl1 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch1"])
-    clu1 = np.unique(cl1)
+    clu1,cluc1 = np.unique(cl1,return_counts=True)
     cl2 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch2"])
-    clu2 = np.unique(cl2)
+    clu2,cluc2 = np.unique(cl2,return_counts=True)
 
     clu1s = q("batch1_" + clu1.astype("str").astype("object"))
     clu2s = q("batch2_" + clu2.astype("str").astype("object"))
@@ -857,8 +857,8 @@ def compute_csim(sam3, key, X=None):
     for i, c1 in enumerate(clu1s):
         for j, c2 in enumerate(clu2s):
             CSIM1[i, j] = np.append(
-                X[cl == c1, :][:, cl == c2].sum(1).A.flatten(),
-                X[cl == c2, :][:, cl == c1].sum(1).A.flatten(),
+                np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top],
+                np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top],
             ).mean()
     CSIMth = CSIM1 / sam3.adata.uns['mdata']['knn_1v2'][0].data.size    
     s1 = CSIMth.sum(1).flatten()[:, None]
@@ -871,6 +871,103 @@ def compute_csim(sam3, key, X=None):
 
     return CSIM, clu1, clu2, CSIMth
 
+def transfer_annotations(sm,reference=1, keys=[],num_iters=5, inplace = True):
+    """ Transfer annotations across species using label propagation along the combined manifold.
+    
+    Parameters
+    ----------
+    sm - SAMAP object
+    
+    reference - 1 or 2, optional, default 1
+        The reference species transfers its labels to the target species.
+        1 corresponds to species 1 (`sm.id1`) and 2 corresponds to species 2.
+        
+    keys - str or list, optional, default []
+        The `obs` key or list of keys corresponding to the labels to be propagated.
+        If passed an empty list, all keys in the reference species' `obs` dataframe
+        will be propagated.
+        
+    num_iters - int, optional, default 5
+        The number of steps to run the diffusion propagation.
+        
+    inplace - bool, optional, default True
+        If True, deposit propagated labels in the target species (`sm.sam1/sm.sam2`) `obs`
+        DataFrame. Otherwise, just return the soft-membership DataFrame.
+        
+    Returns
+    -------
+    A Pandas DataFrame with soft membership scores for each cluster in each cell.
+    
+    """
+    
+    sam1 = sm.sam1
+    sam2 = sm.sam2
+    stitched = sm.samap
+    NNM = stitched.adata.obsp['connectivities'].copy()
+    NNM = NNM.multiply(1/NNM.sum(1).A).tocsr()
+    
+    if type(keys) is str:
+        keys = [keys]
+    elif len(keys) == 0:
+        if reference == 1:
+            keys = list(sam1.adata.obs.keys())
+        elif reference == 2:
+            keys = list(sam2.adata.obs.keys())
+        else:
+            raise ValueError('`reference` must be either 1 or 2`')
+    #stitched.load_obs_annotations()
+    for key in keys:
+        if reference == 1:
+            samref=sam1
+            sam=sam2
+        elif reference == 2:
+            samref=sam2
+            sam=sam1
+        else:
+            raise ValueError('`reference` must be either 1 or 2`')
+
+        ANN = samref.adata.obs
+        cl = ANN[key].values.astype('object').astype('<U300')
+        clu,clui = np.unique(cl,return_inverse=True)
+        P = np.zeros((NNM.shape[0],clu.size))
+        Pmask = np.ones((NNM.shape[0],clu.size))
+        if reference == 1:
+            for i in range(samref.adata.shape[0]):
+                P[i,clui[i]]=1.0
+            Pmask[:samref.adata.shape[0],:]=0
+        elif reference == 2:
+            for i in range(samref.adata.shape[0]):
+                P[i+sam.adata.shape[0],clui[i]]=1.0
+            Pmask[sam.adata.shape[0]:,:]=0
+        Pinit = P.copy()
+
+        for j in range(num_iters):
+            P_new = NNM.dot(P)
+            if np.max(np.abs(P_new - P)) < 5e-3:
+                P = P_new
+                s=P.sum(1)[:,None]
+                s[s==0]=1
+                P = P/s
+                break
+            else:
+                P = P_new
+                s=P.sum(1)[:,None]
+                s[s==0]=1
+                P = P/s
+            P = P * Pmask + Pinit
+
+        uncertainty = 1-P.max(1)
+        labels = clu[np.argmax(P,axis=1)]
+        labels[uncertainty==1.0]='NAN'
+        uncertainty[np.argmax(uncertainty)] = 1
+        
+        if inplace:
+            sam.adata.obs[key+'_t'] = pd.Series(labels,index = stitched.adata.obs_names)        
+            sam.adata.obs[key+'_uncertainty'] = pd.Series(uncertainty,index=stitched.adata.obs_names)
+
+        res = pd.DataFrame(data=P,index=stitched.adata.obs_names,columns=clu)
+        res['labels'] = labels
+        return res
 
 def get_mapping_scores(sm, key1, key2):
     """Calculate mapping scores
