@@ -12,7 +12,7 @@ SAMap was developed and tested in an Anaconda python environment with the follow
 
 ## Installation
 
-### Dockerfile installation - Easiest
+### Docker - Easiest
 Assumes Docker is installed on your computer.
 
 Run `bash run_image.sh` to run the Docker image. The script will ask you for the container name (e.g. `samap`), volume mount path (e.g. `~/`), and Jupyter server port (e.g. `8888`). If this is your first time running the image, it will be downloaded from the Docker repository.
