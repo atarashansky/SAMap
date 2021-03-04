@@ -2,7 +2,283 @@ import sklearn.utils.sparsefuncs as sf
 from . import q, ut, pd, sp, np, warnings, sc
 from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
 
+from scipy.stats import rankdata
 
+
+def _log_factorial(n):
+    return np.log(np.arange(1,n+1)).sum()
+def _log_binomial(n,k):
+    return _log_factorial(n) - (_log_factorial(k) + _log_factorial(n-k))
+
+def GOEA(target_genes,GENE_SETS,df_key='GO',goterms=None,fdr_thresh=0.25,p_thresh=1e-3): 
+    """Performs GO term Enrichment Analysis using the hypergeometric distribution.
+    
+    Parameters
+    ----------
+    target_genes - array-like
+        List of target genes from which to find enriched GO terms.
+    GENE_SETS - dictionary or pandas.DataFrame
+        Dictionary where the keys are GO terms and the values are lists of genes associated with each GO term.
+        Ex: {'GO:0000001': ['GENE_A','GENE_B'],
+             'GO:0000002': ['GENE_A','GENE_C','GENE_D']}
+        Make sure to include all available genes that have GO terms in your dataset.
+        
+        ---OR---
+        
+        Pandas DataFrame with genes as the index and GO terms values.
+        Ex: 'GENE_A','GO:0000001',
+            'GENE_A','GO:0000002',
+            'GENE_B','GO:0000001',
+            'GENE_B','GO:0000004',
+            ...
+        If `GENE_SETS` is a pandas DataFrame, the `df_key` parameter should be the name of the column in which
+        the GO terms are stored.       
+    df_key - str, optional, default 'GO'
+        The name of the column in which GO terms are stored. Only used if `GENE_SETS` is a DataFrame.
+    goterms - array-list, optional, default None
+        If provided, only these GO terms will be tested.
+    fdr_thresh - float, optional, default 0.25
+        Filter out GO terms with FDR q value greater than this threshold.
+    p_thresh - float, optional, default 1e-3
+        Filter out GO terms with p value greater than this threshold.
+        
+    Returns:
+    -------
+    enriched_goterms - pandas.DataFrame
+        A Pandas DataFrame of enriched GO terms with FDR q values, p values, and associated genes provided.
+    """    
+    
+    # identify all genes found in `GENE_SETS`
+    
+    if isinstance(GENE_SETS,pd.DataFrame):
+        print('Converting DataFrame into dictionary')
+        genes = np.array(list(GENE_SETS.index))
+        agt = np.array(list(GENE_SETS[df_key].values))
+        idx = np.argsort(agt)
+        genes = genes[idx]
+        agt = agt[idx]
+        bounds = np.where(agt[:-1]!=agt[1:])[0]+1
+        bounds = np.append(np.append(0,bounds),agt.size)
+        bounds_left=bounds[:-1]
+        bounds_right=bounds[1:]
+        genes_lists = [genes[bounds_left[i]:bounds_right[i]] for i in range(bounds_left.size)]
+        GENE_SETS = dict(zip(np.unique(agt),genes_lists))
+    all_genes = np.unique(np.concatenate(list(GENE_SETS.values())))
+    all_genes = np.array(all_genes)
+    
+    # if goterms is None, use all the goterms found in `GENE_SETS`
+    if goterms is None:
+        goterms = np.unique(list(GENE_SETS.keys()))
+    else:
+        goterms = goterms[np.in1d(goterms,np.unique(list(GENE_SETS.keys())))]
+    
+    # ensure that target genes are all present in `all_genes`
+    _,ix = np.unique(target_genes,return_index=True)
+    target_genes=target_genes[np.sort(ix)]
+    target_genes = target_genes[np.in1d(target_genes,all_genes)]
+    
+    # N -- total number of genes
+    N = all_genes.size
+
+    probs=[]
+    probs_genes=[]
+    counter=0
+    # for each go term,
+    for goterm in goterms:
+        if counter%1000==0:
+            pass; #print(counter)
+        counter+=1
+        
+        # identify genes associated with this go term
+        gene_set = np.array(GENE_SETS[goterm])
+        
+        # B -- number of genes associated with this go term
+        B = gene_set.size
+        
+        # b -- number of genes in target associated with this go term
+        gene_set_in_target = gene_set[np.in1d(gene_set,target_genes)]
+        b = gene_set_in_target.size        
+        if b != 0:
+            # calculate the enrichment probability as the cumulative sum of the tail end of a hypergeometric distribution
+            # with parameters (N,B,n,b)
+            n = target_genes.size
+            num_iter = min(n,B)
+            rng = np.arange(b,num_iter+1)
+            probs.append(sum([np.exp(_log_binomial(n,i)+_log_binomial(N-n,B-i) - _log_binomial(N,B)) for i in rng]))
+        else:
+            probs.append(1.0)
+        
+        #append associated genes to a list
+        probs_genes.append(gene_set_in_target)
+        
+    probs = np.array(probs)    
+    probs_genes = np.array([';'.join(x) for x in probs_genes])
+    
+    # adjust p value to correct for multiple testing
+    fdr_q_probs = probs.size*probs / rankdata(probs,method='ordinal')
+    
+    # filter out go terms based on the FDR q value and p value thresholds
+    filt = np.logical_and(fdr_q_probs<fdr_thresh,probs<p_thresh)
+    enriched_goterms = goterms[filt]
+    p_values = probs[filt]
+    fdr_q_probs = fdr_q_probs[filt]    
+    probs_genes=probs_genes[filt]
+    
+    # construct the Pandas DataFrame
+    gns = probs_genes
+    enriched_goterms = pd.DataFrame(data=fdr_q_probs,index=enriched_goterms,columns=['fdr_q_value'])
+    enriched_goterms['p_value'] = p_values
+    enriched_goterms['genes'] = gns
+    
+    # sort in ascending order by the p value
+    enriched_goterms = enriched_goterms.sort_values('p_value')   
+    return enriched_goterms
+
+_KOG_TABLE = dict(A = "RNA processing and mofiication",
+                 B = "Chromatin structure and dynamics",
+                 C = "Energy production and conversion",
+                 D = "Cell cycle control, cell division, chromosome partitioning",
+                 E = "Amino acid transport and metabolism",
+                 F = "Nucleotide transport and metabolism",
+                 G = "Carbohydrate transport and metabolism",
+                 H = "Coenzyme transport and metabolism",
+                 I = "Lipid transport and metabolism",
+                 J = "Translation, ribosomal structure and biogenesis",
+                 K = "Transcription",
+                 L = "Replication, recombination, and repair",
+                 M = "Cell wall membrane/envelope biogenesis",
+                 N = "Cell motility",
+                 O = "Post-translational modification, protein turnover, chaperones",
+                 P = "Inorganic ion transport and metabolism",
+                 Q = "Secondary metabolites biosynthesis, transport and catabolism",
+                 R = "General function prediction only",
+                 S = "Function unknown",
+                 T = "Signal transduction mechanisms",
+                 U = "Intracellular trafficking, secretion, and vesicular transport",
+                 V = "Defense mechanisms",
+                 W = "Extracellular structures",
+                 Y = "Nuclear structure",
+                 Z = "Cytoskeleton")
+
+class KOGEnrichment(object):    
+    def __init__(self,sm,EGG1,k1,EGG2,k2, kog_key = '20', align_thr = 0.1, limit_reference = False, compute_markers=True):
+        EGG1 = EGG1.copy()
+        EGG2 = EGG2.copy()
+        
+        EGG1.index = sm.id1 + '_' + EGG1.index
+        EGG2.index = sm.id2 + '_' + EGG2.index
+        
+        sam1 = sm.sam1
+        sam2 = sm.sam2
+        id1 = sm.id1
+        id2 = sm.id2
+
+        A = pd.concat((EGG1,EGG2),axis=0)
+        RES = pd.DataFrame(A[kog_key])
+        RES.columns=['GO']    
+        RES = RES[(q(RES.values.flatten())!='nan')]
+        
+        # EXPAND RES
+        data = []
+        index = []
+        for i in range(RES.shape[0]):
+            l = list(RES.values[i][0])
+            data.extend(l)
+            index.extend([RES.index[i]]*len(l))
+        
+        RES = pd.DataFrame(index = index,data = data,columns = ['GO'])
+        
+        genes = np.array(list(RES.index))
+        agt = np.array(list(RES['GO'].values))
+        idx = np.argsort(agt)
+        genes = genes[idx]
+        agt = agt[idx]
+        bounds = np.where(agt[:-1]!=agt[1:])[0]+1
+        bounds = np.append(np.append(0,bounds),agt.size)
+        bounds_left=bounds[:-1]
+        bounds_right=bounds[1:]
+        genes_lists = [genes[bounds_left[i]:bounds_right[i]] for i in range(bounds_left.size)]
+        GENE_SETS = dict(zip(np.unique(agt),genes_lists)) 
+        for cc in GENE_SETS.keys():
+            GENE_SETS[cc]=np.unique(GENE_SETS[cc])
+        
+        print('Finding enriched gene pairs...')
+        gpf = GenePairFinder(sm,k1=k1,k2=k2,compute_markers=compute_markers)
+        gene_pairs = gpf.find_all(thr=align_thr)   
+        self.gene_pairs = gene_pairs
+        
+        self.DICT = {}
+        for c in gene_pairs.columns:
+            self.DICT[c] = q(gene_pairs[c].values.flatten()[q(gene_pairs[c].values.flatten())!='nan'])
+
+        if limit_reference:
+            all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())),';')))
+        else:
+            all_genes = np.unique(np.concatenate((q(sam1.adata.var_names),q(sam2.adata.var_names))))
+        for d in GENE_SETS.keys():
+            GENE_SETS[d] = GENE_SETS[d][np.in1d(GENE_SETS[d],all_genes)]
+
+
+        self.CAT_NAMES = np.unique(q(RES['GO']))
+        self.GENE_SETS = GENE_SETS
+        self.RES = RES
+        
+    def calculate_enrichment(self):
+        DICT = self.DICT
+        RES = self.RES
+        CAT_NAMES = self.CAT_NAMES
+        GENE_SETS = self.GENE_SETS
+        pairs = np.array(list(DICT.keys()))
+        all_nodes = np.unique(np.concatenate(substr(pairs,';')))
+
+        CCG={}
+        P=[]
+        for ik in range(len(all_nodes)):
+            genes=[]
+            nodes = all_nodes[ik]
+            for j in range(len(pairs)):
+                n1,n2 = pairs[j].split(';')
+                if n1 == nodes or n2 == nodes:
+                    g1,g2 = substr(DICT[pairs[j]],';')
+                    genes.append(np.append(g1,g2))
+            if len(genes) > 0:
+                genes = np.concatenate(genes)
+                genes = np.unique(genes)
+            else:
+                genes = np.array([])
+            CCG[all_nodes[ik]] = genes
+
+        HM = np.zeros((len(CAT_NAMES),len(all_nodes)))
+        HMe = np.zeros((len(CAT_NAMES),len(all_nodes)))
+        HMg = np.zeros((len(CAT_NAMES),len(all_nodes)),dtype='object')
+        for ii,cln in enumerate(all_nodes):
+            print(cln)
+            g = CCG[cln]    
+
+            if g.size > 0:
+                gi = g[np.in1d(g,q(RES.index))]
+                ix = np.where(np.in1d(q(RES.index),gi))[0]
+                res = RES.iloc[ix]
+                goterms = np.unique(q(res['GO']))
+                goterms = goterms[goterms!='S']  
+                result = GOEA(gi,GENE_SETS,goterms=goterms,fdr_thresh=100,p_thresh=100)
+
+                lens = np.array([len(np.unique(x.split(';'))) for x in result['genes'].values])
+                F = -np.log10(result['p_value'])
+                gt,vals = F.index,F.values
+                Z = pd.DataFrame(data=np.arange(CAT_NAMES.size)[None,:],columns=CAT_NAMES)
+                if gt.size>0:
+                    HM[Z[gt].values.flatten(),ii] = vals
+                    HMe[Z[gt].values.flatten(),ii] = lens
+                    HMg[Z[gt].values.flatten(),ii] = [';'.join(np.unique(x.split(';'))) for x in result['genes'].values]
+
+        CAT_NAMES = [_KOG_TABLE[x] for x in CAT_NAMES]
+        SC = pd.DataFrame(data = HM,index=CAT_NAMES,columns=all_nodes).T
+        SCe = pd.DataFrame(data = HMe,index=CAT_NAMES,columns=all_nodes).T
+        SCg = pd.DataFrame(data = HMg,index=CAT_NAMES,columns=all_nodes).T
+        SCg.values[SCg.values==0]=''
+        return SC, SCe, SCg
+    
 def sankey_plot(sm,key1,key2,align_thr=0.1):
     """Generate a sankey plot
     
