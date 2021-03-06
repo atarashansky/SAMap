@@ -161,19 +161,36 @@ _KOG_TABLE = dict(A = "RNA processing and mofiication",
                  Z = "Cytoskeleton")
 
 class KOGEnrichment(object):    
-    def __init__(self,sm,EGG1,k1,EGG2,k2, kog_key = '20', align_thr = 0.1, limit_reference = False, compute_markers=True):
-        EGG1 = EGG1.copy()
-        EGG2 = EGG2.copy()
-        
-        EGG1.index = sm.id1 + '_' + EGG1.index
-        EGG2.index = sm.id2 + '_' + EGG2.index
-        
-        sam1 = sm.sam1
-        sam2 = sm.sam2
-        id1 = sm.id1
-        id2 = sm.id2
+    def __init__(self,sms, EGGS, keys, kog_key = 'best_OG_cat', align_thr = 0.1, limit_reference = False, compute_markers=True):
+        # get dictionary of sam objects
+        if not isinstance(sms,list):
+            sms = [sms]
+        if not isinstance(EGGS,list):
+            EGGS = [EGGS]
+        if not isinstance(keys,list):
+            keys = [keys]
 
-        A = pd.concat((EGG1,EGG2),axis=0)
+        SAMS={}
+        for sm in sms:
+            SAMS[sm.id1]=sm.sam1
+            SAMS[sm.id2]=sm.sam2
+        
+        # figure out which species corresponds to which EGGNOG table
+        keys2 = {}
+        for i in range(len(EGGS)):
+            EGGS[i] = EGGS[i].copy()
+            
+            genes = q(EGGS[i].index)
+            overlap=[]
+            ks = list(SAMS.keys())
+            for k in ks:
+                overlap.append(np.in1d(genes,['_'.join(x.split('_')[1:]) for x in SAMS[k].adata.var_names]).mean())
+            k = ks[np.array(overlap).argmax()]
+            EGGS[i].index = k+'_'+EGGS[i].index
+            keys2[k] = keys[i]
+        keys = keys2    
+        # concatenate EGGS
+        A = pd.concat(EGGS,axis=0)
         RES = pd.DataFrame(A[kog_key])
         RES.columns=['GO']    
         RES = RES[(q(RES.values.flatten())!='nan')]
@@ -183,6 +200,9 @@ class KOGEnrichment(object):
         index = []
         for i in range(RES.shape[0]):
             l = list(RES.values[i][0])
+            l = np.array([str(x) if str(x).isalpha() else '' for x in l])
+            l = l[l!= '']
+            l = list(l)
             data.extend(l)
             index.extend([RES.index[i]]*len(l))
         
@@ -202,10 +222,13 @@ class KOGEnrichment(object):
         for cc in GENE_SETS.keys():
             GENE_SETS[cc]=np.unique(GENE_SETS[cc])
         
-        print('Finding enriched gene pairs...')
-        gpf = GenePairFinder(sm,k1=k1,k2=k2,compute_markers=compute_markers)
-        gene_pairs = gpf.find_all(thr=align_thr)   
-        self.gene_pairs = gene_pairs
+        G = []
+        for sm in sms:
+            print(f'Finding enriched gene pairs between {sm.id1} and {sm.id2}...')
+            gpf = GenePairFinder(sm,k1=keys[sm.id1],k2=keys[sm.id2],compute_markers=compute_markers)
+            gene_pairs = gpf.find_all(thr=align_thr)   
+            G.append(gene_pairs)
+        gene_pairs = pd.concat(G,axis=1)
         
         self.DICT = {}
         for c in gene_pairs.columns:
@@ -214,7 +237,10 @@ class KOGEnrichment(object):
         if limit_reference:
             all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())),';')))
         else:
-            all_genes = np.unique(np.concatenate((q(sam1.adata.var_names),q(sam2.adata.var_names))))
+            all_genes = []
+            for k in SAMS.keys():
+                all_genes.extend(q(SAMS[k].adata.var_names))
+            all_genes = np.unique(all_genes)
         for d in GENE_SETS.keys():
             GENE_SETS[d] = GENE_SETS[d][np.in1d(GENE_SETS[d],all_genes)]
 
@@ -370,6 +396,7 @@ class GenePairFinder(object):
         self.v2 = v2
         self.k1 = k1
         self.k2 = k2
+        
         if compute_markers:
             self.find_markers()
 
@@ -380,18 +407,13 @@ class GenePairFinder(object):
             )
         )        
         import gc
-        
-        find_cluster_markers(self.s1, self.k1)
-        find_cluster_markers(self.s2, self.k2)
-        gc.collect()
-        self.s1.dispersion_ranking_NN(save_avgs=True)        
-        self.s1.identify_marker_genes_sw(labels=self.k1)
-        del self.s1.adata.layers['X_knn_avg']        
-        gc.collect()        
-        self.s2.dispersion_ranking_NN(save_avgs=True)        
-        self.s2.identify_marker_genes_sw(labels=self.k2)
-        del self.s2.adata.layers['X_knn_avg']
-        gc.collect() # the collects are trying to deal with a weird memory leak issue
+        if self.k1+'_scores' not in self.s1.varm.keys():
+            find_cluster_markers(self.s1, self.k1)
+            gc.collect()
+            
+        if self.k2+'_scores' not in self.s2.varm.keys():
+            find_cluster_markers(self.s2, self.k2)
+            gc.collect()
         
     def find_all(self,thr=0.1,**kwargs):
         """Find enriched gene pairs in all pairs of mapped cell types.
@@ -480,8 +502,8 @@ class GenePairFinder(object):
         G = q(
             G[
                 np.logical_and(
-                    q(self.s1.adata.var[self.k1 + ";;" + n1 + "_pval"][G1] < thr),
-                    q(self.s2.adata.var[self.k2 + ";;" + n2 + "_pval"][G2] < thr),
+                    q(self.s1.adata.varm[self.k1 + "_pvals"][n1][G1] < thr),
+                    q(self.s2.adata.varm[self.k2 + "_pvals"][n2][G2] < thr),
                 )
             ]
         )
@@ -609,10 +631,7 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
     sam.adata.raw = sam.adata_raw
     a,c = np.unique(q(sam.adata.obs[key]),return_counts=True)
     t = a[c==1]
-    for i in range(t.size):
-        sam.adata.var[key+';;'+t[i]]=0
-        sam.adata.var[key+';;'+t[i]+'_pval']=1
-        
+
     adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)].copy()
     sc.tl.rank_genes_groups(
         adata,
@@ -629,6 +648,8 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
     SCORES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["scores"])
     if not inplace:
         return NAMES, PVALS, SCORES
+    dfs1 = []
+    dfs2 = []
     for i in range(SCORES.shape[1]):
         names = NAMES.iloc[:, i]
         scores = SCORES.iloc[:, i]
@@ -637,12 +658,22 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
         scores[scores < 0] = 0
         pvals = q(pvals)
         scores = q(scores)
-        sam.adata.var[key + ";;" + SCORES.columns[i]] = pd.DataFrame(
-            data=scores[None, :], columns=names
-        )[sam.adata.var_names].values.flatten()
-        sam.adata.var[key + ";;" + SCORES.columns[i] + "_pval"] = pd.DataFrame(
-            data=pvals[None, :], columns=names
-        )[sam.adata.var_names].values.flatten()
+        
+        dfs1.append(pd.DataFrame(
+            data=scores[None, :], index = SCORES.columns[i], columns=names
+        )[sam.adata.var_names].T)
+        dfs2.append(pd.DataFrame(
+            data=pvals[None, :], index = SCORES.columns[i], columns=names
+        )[sam.adata.var_names].T)
+    df1 = pd.concat(dfs1,axis=1)
+    df2 = pd.concat(dfs2,axis=1)
+    
+    sam.adata.varm[key+'_scores'] = df1
+    sam.adata.varm[key+'_pvals'] = df2
+    
+    for i in range(t.size):
+        sam.adata.varm[key+'_scores'][t[i]]=0
+        sam.adata.varm[key+'_pvals'][t[i]]=1
     
 
 
@@ -1098,15 +1129,15 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
             for i,sam,n in zip([0,1,2],[sam1,sam2,sam3],[A,B,C]):
                 if compute_markers:
                     find_cluster_markers(sam,keys[i])
-                a = sam.adata.var[keys[i]+';;'+sam.adata.obs[keys[i]].cat.categories.astype('object')].T[q(FINAL[n+' gene'])].T
-                p = sam.adata.var[keys[i]+';;'+sam.adata.obs[keys[i]].cat.categories.astype('object')+'_pval'].T[q(FINAL[n+' gene'])].T.values
+                a = sam.adata.varm[keys[i]+'_scores'].T[q(FINAL[n+' gene'])].T
+                p = sam.adata.varm[keys[i]+'_pvals'].T[q(FINAL[n+' gene'])].T.values
                 p[p>pval_thr]=1
                 p[p<1]=0
                 p=1-p
-                f = substr(a.columns[a.values.argmax(1)],';;',1)
+                f = a.columns[a.values.argmax(1)]
                 res=[]
                 for i in range(p.shape[0]):
-                    res.append(';'.join(np.unique(np.append(f[i],substr(a.columns[p[i,:]==1],';;',1)))))            
+                    res.append(';'.join(np.unique(np.append(f[i],a.columns[p[i,:]==1]))))            
                 FINAL[n+' cell type'] = res
     FINAL = FINAL.sort_values('min_corr',ascending=False)
     return FINAL
