@@ -160,14 +160,44 @@ _KOG_TABLE = dict(A = "RNA processing and mofiication",
                  Y = "Nuclear structure",
                  Z = "Cytoskeleton")
 
+import gc
+from collections.abc import Iterable
 class KOGEnrichment(object):    
-    def __init__(self,sms, EGGS, keys, kog_key = 'best_OG_cat', align_thr = 0.1, limit_reference = False, compute_markers=True):
+    def __init__(self,sms, EGGS, keys, kog_key = 'best_OG_cat', align_thr = 0.1, limit_reference = False, n_top = 0):
+        """
+        Parameters
+        ----------
+        sms - list or tuple of SAMAP objects
+        
+        EGGS - list or tuple of pandas.DataFrame Eggnog annotation (one per species present in the input SAMAP objects)
+        
+        keys - list or tuple of column keys from `.adata.obs` DataFrames (one per species present in the input SAMAP objects)
+            Cell type mappings will be computed between these annotation vectors.
+            
+        kog_key - str, optional, default 'best_OG_cat'
+            The column name with KOG annotations in the Eggnog annotation DataFrames.
+            
+        align_thr - float, optional, default 0.1
+            The alignment score below which to filter out cell type mappings
+            
+        limit_reference - bool, optional, default False
+            If True, limits the background set of genes to include only those that are enriched in any cell type mappings
+            If False, the background set of genes will include all genes present in Eggnog dataframes.
+            
+        n_top: int, optional, default 0
+            If `n_top` is 0, average the alignment scores for all cells in a pair of clusters.
+            Otherwise, average the alignment scores of the top `n_top` cells in a pair of clusters.
+            Set this to non-zero if you suspect there to be subpopulations of your cell types mapping
+            to distinct cell types in the other species.
+            
+        
+        """
         # get dictionary of sam objects
-        if not isinstance(sms,list):
+        if not isinstance(sms,Iterable):
             sms = [sms]
-        if not isinstance(EGGS,list):
+        if not isinstance(EGGS,Iterable):
             EGGS = [EGGS]
-        if not isinstance(keys,list):
+        if not isinstance(keys,Iterable):
             keys = [keys]
 
         SAMS={}
@@ -175,6 +205,12 @@ class KOGEnrichment(object):
             SAMS[sm.id1]=sm.sam1
             SAMS[sm.id2]=sm.sam2
         
+        # link up SAM memories.
+        for sm in sms:
+            sm.sam1 = SAMS[sm.id1]
+            sm.sam2 = SAMS[sm.id2]
+            gc.collect()
+            
         # figure out which species corresponds to which EGGNOG table
         keys2 = {}
         for i in range(len(EGGS)):
@@ -225,8 +261,8 @@ class KOGEnrichment(object):
         G = []
         for sm in sms:
             print(f'Finding enriched gene pairs between {sm.id1} and {sm.id2}...')
-            gpf = GenePairFinder(sm,k1=keys[sm.id1],k2=keys[sm.id2],compute_markers=compute_markers)
-            gene_pairs = gpf.find_all(thr=align_thr)   
+            gpf = GenePairFinder(sm,k1=keys[sm.id1],k2=keys[sm.id2])
+            gene_pairs = gpf.find_all(thr=align_thr,n_top=n_top)   
             G.append(gene_pairs)
         gene_pairs = pd.concat(G,axis=1)
         
@@ -237,10 +273,8 @@ class KOGEnrichment(object):
         if limit_reference:
             all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())),';')))
         else:
-            all_genes = []
-            for k in SAMS.keys():
-                all_genes.extend(q(SAMS[k].adata.var_names))
-            all_genes = np.unique(all_genes)
+            all_genes = np.unique(np.array(list(A.index)))
+        
         for d in GENE_SETS.keys():
             GENE_SETS[d] = GENE_SETS[d][np.in1d(GENE_SETS[d],all_genes)]
 
@@ -358,7 +392,7 @@ def sankey_plot(M,align_thr=0.1):
 
 class GenePairFinder(object):
     def __init__(self, sm, k1="leiden_clusters",
-                 k2="leiden_clusters",compute_markers=True):
+                 k2="leiden_clusters"):
         """Find enriched gene pairs in cell type mappings.
         
         sm: SAMAP object
@@ -366,11 +400,6 @@ class GenePairFinder(object):
         k1 & k2: str, optional, default 'leiden_clusers'
             Keys corresponding to the annotation vector in `s1.adata.obs` and `s2.adata.obs`.
 
-        compute_markers: bool, optional, default True
-            If True, compute differentially expressed genes using `find_cluster_markers`. 
-            If False, assumes differentially expressed genes were already computed and stored
-            in `.adata.var`.
-        
         """
         self.sm = sm
         self.s1 = sm.sam1
@@ -393,9 +422,8 @@ class GenePairFinder(object):
         self.v2 = v2
         self.k1 = k1
         self.k2 = k2
-        
-        if compute_markers:
-            self.find_markers()
+
+        self.find_markers()
 
     def find_markers(self):
         print(
@@ -412,7 +440,7 @@ class GenePairFinder(object):
             find_cluster_markers(self.s2, self.k2)
             gc.collect()
         
-    def find_all(self,thr=0.1,**kwargs):
+    def find_all(self,thr=0.1,n_top=0,**kwargs):
         """Find enriched gene pairs in all pairs of mapped cell types.
         
         Parameters
@@ -420,6 +448,12 @@ class GenePairFinder(object):
         thr: float, optional, default 0.2
             Alignment score threshold above which to consider cell type pairs mapped.
         
+        n_top: int, optional, default 0
+            If `n_top` is 0, average the alignment scores for all cells in a pair of clusters.
+            Otherwise, average the alignment scores of the top `n_top` cells in a pair of clusters.
+            Set this to non-zero if you suspect there to be subpopulations of your cell types mapping
+            to distinct cell types in the other species.        
+            
         Keyword arguments
         -----------------
         Keyword arguments to `find_genes` accepted here.
@@ -428,7 +462,7 @@ class GenePairFinder(object):
         -------
         Table of enriched gene pairs for each cell type pair
         """        
-        _,_,M = get_mapping_scores(self.sm, self.k1, self.k2)
+        _,_,M = get_mapping_scores(self.sm, self.k1, self.k2, n_top = n_top)
         M=M.T
         ax = q(M.index)
         bx = q(M.columns)
