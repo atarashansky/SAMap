@@ -19,6 +19,9 @@ Run `bash run_image.sh` to run the Docker image. The script will ask you for the
 
 Running the Docker image will spawn a jupyter notebook server on your specified port.
 
+### pip
+
+`pip install samap`
 
 ### Manual installation
 Download Anacodna from here:
