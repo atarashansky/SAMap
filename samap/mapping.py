@@ -133,7 +133,7 @@ class SAMAP(object):
                 weight_PCs=False,
                 k=20,
                 n_genes=3000,
-                weight_mode='dispersion'
+                weight_mode='combined'
             )
             f1n = ".".join(data1.split(".")[:-1]) + "_pr.h5ad"
             
@@ -173,7 +173,7 @@ class SAMAP(object):
                 weight_PCs=False,
                 k=20,
                 n_genes=3000,
-                weight_mode='dispersion'
+                weight_mode='combined'
             )
             f2n = ".".join(data2.split(".")[:-1]) + "_pr.h5ad"
             
