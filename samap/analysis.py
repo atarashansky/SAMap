@@ -660,10 +660,10 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
         scores = q(scores)
         
         dfs1.append(pd.DataFrame(
-            data=scores[None, :], index = SCORES.columns[i], columns=names
+            data=scores[None, :], index = [SCORES.columns[i]], columns=names
         )[sam.adata.var_names].T)
         dfs2.append(pd.DataFrame(
-            data=pvals[None, :], index = SCORES.columns[i], columns=names
+            data=pvals[None, :], index = [SCORES.columns[i]], columns=names
         )[sam.adata.var_names].T)
     df1 = pd.concat(dfs1,axis=1)
     df2 = pd.concat(dfs2,axis=1)
