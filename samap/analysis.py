@@ -665,9 +665,15 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
     df1 = pd.concat(dfs1,axis=1)
     df2 = pd.concat(dfs2,axis=1)
     
-    sam.adata.varm[key+'_scores'] = df1
-    sam.adata.varm[key+'_pvals'] = df2
-    
+    try:
+        sam.adata.varm[key+'_scores'] = df1
+        sam.adata.varm[key+'_pvals'] = df2
+    except:
+        sam.adata.varm.dim_names = sam.adata.var_names
+        sam.adata.varm.dim_names = sam.adata.var_names
+        sam.adata.varm[key+'_scores'] = df1
+        sam.adata.varm[key+'_pvals'] = df2        
+        
     for i in range(t.size):
         sam.adata.varm[key+'_scores'][t[i]]=0
         sam.adata.varm[key+'_pvals'][t[i]]=1
