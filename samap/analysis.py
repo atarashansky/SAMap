@@ -407,11 +407,11 @@ class GenePairFinder(object):
             )
         )        
         import gc
-        if self.k1+'_scores' not in self.s1.varm.keys():
+        if self.k1+'_scores' not in self.s1.adata.varm.keys():
             find_cluster_markers(self.s1, self.k1)
             gc.collect()
             
-        if self.k2+'_scores' not in self.s2.varm.keys():
+        if self.k2+'_scores' not in self.s2.adata.varm.keys():
             find_cluster_markers(self.s2, self.k2)
             gc.collect()
         
