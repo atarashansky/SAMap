@@ -1143,7 +1143,10 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
     return FINAL
 
 
-def compute_csim(sam3, key, X=None, n_top = 100):
+def compute_csim(sam3, key, X=None, n_top = 0):
+    if n_top ==0:
+        n_top = 100000000
+        
     cl1 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch1"])
     clu1,cluc1 = np.unique(cl1,return_counts=True)
     cl2 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch2"])
@@ -1276,14 +1279,19 @@ def transfer_annotations(sm,reference=1, keys=[],num_iters=5, inplace = True):
         res['labels'] = labels
         return res
 
-def get_mapping_scores(sm, key1, key2):
+def get_mapping_scores(sm, key1, key2, n_top = 0):
     """Calculate mapping scores
     Parameters
     ----------
     sm: SAMAP object
     
     key1 & key2: str, annotation vector keys for species 1 and 2
-
+    
+    n_top: int, optional, default 0
+        If `n_top` is 0, average the alignment scores for all cells in a pair of clusters.
+        Otherwise, average the alignment scores of the top `n_top` cells in a pair of clusters.
+        Set this to non-zero if you suspect there to be subpopulations of your cell types mapping
+        to distinct cell types in the other species.
     Returns
     -------
     D1 - table of highest mapping scores for cell types in species 1
@@ -1303,7 +1311,7 @@ def get_mapping_scores(sm, key1, key2):
     )
 
     samap.adata.obs["{};{}_mapping_scores".format(key1,key2)] = pd.Categorical(cl)
-    _, clu1, clu2, CSIMth = compute_csim(samap, "{};{}_mapping_scores".format(key1,key2))
+    _, clu1, clu2, CSIMth = compute_csim(samap, "{};{}_mapping_scores".format(key1,key2), n_top = n_top)
 
     A = pd.DataFrame(data=CSIMth, index=clu1, columns=clu2)
     i = np.argsort(-A.values.max(0).flatten())
