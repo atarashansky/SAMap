@@ -273,7 +273,10 @@ class FunctionalEnrichment(object):
         
         self.DICT = {}
         for c in gene_pairs.columns:
-            self.DICT[c] = q(gene_pairs[c].values.flatten()[q(gene_pairs[c].values.flatten())!='nan'])
+            x = q(gene_pairs[c].values.flatten()).astype('str')
+            ff = x!='nan'
+            if ff.sum()>0:
+                self.DICT[c] = x[ff]
 
         if limit_reference:
             all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())),';')))
@@ -917,8 +920,8 @@ def convert_eggnog_to_homologs(sm, A, B, og_key = 'eggNOG_OGs', taxon=2759):
 
     for i in range(og.size):
         n = orthology_groups[i].split(",")
-        taxa = substr(n, "@", 1)
-        if (taxa == "2759").sum() > 1:
+        taxa = substr(substr(n, "@", 1),'|',0)
+        if (taxa == "2759").sum() > 1 and taxon == '2759':
             og[i] = ""
         else:
             og[i] = "".join(np.array(n)[taxa == taxon])
