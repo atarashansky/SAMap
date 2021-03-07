@@ -2,21 +2,437 @@ import sklearn.utils.sparsefuncs as sf
 from . import q, ut, pd, sp, np, warnings, sc
 from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
 
+from scipy.stats import rankdata
 
-def sankey_plot(sm,key1,key2,align_thr=0.1):
+
+def _log_factorial(n):
+    return np.log(np.arange(1,n+1)).sum()
+def _log_binomial(n,k):
+    return _log_factorial(n) - (_log_factorial(k) + _log_factorial(n-k))
+
+def GOEA(target_genes,GENE_SETS,df_key='GO',goterms=None,fdr_thresh=0.25,p_thresh=1e-3): 
+    """Performs GO term Enrichment Analysis using the hypergeometric distribution.
+    
+    Parameters
+    ----------
+    target_genes - array-like
+        List of target genes from which to find enriched GO terms.
+    GENE_SETS - dictionary or pandas.DataFrame
+        Dictionary where the keys are GO terms and the values are lists of genes associated with each GO term.
+        Ex: {'GO:0000001': ['GENE_A','GENE_B'],
+             'GO:0000002': ['GENE_A','GENE_C','GENE_D']}
+        Make sure to include all available genes that have GO terms in your dataset.
+        
+        ---OR---
+        
+        Pandas DataFrame with genes as the index and GO terms values.
+        Ex: 'GENE_A','GO:0000001',
+            'GENE_A','GO:0000002',
+            'GENE_B','GO:0000001',
+            'GENE_B','GO:0000004',
+            ...
+        If `GENE_SETS` is a pandas DataFrame, the `df_key` parameter should be the name of the column in which
+        the GO terms are stored.       
+    df_key - str, optional, default 'GO'
+        The name of the column in which GO terms are stored. Only used if `GENE_SETS` is a DataFrame.
+    goterms - array-list, optional, default None
+        If provided, only these GO terms will be tested.
+    fdr_thresh - float, optional, default 0.25
+        Filter out GO terms with FDR q value greater than this threshold.
+    p_thresh - float, optional, default 1e-3
+        Filter out GO terms with p value greater than this threshold.
+        
+    Returns:
+    -------
+    enriched_goterms - pandas.DataFrame
+        A Pandas DataFrame of enriched GO terms with FDR q values, p values, and associated genes provided.
+    """    
+    
+    # identify all genes found in `GENE_SETS`
+    
+    if isinstance(GENE_SETS,pd.DataFrame):
+        print('Converting DataFrame into dictionary')
+        genes = np.array(list(GENE_SETS.index))
+        agt = np.array(list(GENE_SETS[df_key].values))
+        idx = np.argsort(agt)
+        genes = genes[idx]
+        agt = agt[idx]
+        bounds = np.where(agt[:-1]!=agt[1:])[0]+1
+        bounds = np.append(np.append(0,bounds),agt.size)
+        bounds_left=bounds[:-1]
+        bounds_right=bounds[1:]
+        genes_lists = [genes[bounds_left[i]:bounds_right[i]] for i in range(bounds_left.size)]
+        GENE_SETS = dict(zip(np.unique(agt),genes_lists))
+    all_genes = np.unique(np.concatenate(list(GENE_SETS.values())))
+    all_genes = np.array(all_genes)
+    
+    # if goterms is None, use all the goterms found in `GENE_SETS`
+    if goterms is None:
+        goterms = np.unique(list(GENE_SETS.keys()))
+    else:
+        goterms = goterms[np.in1d(goterms,np.unique(list(GENE_SETS.keys())))]
+    
+    # ensure that target genes are all present in `all_genes`
+    _,ix = np.unique(target_genes,return_index=True)
+    target_genes=target_genes[np.sort(ix)]
+    target_genes = target_genes[np.in1d(target_genes,all_genes)]
+    
+    # N -- total number of genes
+    N = all_genes.size
+
+    probs=[]
+    probs_genes=[]
+    counter=0
+    # for each go term,
+    for goterm in goterms:
+        if counter%1000==0:
+            pass; #print(counter)
+        counter+=1
+        
+        # identify genes associated with this go term
+        gene_set = np.array(GENE_SETS[goterm])
+        
+        # B -- number of genes associated with this go term
+        B = gene_set.size
+        
+        # b -- number of genes in target associated with this go term
+        gene_set_in_target = gene_set[np.in1d(gene_set,target_genes)]
+        b = gene_set_in_target.size        
+        if b != 0:
+            # calculate the enrichment probability as the cumulative sum of the tail end of a hypergeometric distribution
+            # with parameters (N,B,n,b)
+            n = target_genes.size
+            num_iter = min(n,B)
+            rng = np.arange(b,num_iter+1)
+            probs.append(sum([np.exp(_log_binomial(n,i)+_log_binomial(N-n,B-i) - _log_binomial(N,B)) for i in rng]))
+        else:
+            probs.append(1.0)
+        
+        #append associated genes to a list
+        probs_genes.append(gene_set_in_target)
+        
+    probs = np.array(probs)    
+    probs_genes = np.array([';'.join(x) for x in probs_genes])
+    
+    # adjust p value to correct for multiple testing
+    fdr_q_probs = probs.size*probs / rankdata(probs,method='ordinal')
+    
+    # filter out go terms based on the FDR q value and p value thresholds
+    filt = np.logical_and(fdr_q_probs<fdr_thresh,probs<p_thresh)
+    enriched_goterms = goterms[filt]
+    p_values = probs[filt]
+    fdr_q_probs = fdr_q_probs[filt]    
+    probs_genes=probs_genes[filt]
+    
+    # construct the Pandas DataFrame
+    gns = probs_genes
+    enriched_goterms = pd.DataFrame(data=fdr_q_probs,index=enriched_goterms,columns=['fdr_q_value'])
+    enriched_goterms['p_value'] = p_values
+    enriched_goterms['genes'] = gns
+    
+    # sort in ascending order by the p value
+    enriched_goterms = enriched_goterms.sort_values('p_value')   
+    return enriched_goterms
+
+_KOG_TABLE = dict(A = "RNA processing and mofiication",
+                 B = "Chromatin structure and dynamics",
+                 C = "Energy production and conversion",
+                 D = "Cell cycle control, cell division, chromosome partitioning",
+                 E = "Amino acid transport and metabolism",
+                 F = "Nucleotide transport and metabolism",
+                 G = "Carbohydrate transport and metabolism",
+                 H = "Coenzyme transport and metabolism",
+                 I = "Lipid transport and metabolism",
+                 J = "Translation, ribosomal structure and biogenesis",
+                 K = "Transcription",
+                 L = "Replication, recombination, and repair",
+                 M = "Cell wall membrane/envelope biogenesis",
+                 N = "Cell motility",
+                 O = "Post-translational modification, protein turnover, chaperones",
+                 P = "Inorganic ion transport and metabolism",
+                 Q = "Secondary metabolites biosynthesis, transport and catabolism",
+                 R = "General function prediction only",
+                 S = "Function unknown",
+                 T = "Signal transduction mechanisms",
+                 U = "Intracellular trafficking, secretion, and vesicular transport",
+                 V = "Defense mechanisms",
+                 W = "Extracellular structures",
+                 Y = "Nuclear structure",
+                 Z = "Cytoskeleton")
+
+import gc
+from collections.abc import Iterable
+class FunctionalEnrichment(object):    
+    def __init__(self,sms, EGGS, keys, col_key = 'best_OG_cat', delimiter = '', align_thr = 0.1, limit_reference = False, n_top = 0):
+        """Performs functional enrichment analysis on gene pairs enriched
+        in mapped cell types using functional annotations output by Eggnog.
+        
+        Parameters
+        ----------
+        sms - list or tuple of SAMAP objects
+        
+        EGGS - list or tuple of pandas.DataFrame Eggnog annotation (one per species present in the input SAMAP objects)
+        
+        keys - list or tuple of column keys from `.adata.obs` DataFrames (one per species present in the input SAMAP objects)
+            Cell type mappings will be computed between these annotation vectors.
+            
+        col_key - str, optional, default 'best_OG_cat'
+            The column name with functional annotations in the Eggnog annotation DataFrames.
+            
+        align_thr - float, optional, default 0.1
+            The alignment score below which to filter out cell type mappings
+            
+        limit_reference - bool, optional, default False
+            If True, limits the background set of genes to include only those that are enriched in any cell type mappings
+            If False, the background set of genes will include all genes present in Eggnog dataframes.
+            
+        n_top: int, optional, default 0
+            If `n_top` is 0, average the alignment scores for all cells in a pair of clusters.
+            Otherwise, average the alignment scores of the top `n_top` cells in a pair of clusters.
+            Set this to non-zero if you suspect there to be subpopulations of your cell types mapping
+            to distinct cell types in the other species.
+
+        """
+        # get dictionary of sam objects
+        if not isinstance(sms,Iterable):
+            sms = [sms]
+        if not isinstance(EGGS,Iterable):
+            EGGS = [EGGS]
+        if not isinstance(keys,Iterable):
+            keys = [keys]
+
+        SAMS={}
+        for sm in sms:
+            SAMS[sm.id1]=sm.sam1
+            SAMS[sm.id2]=sm.sam2
+        
+        # link up SAM memories.
+        for sm in sms:
+            sm.sam1 = SAMS[sm.id1]
+            sm.sam2 = SAMS[sm.id2]
+            gc.collect()
+            
+        # figure out which species corresponds to which EGGNOG table
+        keys2 = {}
+        for i in range(len(EGGS)):
+            EGGS[i] = EGGS[i].copy()
+            
+            genes = q(EGGS[i].index)
+            overlap=[]
+            ks = list(SAMS.keys())
+            for k in ks:
+                overlap.append(np.in1d(genes,['_'.join(x.split('_')[1:]) for x in SAMS[k].adata.var_names]).mean())
+            k = ks[np.array(overlap).argmax()]
+            EGGS[i].index = k+'_'+EGGS[i].index
+            keys2[k] = keys[i]
+        keys = keys2    
+        # concatenate EGGS
+        A = pd.concat(EGGS,axis=0)
+        RES = pd.DataFrame(A[col_key])
+        RES.columns=['GO']    
+        RES = RES[(q(RES.values.flatten())!='nan')]
+        
+        # EXPAND RES
+        data = []
+        index = []
+        for i in range(RES.shape[0]):
+            if delimiter == '':
+                l = list(RES.values[i][0])
+                l = np.array([str(x) if str(x).isalpha() else '' for x in l])
+                l = l[l!= '']
+                l = list(l)
+            else:
+                l = RES.values[i][0].split(delimiter)
+                
+            data.extend(l)
+            index.extend([RES.index[i]]*len(l))
+        
+        RES = pd.DataFrame(index = index,data = data,columns = ['GO'])
+        
+        genes = np.array(list(RES.index))
+        agt = np.array(list(RES['GO'].values))
+        idx = np.argsort(agt)
+        genes = genes[idx]
+        agt = agt[idx]
+        bounds = np.where(agt[:-1]!=agt[1:])[0]+1
+        bounds = np.append(np.append(0,bounds),agt.size)
+        bounds_left=bounds[:-1]
+        bounds_right=bounds[1:]
+        genes_lists = [genes[bounds_left[i]:bounds_right[i]] for i in range(bounds_left.size)]
+        GENE_SETS = dict(zip(np.unique(agt),genes_lists)) 
+        for cc in GENE_SETS.keys():
+            GENE_SETS[cc]=np.unique(GENE_SETS[cc])
+        
+        G = []
+        for sm in sms:
+            print(f'Finding enriched gene pairs between {sm.id1} and {sm.id2}...')
+            gpf = GenePairFinder(sm,k1=keys[sm.id1],k2=keys[sm.id2])
+            gene_pairs = gpf.find_all(thr=align_thr,n_top=n_top)   
+            G.append(gene_pairs)
+        gene_pairs = pd.concat(G,axis=1)
+        
+        self.DICT = {}
+        for c in gene_pairs.columns:
+            self.DICT[c] = q(gene_pairs[c].values.flatten()[q(gene_pairs[c].values.flatten())!='nan'])
+
+        if limit_reference:
+            all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())),';')))
+        else:
+            all_genes = np.unique(np.array(list(A.index)))
+        
+        for d in GENE_SETS.keys():
+            GENE_SETS[d] = GENE_SETS[d][np.in1d(GENE_SETS[d],all_genes)]
+
+
+        self.CAT_NAMES = np.unique(q(RES['GO']))
+        self.GENE_SETS = GENE_SETS
+        self.RES = RES
+        
+    def calculate_enrichment(self,verbose=False):
+        DICT = self.DICT
+        RES = self.RES
+        CAT_NAMES = self.CAT_NAMES
+        GENE_SETS = self.GENE_SETS
+        pairs = np.array(list(DICT.keys()))
+        all_nodes = np.unique(np.concatenate(substr(pairs,';')))
+
+        CCG={}
+        P=[]
+        for ik in range(len(all_nodes)):
+            genes=[]
+            nodes = all_nodes[ik]
+            for j in range(len(pairs)):
+                n1,n2 = pairs[j].split(';')
+                if n1 == nodes or n2 == nodes:
+                    g1,g2 = substr(DICT[pairs[j]],';')
+                    genes.append(np.append(g1,g2))
+            if len(genes) > 0:
+                genes = np.concatenate(genes)
+                genes = np.unique(genes)
+            else:
+                genes = np.array([])
+            CCG[all_nodes[ik]] = genes
+
+        HM = np.zeros((len(CAT_NAMES),len(all_nodes)))
+        HMe = np.zeros((len(CAT_NAMES),len(all_nodes)))
+        HMg = np.zeros((len(CAT_NAMES),len(all_nodes)),dtype='object')
+        for ii,cln in enumerate(all_nodes):
+            if verbose:
+                print(f'Calculating functional enrichment for cell type {cln}')
+                
+            g = CCG[cln]    
+
+            if g.size > 0:
+                gi = g[np.in1d(g,q(RES.index))]
+                ix = np.where(np.in1d(q(RES.index),gi))[0]
+                res = RES.iloc[ix]
+                goterms = np.unique(q(res['GO']))
+                goterms = goterms[goterms!='S']  
+                result = GOEA(gi,GENE_SETS,goterms=goterms,fdr_thresh=100,p_thresh=100)
+
+                lens = np.array([len(np.unique(x.split(';'))) for x in result['genes'].values])
+                F = -np.log10(result['p_value'])
+                gt,vals = F.index,F.values
+                Z = pd.DataFrame(data=np.arange(CAT_NAMES.size)[None,:],columns=CAT_NAMES)
+                if gt.size>0:
+                    HM[Z[gt].values.flatten(),ii] = vals
+                    HMe[Z[gt].values.flatten(),ii] = lens
+                    HMg[Z[gt].values.flatten(),ii] = [';'.join(np.unique(x.split(';'))) for x in result['genes'].values]
+
+        CAT_NAMES = [_KOG_TABLE[x] for x in CAT_NAMES]
+        SC = pd.DataFrame(data = HM,index=CAT_NAMES,columns=all_nodes).T
+        SCe = pd.DataFrame(data = HMe,index=CAT_NAMES,columns=all_nodes).T
+        SCg = pd.DataFrame(data = HMg,index=CAT_NAMES,columns=all_nodes).T
+        SCg.values[SCg.values==0]=''
+        
+        self.ENRICHMENT_SCORES = SC
+        self.NUM_ENRICHED_GENES = SCe
+        self.ENRICHED_GENES = SCg
+        
+        return SC,SCe,SCg
+    
+    def plot_enrichment(self,cell_types = [], pval_thr=2,msize = 50):
+        import colorsys
+        import seaborn as sns
+        import matplotlib
+        matplotlib.rcParams['pdf.fonttype'] = 42
+        matplotlib.rcParams['ps.fonttype'] = 42
+        from matplotlib.collections import PatchCollection
+        from matplotlib.patches import Rectangle
+        from matplotlib import cm,colors
+        import matplotlib.pyplot as plt
+        from scipy.cluster.hierarchy import linkage, dendrogram
+
+        SC = self.ENRICHMENT_SCORES
+        SCe = self.NUM_ENRICHED_GENES
+        SCg = self.ENRICHED_GENES
+
+        if len(cell_types) > 0:
+            SC = SC.T[cell_types].T
+            SCe = SCe.T[cell_types].T
+            SCg = SCg.T[cell_types].T
+
+        CAT_NAMES = self.CAT_NAMES
+        gc_names = np.array(CAT_NAMES)
+
+        SC.values[SC.values<pval_thr]=0
+        SCe.values[SC.values<pval_thr]=0
+        SCg.values[SC.values<pval_thr]=''
+        SCg=SCg.astype('str')
+        SCg.values[SCg.values=='nan']=''
+
+        ixrow = np.array(dendrogram(linkage(SC.values.T,method='ward',metric='euclidean'),no_plot=True)['ivl']).astype('int')
+        ixcol = np.array(dendrogram(linkage(SC.values,method='ward',metric='euclidean'),no_plot=True)['ivl']).astype('int')    
+
+        SC = SC.iloc[ixcol].iloc[:,ixrow]
+        SCe = SCe.iloc[ixcol].iloc[:,ixrow]
+        SCg = SCg.iloc[ixcol].iloc[:,ixrow]
+
+
+        SCgx = SCg.values.copy()
+
+
+        for i in range(SCgx.shape[0]):
+            idn = SCg.index[i].split('_')[0]
+
+            for j in range(SCgx.shape[1]):
+                genes = np.array(SCgx[i,j].split(';'))    
+                SCgx[i,j] = ';'.join(genes[np.array([x.split('_')[0] for x in genes]) == idn])
+
+
+        x,y=np.tile(np.arange(SC.shape[0]),SC.shape[1]),np.repeat(np.arange(SC.shape[1]),SC.shape[0])    
+        co = SC.values[x,y].flatten()#**0.5
+        ms = SCe.values[x,y].flatten()
+        ms=ms/ms.max()
+        x=x.max()-x #
+        ms = ms*msize
+        ms[np.logical_and(ms<0.15,ms>0)]=0.15
+
+        fig,ax = plt.subplots();
+        fig.set_size_inches((7*SC.shape[0]/SC.shape[1],7)) 
+
+        scat=ax.scatter(x,y,c=co,s=ms,cmap='seismic',edgecolor='k',linewidth=0.5,vmin=3)
+        cax = fig.colorbar(scat,pad=0.02);
+        ax.set_yticks(np.arange(SC.shape[1]))
+        ax.set_yticklabels(SC.columns,ha='right',rotation=0)
+        ax.set_xticks(np.arange(SC.shape[0]))
+        ax.set_xticklabels(SC.index[::-1],ha='right',rotation=45)
+        ax.invert_yaxis()
+        ax.invert_xaxis()
+        #ax.figure.tight_layout()
+        return fig,ax
+    
+def sankey_plot(M,align_thr=0.1):
     """Generate a sankey plot
     
     Parameters
     ----------
-    sm: SAMAP object
-    
-    key1 & key2: str, annotation vector keys for species 1 and 2
+    M: pandas.DataFrame
+        Mapping table output from `get_mapping_scores` (third output).
 
     align_thr: float, optional, default 0.1
         The alignment score threshold below which to remove cell type mappings.
     """    
-    _,_,M = get_mapping_scores(sm,key1,key2)
-    
     id1 = M.index[0].split('_')[0]
     id2 = M.columns[0].split('_')[0]
     d = M.values.copy()
@@ -59,7 +475,7 @@ def sankey_plot(sm,key1,key2,align_thr=0.1):
 
 class GenePairFinder(object):
     def __init__(self, sm, k1="leiden_clusters",
-                 k2="leiden_clusters",compute_markers=True):
+                 k2="leiden_clusters"):
         """Find enriched gene pairs in cell type mappings.
         
         sm: SAMAP object
@@ -67,11 +483,6 @@ class GenePairFinder(object):
         k1 & k2: str, optional, default 'leiden_clusers'
             Keys corresponding to the annotation vector in `s1.adata.obs` and `s2.adata.obs`.
 
-        compute_markers: bool, optional, default True
-            If True, compute differentially expressed genes using `find_cluster_markers`. 
-            If False, assumes differentially expressed genes were already computed and stored
-            in `.adata.var`.
-        
         """
         self.sm = sm
         self.s1 = sm.sam1
@@ -94,8 +505,8 @@ class GenePairFinder(object):
         self.v2 = v2
         self.k1 = k1
         self.k2 = k2
-        if compute_markers:
-            self.find_markers()
+
+        self.find_markers()
 
     def find_markers(self):
         print(
@@ -104,20 +515,15 @@ class GenePairFinder(object):
             )
         )        
         import gc
+        if self.k1+'_scores' not in self.s1.adata.varm.keys():
+            find_cluster_markers(self.s1, self.k1)
+            gc.collect()
+            
+        if self.k2+'_scores' not in self.s2.adata.varm.keys():
+            find_cluster_markers(self.s2, self.k2)
+            gc.collect()
         
-        find_cluster_markers(self.s1, self.k1)
-        find_cluster_markers(self.s2, self.k2)
-        gc.collect()
-        self.s1.dispersion_ranking_NN(save_avgs=True)        
-        self.s1.identify_marker_genes_sw(labels=self.k1)
-        del self.s1.adata.layers['X_knn_avg']        
-        gc.collect()        
-        self.s2.dispersion_ranking_NN(save_avgs=True)        
-        self.s2.identify_marker_genes_sw(labels=self.k2)
-        del self.s2.adata.layers['X_knn_avg']
-        gc.collect() # the collects are trying to deal with a weird memory leak issue
-        
-    def find_all(self,thr=0.1,**kwargs):
+    def find_all(self,thr=0.1,n_top=0,**kwargs):
         """Find enriched gene pairs in all pairs of mapped cell types.
         
         Parameters
@@ -125,6 +531,12 @@ class GenePairFinder(object):
         thr: float, optional, default 0.2
             Alignment score threshold above which to consider cell type pairs mapped.
         
+        n_top: int, optional, default 0
+            If `n_top` is 0, average the alignment scores for all cells in a pair of clusters.
+            Otherwise, average the alignment scores of the top `n_top` cells in a pair of clusters.
+            Set this to non-zero if you suspect there to be subpopulations of your cell types mapping
+            to distinct cell types in the other species.        
+            
         Keyword arguments
         -----------------
         Keyword arguments to `find_genes` accepted here.
@@ -133,7 +545,7 @@ class GenePairFinder(object):
         -------
         Table of enriched gene pairs for each cell type pair
         """        
-        _,_,M = get_mapping_scores(self.sm, self.k1, self.k2)
+        _,_,M = get_mapping_scores(self.sm, self.k1, self.k2, n_top = n_top)
         M=M.T
         ax = q(M.index)
         bx = q(M.columns)
@@ -204,8 +616,8 @@ class GenePairFinder(object):
         G = q(
             G[
                 np.logical_and(
-                    q(self.s1.adata.var[self.k1 + ";;" + n1 + "_pval"][G1] < thr),
-                    q(self.s2.adata.var[self.k2 + ";;" + n2 + "_pval"][G2] < thr),
+                    q(self.s1.adata.varm[self.k1 + "_pvals"][n1][G1] < thr),
+                    q(self.s2.adata.varm[self.k2 + "_pvals"][n2][G2] < thr),
                 )
             ]
         )
@@ -333,10 +745,7 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
     sam.adata.raw = sam.adata_raw
     a,c = np.unique(q(sam.adata.obs[key]),return_counts=True)
     t = a[c==1]
-    for i in range(t.size):
-        sam.adata.var[key+';;'+t[i]]=0
-        sam.adata.var[key+';;'+t[i]+'_pval']=1
-        
+
     adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)].copy()
     sc.tl.rank_genes_groups(
         adata,
@@ -353,6 +762,8 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
     SCORES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["scores"])
     if not inplace:
         return NAMES, PVALS, SCORES
+    dfs1 = []
+    dfs2 = []
     for i in range(SCORES.shape[1]):
         names = NAMES.iloc[:, i]
         scores = SCORES.iloc[:, i]
@@ -361,12 +772,28 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
         scores[scores < 0] = 0
         pvals = q(pvals)
         scores = q(scores)
-        sam.adata.var[key + ";;" + SCORES.columns[i]] = pd.DataFrame(
-            data=scores[None, :], columns=names
-        )[sam.adata.var_names].values.flatten()
-        sam.adata.var[key + ";;" + SCORES.columns[i] + "_pval"] = pd.DataFrame(
-            data=pvals[None, :], columns=names
-        )[sam.adata.var_names].values.flatten()
+        
+        dfs1.append(pd.DataFrame(
+            data=scores[None, :], index = [SCORES.columns[i]], columns=names
+        )[sam.adata.var_names].T)
+        dfs2.append(pd.DataFrame(
+            data=pvals[None, :], index = [SCORES.columns[i]], columns=names
+        )[sam.adata.var_names].T)
+    df1 = pd.concat(dfs1,axis=1)
+    df2 = pd.concat(dfs2,axis=1)
+    
+    try:
+        sam.adata.varm[key+'_scores'] = df1
+        sam.adata.varm[key+'_pvals'] = df2
+    except:
+        sam.adata.varm.dim_names = sam.adata.var_names
+        sam.adata.varm.dim_names = sam.adata.var_names
+        sam.adata.varm[key+'_scores'] = df1
+        sam.adata.varm[key+'_pvals'] = df2        
+        
+    for i in range(t.size):
+        sam.adata.varm[key+'_scores'][t[i]]=0
+        sam.adata.varm[key+'_pvals'][t[i]]=1
     
 
 
@@ -529,16 +956,14 @@ def convert_eggnog_to_homologs(sm, A, B, taxon=2759):
     return gn[np.vstack((B.nonzero())).T]
 
 
-def CellTypeTriangles(sms,keys, align_thr=1):
+def CellTypeTriangles(sms,keys, align_thr=0.1):
     """Outputs a table of cell type triangles.
     
     Parameters
     ----------
     sms: list or tuple of three SAMAP objects for three different species mappings
        
-    keys: list or tuple of three strings corresponding to each species annotation column, optional, default None
-        If you'd like to include information about where each gene is differentially expressed, you can specify the
-        annotation column to compute differential expressivity from for each species.
+    keys: list or tuple of three strings corresponding to each species annotation column
         Let `sms[0]` be the mapping for species A to B. Each element of `keys` corresponds to an
         annotation column in species `[A, B, C]`, respectively.
 
@@ -550,19 +975,18 @@ def CellTypeTriangles(sms,keys, align_thr=1):
     key1,key2,key3 = keys
     
     smp1 = sm1.samap
-    smp2 = smp2.samap
-    smp3 = smp3.samap
+    smp2 = sm2.samap
+    smp3 = sm3.samap
     
     s = q(smp1.adata.obs["species"])
-    A, B = s[np.sort(np.unique(s, return_index=True)[1])][:2]
+    A,B=sm1.id1,sm1.id2
 
     s = q(smp2.adata.obs["species"])
-    B1, B2 = s[np.sort(np.unique(s, return_index=True)[1])][:2]
+    B1,B2=sm2.id1,sm2.id2
     C = B1 if B1 not in [A, B] else B2
 
     A1, A2 = A, B
-    s = q(smp1.adata.obs["species"])
-    C1, C2 = s[np.sort(np.unique(s, return_index=True)[1])][:2]
+    C1,C2 = sm3.id1,sm3.id2
 
     codes = dict(zip([A, B, C], [key1, key2, key3]))
     X = []
@@ -571,10 +995,12 @@ def CellTypeTriangles(sms,keys, align_thr=1):
         x, y, smp = i
         k1, k2 = codes[x], codes[y]
 
-        cl1 = q(smp.adata.obs[k1])
-        if k1 != k2:
-            cl2 = q(smp.adata.obs[k2])
-            cl1[cl1 == ""] = cl2[cl2 != ""]
+        cl1 = q(smp.adata.obs[k1]).astype('object')
+        cl2 = q(smp.adata.obs[k2]).astype('object')
+        
+        cl1[smp.adata.obs['species']==y] = cl2[smp.adata.obs['species']==y]
+        cl2[smp.adata.obs['species']==x] = cl1[smp.adata.obs['species']==x]
+
         smp.adata.obs["triangle_{}{}".format(x, y)] = pd.Categorical(cl1)
 
         _, ax, bx, CSIMt = compute_csim(smp, key="triangle_{}{}".format(x, y))
@@ -822,21 +1248,24 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
             for i,sam,n in zip([0,1,2],[sam1,sam2,sam3],[A,B,C]):
                 if compute_markers:
                     find_cluster_markers(sam,keys[i])
-                a = sam.adata.var[keys[i]+';;'+sam.adata.obs[keys[i]].cat.categories.astype('object')].T[q(FINAL[n+' gene'])].T
-                p = sam.adata.var[keys[i]+';;'+sam.adata.obs[keys[i]].cat.categories.astype('object')+'_pval'].T[q(FINAL[n+' gene'])].T.values
+                a = sam.adata.varm[keys[i]+'_scores'].T[q(FINAL[n+' gene'])].T
+                p = sam.adata.varm[keys[i]+'_pvals'].T[q(FINAL[n+' gene'])].T.values
                 p[p>pval_thr]=1
                 p[p<1]=0
                 p=1-p
-                f = substr(a.columns[a.values.argmax(1)],';;',1)
+                f = a.columns[a.values.argmax(1)]
                 res=[]
                 for i in range(p.shape[0]):
-                    res.append(';'.join(np.unique(np.append(f[i],substr(a.columns[p[i,:]==1],';;',1)))))            
+                    res.append(';'.join(np.unique(np.append(f[i],a.columns[p[i,:]==1]))))            
                 FINAL[n+' cell type'] = res
     FINAL = FINAL.sort_values('min_corr',ascending=False)
     return FINAL
 
 
-def compute_csim(sam3, key, X=None, n_top = 100):
+def compute_csim(sam3, key, X=None, n_top = 0):
+    if n_top ==0:
+        n_top = 100000000
+        
     cl1 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch1"])
     clu1,cluc1 = np.unique(cl1,return_counts=True)
     cl2 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch2"])
@@ -969,14 +1398,19 @@ def transfer_annotations(sm,reference=1, keys=[],num_iters=5, inplace = True):
         res['labels'] = labels
         return res
 
-def get_mapping_scores(sm, key1, key2):
+def get_mapping_scores(sm, key1, key2, n_top = 0):
     """Calculate mapping scores
     Parameters
     ----------
     sm: SAMAP object
     
     key1 & key2: str, annotation vector keys for species 1 and 2
-
+    
+    n_top: int, optional, default 0
+        If `n_top` is 0, average the alignment scores for all cells in a pair of clusters.
+        Otherwise, average the alignment scores of the top `n_top` cells in a pair of clusters.
+        Set this to non-zero if you suspect there to be subpopulations of your cell types mapping
+        to distinct cell types in the other species.
     Returns
     -------
     D1 - table of highest mapping scores for cell types in species 1
@@ -996,7 +1430,7 @@ def get_mapping_scores(sm, key1, key2):
     )
 
     samap.adata.obs["{};{}_mapping_scores".format(key1,key2)] = pd.Categorical(cl)
-    _, clu1, clu2, CSIMth = compute_csim(samap, "{};{}_mapping_scores".format(key1,key2))
+    _, clu1, clu2, CSIMth = compute_csim(samap, "{};{}_mapping_scores".format(key1,key2), n_top = n_top)
 
     A = pd.DataFrame(data=CSIMth, index=clu1, columns=clu2)
     i = np.argsort(-A.values.max(0).flatten())

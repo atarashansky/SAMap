@@ -133,7 +133,7 @@ class SAMAP(object):
                 weight_PCs=False,
                 k=20,
                 n_genes=3000,
-                weight_mode='dispersion'
+                weight_mode='combined'
             )
             f1n = ".".join(data1.split(".")[:-1]) + "_pr.h5ad"
             
@@ -173,7 +173,7 @@ class SAMAP(object):
                 weight_PCs=False,
                 k=20,
                 n_genes=3000,
-                weight_mode='dispersion'
+                weight_mode='combined'
             )
             f2n = ".".join(data2.split(".")[:-1]) + "_pr.h5ad"
             
@@ -354,14 +354,103 @@ class SAMAP(object):
         self.run_time = time.time() - start_time
         print("Elapsed time: {} minutes.".format(self.run_time / 60))
         return samap
-    
-    def scatter(self,axes=None, c1='blue', c2='red', **kwargs):
-        if self.sam1.adata.shape[0] >= self.sam2.adata.shape[0]:
-            ax = self.sam1.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c1, **kwargs)
-            ax = self.sam2.scatter(projection = 'X_umap_samap',axes=ax,colorspec=c2, **kwargs)
+
+
+
+    def plot_expression_overlap(self,g1,g2,axes=None,
+                                COLOR0='gray', COLOR1='#000098', COLOR2='#ffb900', COLOR3='#00ceb5',
+                                s0 = 1, s1 = 3, s2 = 3, s3 = 10,
+                                reverse = False, thr = 0.1):
+        from matplotlib import cm
+        from matplotlib.colors import to_rgba
+        def hex_to_rgb(value):
+            value = value.lstrip('#')
+            lv = len(value)
+            lv = list(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
+            lv = [x/255 for x in lv]
+            return lv
+        
+        sm = self
+        
+        nnm = sm.samap.adata.obsp['connectivities']
+        su = nnm.sum(1).A.flatten()[:,None]
+        su[su==0]=1
+
+        nnm = nnm.multiply(1/su).tocsr()
+        B1 = True
+        if g1 not in sm.sam1.adata.var_names:
+            if sm.id1+"_"+g1 not in sm.sam1.adata.var_names:
+                if g1 not in sm.sam2.adata.var_names:
+                    if sm.id2+"_"+g1 not in sm.sam2.adata.var_names:
+                        raise ValueError(f"{g1} not found in either dataset.")
+                    else:
+                        a1 = sm.sam2.adata[:,sm.id2+"_"+g1].X.A.flatten()[:,None]
+                        B1=False
+                else:
+                    a1 = sm.sam2.adata[:,g1].X.A.flatten()[:,None]
+                    B1=False
+            else:
+                a1 = sm.sam1.adata[:,sm.id1+"_"+g1].X.A.flatten()[:,None]
         else:
-            ax = self.sam2.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c2, **kwargs)
-            ax = self.sam1.scatter(projection = 'X_umap_samap',axes=ax,colorspec=c1, **kwargs)
+            a1 = sm.sam1.adata[:,g1].X.A.flatten()[:,None]
+            
+        B2=True
+        if g2 not in sm.sam2.adata.var_names:
+            if sm.id2+"_"+g2 not in sm.sam2.adata.var_names:
+                if g2 not in sm.sam1.adata.var_names:
+                    if sm.id1+"_"+g2 not in sm.sam1.adata.var_names:
+                        raise ValueError(f"{g2} not found in either dataset.")
+                    else:
+                        a2 = sm.sam1.adata[:,sm.id1+"_"+g2].X.A.flatten()[:,None]
+                        B2=False
+                else:
+                    a2 = sm.sam1.adata[:,g2].X.A.flatten()[:,None]
+                    B2=False
+            else:
+                a2 = sm.sam2.adata[:,sm.id2+"_"+g2].X.A.flatten()[:,None]
+        else:
+            a2 = sm.sam2.adata[:,g2].X.A.flatten()[:,None]            
+
+        d1 = np.append(a1,np.zeros(sm.sam2.adata.shape[0])) if B1 else np.append(np.zeros(sm.sam1.adata.shape[0]),a1)
+        d2 = np.append(np.zeros(sm.sam1.adata.shape[0]),a2) if B2 else np.append(a2,np.zeros(sm.sam2.adata.shape[0]))
+
+        davg1 = nnm.dot(d1).flatten()
+        davg2 = nnm.dot(d2).flatten()
+        davg1[davg1<thr]=0
+        davg2[davg2<thr]=0
+        
+        davg3 = np.vstack((davg1,davg2)).min(0)
+        if davg1.max()>0:
+            davg1 = davg1/davg1.max()
+        if davg2.max()>0:
+            davg2 = davg2/davg2.max()
+        if davg3.max()>0:
+            davg3 = davg3/davg3.max()
+
+        c1 = hex_to_rgb(COLOR1)+[0.0]
+        c2 = hex_to_rgb(COLOR2)+[0.0]
+        c3 = hex_to_rgb(COLOR3)+[0.0]
+
+        c1 = np.vstack([c1]*davg1.size)
+        c2 = np.vstack([c2]*davg1.size)
+        c3 = np.vstack([c3]*davg1.size)
+        c1[:,-1] = davg1 if not reverse else davg2
+        c2[:,-1] = davg2 if not reverse else davg1
+        c3[:,-1] = davg3
+
+        ax = sm.samap.scatter(projection = 'X_umap', colorspec = COLOR0, axes=axes, s = s0)
+        sm.samap.scatter(projection = 'X_umap', c = c1, axes = ax, s = s1,colorbar=False)
+        sm.samap.scatter(projection = 'X_umap', c = c2, axes = ax, s = s2,colorbar=False)
+        sm.samap.scatter(projection = 'X_umap', c = c3, axes = ax, s = s3,colorbar=False)
+        return ax    
+    
+    def scatter(self,axes=None, c1='#000098', c2='#ffb900', reverse=False, s1=10,s2=10,alpha1=1.0,alpha2=1.0, **kwargs):
+        if not reverse:
+            ax = self.sam1.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c1, s=s1, alpha=alpha1,**kwargs)
+            ax = self.sam2.scatter(projection = 'X_umap_samap',axes=ax,colorspec=c2, s=s2, alpha=alpha2,**kwargs)
+        else:
+            ax = self.sam2.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c2, s=s2, alpha=alpha2,**kwargs)
+            ax = self.sam1.scatter(projection = 'X_umap_samap',axes=ax,colorspec=c1, s=s1, alpha=alpha1,**kwargs)
         return ax
         
     def gui(self):
