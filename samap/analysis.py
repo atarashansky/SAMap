@@ -283,7 +283,7 @@ class FunctionalEnrichment(object):
         for d in GENE_SETS.keys():
             GENE_SETS[d] = GENE_SETS[d][np.in1d(GENE_SETS[d],all_genes)]
 
-
+        self.gene_pairs = gene_pairs
         self.CAT_NAMES = np.unique(q(RES['GO']))
         self.GENE_SETS = GENE_SETS
         self.RES = RES
@@ -339,7 +339,7 @@ class FunctionalEnrichment(object):
                     HMe[Z[gt].values.flatten(),ii] = lens
                     HMg[Z[gt].values.flatten(),ii] = [';'.join(np.unique(x.split(';'))) for x in result['genes'].values]
 
-        CAT_NAMES = [_KOG_TABLE[x] for x in CAT_NAMES]
+        #CAT_NAMES = [_KOG_TABLE[x] for x in CAT_NAMES]
         SC = pd.DataFrame(data = HM,index=CAT_NAMES,columns=all_nodes).T
         SCe = pd.DataFrame(data = HMe,index=CAT_NAMES,columns=all_nodes).T
         SCg = pd.DataFrame(data = HMg,index=CAT_NAMES,columns=all_nodes).T
@@ -877,7 +877,7 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3)
     return RES
 
 
-def convert_eggnog_to_homologs(sm, A, B, taxon=2759):
+def convert_eggnog_to_homologs(sm, A, B, og_key = 'eggNOG_OGs', taxon=2759):
     """Gets an n x 2 array of homologs at some taxonomic level based on Eggnog results.
     
     Parameters
@@ -910,7 +910,7 @@ def convert_eggnog_to_homologs(sm, A, B, taxon=2759):
     gn = q(smp.adata.uns["homology_gene_names"])
     A = A[np.in1d(q(A.index), gn)]
 
-    orthology_groups = A["18"]
+    orthology_groups = A[og_key]
     og = q(orthology_groups)
     x = np.unique(",".join(og).split(","))
     D = pd.DataFrame(data=np.arange(x.size)[None, :], columns=x)
@@ -923,9 +923,9 @@ def convert_eggnog_to_homologs(sm, A, B, taxon=2759):
         else:
             og[i] = "".join(np.array(n)[taxa == taxon])
 
-    A["18"] = og
+    A[og_key] = og
 
-    og = q(A["18"][gn])
+    og = q(A[og_key][gn])
     og[og == "nan"] = ""
 
     X = []
