@@ -162,9 +162,11 @@ _KOG_TABLE = dict(A = "RNA processing and mofiication",
 
 import gc
 from collections.abc import Iterable
-class KOGEnrichment(object):    
-    def __init__(self,sms, EGGS, keys, kog_key = 'best_OG_cat', align_thr = 0.1, limit_reference = False, n_top = 0):
-        """
+class FunctionalEnrichment(object):    
+    def __init__(self,sms, EGGS, keys, col_key = 'best_OG_cat', delimiter = '', align_thr = 0.1, limit_reference = False, n_top = 0):
+        """Performs functional enrichment analysis on gene pairs enriched
+        in mapped cell types using functional annotations output by Eggnog.
+        
         Parameters
         ----------
         sms - list or tuple of SAMAP objects
@@ -174,8 +176,8 @@ class KOGEnrichment(object):
         keys - list or tuple of column keys from `.adata.obs` DataFrames (one per species present in the input SAMAP objects)
             Cell type mappings will be computed between these annotation vectors.
             
-        kog_key - str, optional, default 'best_OG_cat'
-            The column name with KOG annotations in the Eggnog annotation DataFrames.
+        col_key - str, optional, default 'best_OG_cat'
+            The column name with functional annotations in the Eggnog annotation DataFrames.
             
         align_thr - float, optional, default 0.1
             The alignment score below which to filter out cell type mappings
@@ -189,8 +191,7 @@ class KOGEnrichment(object):
             Otherwise, average the alignment scores of the top `n_top` cells in a pair of clusters.
             Set this to non-zero if you suspect there to be subpopulations of your cell types mapping
             to distinct cell types in the other species.
-            
-        
+
         """
         # get dictionary of sam objects
         if not isinstance(sms,Iterable):
@@ -227,7 +228,7 @@ class KOGEnrichment(object):
         keys = keys2    
         # concatenate EGGS
         A = pd.concat(EGGS,axis=0)
-        RES = pd.DataFrame(A[kog_key])
+        RES = pd.DataFrame(A[col_key])
         RES.columns=['GO']    
         RES = RES[(q(RES.values.flatten())!='nan')]
         
@@ -235,10 +236,14 @@ class KOGEnrichment(object):
         data = []
         index = []
         for i in range(RES.shape[0]):
-            l = list(RES.values[i][0])
-            l = np.array([str(x) if str(x).isalpha() else '' for x in l])
-            l = l[l!= '']
-            l = list(l)
+            if delimiter == '':
+                l = list(RES.values[i][0])
+                l = np.array([str(x) if str(x).isalpha() else '' for x in l])
+                l = l[l!= '']
+                l = list(l)
+            else:
+                l = RES.values[i][0].split(delimiter)
+                
             data.extend(l)
             index.extend([RES.index[i]]*len(l))
         
@@ -283,7 +288,7 @@ class KOGEnrichment(object):
         self.GENE_SETS = GENE_SETS
         self.RES = RES
         
-    def calculate_enrichment(self):
+    def calculate_enrichment(self,verbose=False):
         DICT = self.DICT
         RES = self.RES
         CAT_NAMES = self.CAT_NAMES
@@ -312,7 +317,9 @@ class KOGEnrichment(object):
         HMe = np.zeros((len(CAT_NAMES),len(all_nodes)))
         HMg = np.zeros((len(CAT_NAMES),len(all_nodes)),dtype='object')
         for ii,cln in enumerate(all_nodes):
-            print(cln)
+            if verbose:
+                print(f'Calculating functional enrichment for cell type {cln}')
+                
             g = CCG[cln]    
 
             if g.size > 0:
@@ -337,7 +344,83 @@ class KOGEnrichment(object):
         SCe = pd.DataFrame(data = HMe,index=CAT_NAMES,columns=all_nodes).T
         SCg = pd.DataFrame(data = HMg,index=CAT_NAMES,columns=all_nodes).T
         SCg.values[SCg.values==0]=''
-        return SC, SCe, SCg
+        
+        self.ENRICHMENT_SCORES = SC
+        self.NUM_ENRICHED_GENES = SCe
+        self.ENRICHED_GENES = SCg
+        
+        return SC,SCe,SCg
+    
+    def plot_enrichment(self,cell_types = [], pval_thr=2,msize = 50):
+        import colorsys
+        import seaborn as sns
+        import matplotlib
+        matplotlib.rcParams['pdf.fonttype'] = 42
+        matplotlib.rcParams['ps.fonttype'] = 42
+        from matplotlib.collections import PatchCollection
+        from matplotlib.patches import Rectangle
+        from matplotlib import cm,colors
+        import matplotlib.pyplot as plt
+        from scipy.cluster.hierarchy import linkage, dendrogram
+
+        SC = self.ENRICHMENT_SCORES
+        SCe = self.NUM_ENRICHED_GENES
+        SCg = self.ENRICHED_GENES
+
+        if len(cell_types) > 0:
+            SC = SC.T[cell_types].T
+            SCe = SCe.T[cell_types].T
+            SCg = SCg.T[cell_types].T
+
+        CAT_NAMES = self.CAT_NAMES
+        gc_names = np.array(CAT_NAMES)
+
+        SC.values[SC.values<pval_thr]=0
+        SCe.values[SC.values<pval_thr]=0
+        SCg.values[SC.values<pval_thr]=''
+        SCg=SCg.astype('str')
+        SCg.values[SCg.values=='nan']=''
+
+        ixrow = np.array(dendrogram(linkage(SC.values.T,method='ward',metric='euclidean'),no_plot=True)['ivl']).astype('int')
+        ixcol = np.array(dendrogram(linkage(SC.values,method='ward',metric='euclidean'),no_plot=True)['ivl']).astype('int')    
+
+        SC = SC.iloc[ixcol].iloc[:,ixrow]
+        SCe = SCe.iloc[ixcol].iloc[:,ixrow]
+        SCg = SCg.iloc[ixcol].iloc[:,ixrow]
+
+
+        SCgx = SCg.values.copy()
+
+
+        for i in range(SCgx.shape[0]):
+            idn = SCg.index[i].split('_')[0]
+
+            for j in range(SCgx.shape[1]):
+                genes = np.array(SCgx[i,j].split(';'))    
+                SCgx[i,j] = ';'.join(genes[np.array([x.split('_')[0] for x in genes]) == idn])
+
+
+        x,y=np.tile(np.arange(SC.shape[0]),SC.shape[1]),np.repeat(np.arange(SC.shape[1]),SC.shape[0])    
+        co = SC.values[x,y].flatten()#**0.5
+        ms = SCe.values[x,y].flatten()
+        ms=ms/ms.max()
+        x=x.max()-x #
+        ms = ms*msize
+        ms[np.logical_and(ms<0.15,ms>0)]=0.15
+
+        fig,ax = plt.subplots();
+        fig.set_size_inches((7*SC.shape[0]/SC.shape[1],7)) 
+
+        scat=ax.scatter(x,y,c=co,s=ms,cmap='seismic',edgecolor='k',linewidth=0.5,vmin=3)
+        cax = fig.colorbar(scat,pad=0.02);
+        ax.set_yticks(np.arange(SC.shape[1]))
+        ax.set_yticklabels(SC.columns,ha='right',rotation=0)
+        ax.set_xticks(np.arange(SC.shape[0]))
+        ax.set_xticklabels(SC.index[::-1],ha='right',rotation=45)
+        ax.invert_yaxis()
+        ax.invert_xaxis()
+        #ax.figure.tight_layout()
+        return fig,ax
     
 def sankey_plot(M,align_thr=0.1):
     """Generate a sankey plot
@@ -873,16 +956,14 @@ def convert_eggnog_to_homologs(sm, A, B, taxon=2759):
     return gn[np.vstack((B.nonzero())).T]
 
 
-def CellTypeTriangles(sms,keys, align_thr=1):
+def CellTypeTriangles(sms,keys, align_thr=0.1):
     """Outputs a table of cell type triangles.
     
     Parameters
     ----------
     sms: list or tuple of three SAMAP objects for three different species mappings
        
-    keys: list or tuple of three strings corresponding to each species annotation column, optional, default None
-        If you'd like to include information about where each gene is differentially expressed, you can specify the
-        annotation column to compute differential expressivity from for each species.
+    keys: list or tuple of three strings corresponding to each species annotation column
         Let `sms[0]` be the mapping for species A to B. Each element of `keys` corresponds to an
         annotation column in species `[A, B, C]`, respectively.
 
@@ -894,19 +975,18 @@ def CellTypeTriangles(sms,keys, align_thr=1):
     key1,key2,key3 = keys
     
     smp1 = sm1.samap
-    smp2 = smp2.samap
-    smp3 = smp3.samap
+    smp2 = sm2.samap
+    smp3 = sm3.samap
     
     s = q(smp1.adata.obs["species"])
-    A, B = s[np.sort(np.unique(s, return_index=True)[1])][:2]
+    A,B=sm1.id1,sm1.id2
 
     s = q(smp2.adata.obs["species"])
-    B1, B2 = s[np.sort(np.unique(s, return_index=True)[1])][:2]
+    B1,B2=sm2.id1,sm2.id2
     C = B1 if B1 not in [A, B] else B2
 
     A1, A2 = A, B
-    s = q(smp1.adata.obs["species"])
-    C1, C2 = s[np.sort(np.unique(s, return_index=True)[1])][:2]
+    C1,C2 = sm3.id1,sm3.id2
 
     codes = dict(zip([A, B, C], [key1, key2, key3]))
     X = []
@@ -915,10 +995,12 @@ def CellTypeTriangles(sms,keys, align_thr=1):
         x, y, smp = i
         k1, k2 = codes[x], codes[y]
 
-        cl1 = q(smp.adata.obs[k1])
-        if k1 != k2:
-            cl2 = q(smp.adata.obs[k2])
-            cl1[cl1 == ""] = cl2[cl2 != ""]
+        cl1 = q(smp.adata.obs[k1]).astype('object')
+        cl2 = q(smp.adata.obs[k2]).astype('object')
+        
+        cl1[smp.adata.obs['species']==y] = cl2[smp.adata.obs['species']==y]
+        cl2[smp.adata.obs['species']==x] = cl1[smp.adata.obs['species']==x]
+
         smp.adata.obs["triangle_{}{}".format(x, y)] = pd.Categorical(cl1)
 
         _, ax, bx, CSIMt = compute_csim(smp, key="triangle_{}{}".format(x, y))
