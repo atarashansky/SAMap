@@ -13,12 +13,11 @@ setup(
     python_requires=">=3.7",
     install_requires=[
         "sam-algorithm>=0.8.1",
-        "scanpy",
+        "scanpy>1.7.0",
         "hnswlib",
         "dill",
         "h5py<=2.10",
         "leidenalg",
-        "umap-learn<0.5.0"
     ],
     packages=find_packages(),
     include_package_data=True,
