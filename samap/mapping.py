@@ -213,7 +213,8 @@ class SAMAP(object):
 
             gnnm = _filter_gnnm(gnnm, thr=0.25)
         else:
-            gnnm, gn1, gn2, gn = gnnm
+            gnnm, gn1, gn2 = gnnm
+            gn = np.append(gn1,gn2)
             id1 = gn1[0].split("_")[0]
             id2 = gn2[0].split("_")[0]
 
