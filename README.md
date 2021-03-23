@@ -4,6 +4,11 @@ The SAMap algorithm.
 # Beta
 Hello! If any of you have trouble getting SAMap up and running or want to know more about the various arguments, please do not hesitate to reach out to me by submitting an issue!
 
+# Citation
+Please cite the following paper if using SAMap: https://www.biorxiv.org/content/10.1101/2020.09.28.317784v2
+
+Tarashansky, Alexander Joel, et al. "Mapping single-cell atlases throughout Metazoa unravels cell type evolution." bioRxiv (2020).
+
 ## Requirements
 SAMap was developed and tested in an Anaconda python environment with the following dependencies:
  - `sam-algorithm`
