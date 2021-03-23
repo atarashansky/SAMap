@@ -337,9 +337,11 @@ class SAMAP(object):
         print("Alignment score ---", _avg_as(samap).mean())
         print("Running UMAP on the stitched manifolds.")
         sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random')
-
-        hom_graph = smap.GNNMS_corr[-1]
-        samap.adata.uns["homology_graph_reweighted"] = hom_graph
+        try:
+            hom_graph = smap.GNNMS_corr[-1]
+            samap.adata.uns["homology_graph_reweighted"] = hom_graph
+        except:
+            pass
         samap.adata.uns["homology_graph"] = gnnm
         samap.adata.uns["homology_gene_names"] = gn
         samap.adata.uns["homology_gene_names1"] = gn1
