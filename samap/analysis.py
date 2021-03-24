@@ -822,8 +822,12 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3)
     gnnm = smp.adata.uns["homology_graph_reweighted"]
     gn = sm.gn
     
+    ortholog_pairs = ortholog_pairs[np.logical_and(np.in1d(ortholog_pairs[:,0],gn),np.in1d(ortholog_pairs[:,1],gn))]
     if paralog_pairs is None:
         paralog_pairs = gn[np.vstack(smp.adata.uns["homology_graph"].nonzero()).T]
+    else:
+        paralog_pairs = paralog_pairs[np.logical_and(np.in1d(paralog_pairs[:,0],gn),np.in1d(paralog_pairs[:,1],gn))]
+        
     paralog_pairs = paralog_pairs[
         np.in1d(to_vn(paralog_pairs), np.append(to_vn(ortholog_pairs),to_vn(ortholog_pairs[:,::-1])), invert=True)
     ]
