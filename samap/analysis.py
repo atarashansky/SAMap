@@ -273,7 +273,10 @@ class FunctionalEnrichment(object):
         
         self.DICT = {}
         for c in gene_pairs.columns:
-            self.DICT[c] = q(gene_pairs[c].values.flatten()[q(gene_pairs[c].values.flatten())!='nan'])
+            x = q(gene_pairs[c].values.flatten()).astype('str')
+            ff = x!='nan'
+            if ff.sum()>0:
+                self.DICT[c] = x[ff]
 
         if limit_reference:
             all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())),';')))
@@ -283,7 +286,7 @@ class FunctionalEnrichment(object):
         for d in GENE_SETS.keys():
             GENE_SETS[d] = GENE_SETS[d][np.in1d(GENE_SETS[d],all_genes)]
 
-
+        self.gene_pairs = gene_pairs
         self.CAT_NAMES = np.unique(q(RES['GO']))
         self.GENE_SETS = GENE_SETS
         self.RES = RES
@@ -339,7 +342,7 @@ class FunctionalEnrichment(object):
                     HMe[Z[gt].values.flatten(),ii] = lens
                     HMg[Z[gt].values.flatten(),ii] = [';'.join(np.unique(x.split(';'))) for x in result['genes'].values]
 
-        CAT_NAMES = [_KOG_TABLE[x] for x in CAT_NAMES]
+        #CAT_NAMES = [_KOG_TABLE[x] for x in CAT_NAMES]
         SC = pd.DataFrame(data = HM,index=CAT_NAMES,columns=all_nodes).T
         SCe = pd.DataFrame(data = HMe,index=CAT_NAMES,columns=all_nodes).T
         SCg = pd.DataFrame(data = HMg,index=CAT_NAMES,columns=all_nodes).T
@@ -797,8 +800,11 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
     
 
 
-def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3):
-    """Identify paralog substitutions
+def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3,cross_species_paralogs = True):
+    """Identify paralog substitutions. 
+    
+    For all genes in `ortholog_pairs` and `paralog_pairs`, this function expects the genes to
+    be prepended with their corresponding species IDs (i.e. `sm.id1` or `sm.id2`).
     
     Parameters
     ----------
@@ -811,12 +817,70 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3)
         Note that this would essentially result in the more generic 'homolog substitutions' rather
         than paralog substitutions.
         
+    psub_thr - float, optional, default 0.3
+        Threshold for correlation difference between paralog pairs and ortholog pairs.
+        Paralog pairs that do not have greater than `psub_thr` correlation than their 
+        corresponding ortholog pairs are filtered out.
+        
+    cross_species_paralogs - bool, optional, default True
+        If True, this function expects cross-species paralogs in `paralog_pairs`. If False,
+        this function expects within-species paralogs in `paralog_pairs`. 
+        If `paralog_pairs` is `None`, this argument is ignored.
+        
     Returns
     -------
     RES - pandas.DataFrame
         A table of paralog substitutions.
         
     """
+    if not cross_species_paralogs and paralog_pairs is not None:
+        ZZ1 = {}
+        ZZ2 = {}
+        for i in range(paralog_pairs.shape[0]):    
+            L = ZZ1.get(paralog_pairs[i,0],[])
+            L.append(paralog_pairs[i,1])
+            ZZ1[paralog_pairs[i,0]]=L
+
+            L = ZZ2.get(paralog_pairs[i,1],[])
+            L.append(paralog_pairs[i,0])
+            ZZ2[paralog_pairs[i,1]]=L      
+
+        keys = list(ZZ1.keys())
+        for k in keys:
+            L = ZZ2.get(k,[])
+            L.extend(ZZ1[k])
+            ZZ2[k] = list(np.unique(L))
+
+        ZZ = ZZ2
+
+        L1=[]
+        L2=[]
+        for i in range(ortholog_pairs.shape[0]):
+            try:
+                x = ZZ[ortholog_pairs[i,0]]
+            except:
+                x = []
+            L1.extend([ortholog_pairs[i,1]]*len(x))
+            L2.extend(x)
+            
+            try:
+                x = ZZ[ortholog_pairs[i,1]]
+            except:
+                x = []
+            L1.extend([ortholog_pairs[i,0]]*len(x))
+            L2.extend(x)        
+        
+        L = np.vstack((L2,L1)).T
+        paralog_pairs = np.unique(np.sort(L,axis=1),axis=0)
+    elif cross_species_paralogs and paralog_pairs is not None:
+        ids1 = np.array([x.split('_')[0] for x in paralog_pairs[:,0]])
+        ids2 = np.array([x.split('_')[0] for x in paralog_pairs[:,1]])
+        if (ids1==ids2).sum()>0:
+            raise ValueError('If cross_species_paralogs=True, then paralog_pairs must not have'
+                             ' within-species paralogs')
+            
+        
+        
     smp = sm.samap
     
     gnnm = smp.adata.uns["homology_graph_reweighted"]
@@ -881,7 +945,7 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3)
     return RES
 
 
-def convert_eggnog_to_homologs(sm, A, B, taxon=2759):
+def convert_eggnog_to_homologs(sm, A, B, og_key = 'eggNOG_OGs', taxon=2759):
     """Gets an n x 2 array of homologs at some taxonomic level based on Eggnog results.
     
     Parameters
@@ -914,22 +978,22 @@ def convert_eggnog_to_homologs(sm, A, B, taxon=2759):
     gn = q(smp.adata.uns["homology_gene_names"])
     A = A[np.in1d(q(A.index), gn)]
 
-    orthology_groups = A["18"]
+    orthology_groups = A[og_key]
     og = q(orthology_groups)
     x = np.unique(",".join(og).split(","))
     D = pd.DataFrame(data=np.arange(x.size)[None, :], columns=x)
 
     for i in range(og.size):
         n = orthology_groups[i].split(",")
-        taxa = substr(n, "@", 1)
-        if (taxa == "2759").sum() > 1:
+        taxa = substr(substr(n, "@", 1),'|',0)
+        if (taxa == "2759").sum() > 1 and taxon == '2759':
             og[i] = ""
         else:
             og[i] = "".join(np.array(n)[taxa == taxon])
 
-    A["18"] = og
+    A[og_key] = og
 
-    og = q(A["18"][gn])
+    og = q(A[og_key][gn])
     og[og == "nan"] = ""
 
     X = []
