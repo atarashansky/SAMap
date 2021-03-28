@@ -163,7 +163,7 @@ _KOG_TABLE = dict(A = "RNA processing and mofiication",
 import gc
 from collections.abc import Iterable
 class FunctionalEnrichment(object):    
-    def __init__(self,sms, EGGS, keys, col_key = 'best_OG_cat', delimiter = '', align_thr = 0.1, limit_reference = False, n_top = 0):
+    def __init__(self,sms, DFS, col_key, keys, delimiter = '', align_thr = 0.1, limit_reference = False, n_top = 0):
         """Performs functional enrichment analysis on gene pairs enriched
         in mapped cell types using functional annotations output by Eggnog.
         
@@ -171,20 +171,25 @@ class FunctionalEnrichment(object):
         ----------
         sms - list or tuple of SAMAP objects
         
-        EGGS - list or tuple of pandas.DataFrame Eggnog annotation (one per species present in the input SAMAP objects)
+        DFS - list or tuple of pandas.DataFrame functional annotations (one per species present in the input SAMAP objects)
+        
+        col_key - str
+            The column name with functional annotations in the annotation DataFrames.
         
         keys - list or tuple of column keys from `.adata.obs` DataFrames (one per species present in the input SAMAP objects)
             Cell type mappings will be computed between these annotation vectors.
-            
-        col_key - str, optional, default 'best_OG_cat'
-            The column name with functional annotations in the Eggnog annotation DataFrames.
+                        
+        delimiter - str, optional, default ''
+            Some transcripts may have multiple functional annotations (e.g. GO terms or KOG terms) separated by
+            a delimiter. For KOG terms, this is typically no delimiter (''). For GO terms, this is usually a comma
+            (',').
             
         align_thr - float, optional, default 0.1
             The alignment score below which to filter out cell type mappings
             
         limit_reference - bool, optional, default False
             If True, limits the background set of genes to include only those that are enriched in any cell type mappings
-            If False, the background set of genes will include all genes present in Eggnog dataframes.
+            If False, the background set of genes will include all genes present in the input dataframes.
             
         n_top: int, optional, default 0
             If `n_top` is 0, average the alignment scores for all cells in a pair of clusters.
@@ -196,8 +201,8 @@ class FunctionalEnrichment(object):
         # get dictionary of sam objects
         if not isinstance(sms,Iterable):
             sms = [sms]
-        if not isinstance(EGGS,Iterable):
-            EGGS = [EGGS]
+        if not isinstance(DFS,Iterable):
+            DFS = [DFS]
         if not isinstance(keys,Iterable):
             keys = [keys]
 
@@ -214,20 +219,20 @@ class FunctionalEnrichment(object):
             
         # figure out which species corresponds to which EGGNOG table
         keys2 = {}
-        for i in range(len(EGGS)):
-            EGGS[i] = EGGS[i].copy()
+        for i in range(len(DFS)):
+            DFS[i] = DFS[i].copy()
             
-            genes = q(EGGS[i].index)
+            genes = q(DFS[i].index)
             overlap=[]
             ks = list(SAMS.keys())
             for k in ks:
                 overlap.append(np.in1d(genes,['_'.join(x.split('_')[1:]) for x in SAMS[k].adata.var_names]).mean())
             k = ks[np.array(overlap).argmax()]
-            EGGS[i].index = k+'_'+EGGS[i].index
+            DFS[i].index = k+'_'+DFS[i].index
             keys2[k] = keys[i]
         keys = keys2    
-        # concatenate EGGS
-        A = pd.concat(EGGS,axis=0)
+        # concatenate DFS
+        A = pd.concat(DFS,axis=0)
         RES = pd.DataFrame(A[col_key])
         RES.columns=['GO']    
         RES = RES[(q(RES.values.flatten())!='nan')]
@@ -352,9 +357,29 @@ class FunctionalEnrichment(object):
         self.NUM_ENRICHED_GENES = SCe
         self.ENRICHED_GENES = SCg
         
-        return SC,SCe,SCg
+        return self.ENRICHMENT_SCORES,self.NUM_ENRICHED_GENES,self.ENRICHED_GENES
     
-    def plot_enrichment(self,cell_types = [], pval_thr=2,msize = 50):
+    def plot_enrichment(self,cell_types = [], pval_thr=2.0,msize = 50):
+        """Create a plot summarizing the functional enrichment analysis.
+        
+        Parameters
+        ----------
+        cell_types - list, default []
+            A list of cell types for which enrichment scores will be plotted. If empty (default),
+            all cell types will be plotted.
+            
+        pval_thr - float, default 2.0
+            -log10 p-values < 2.0 will be filtered from the plot.
+            
+        msize - float, default 50
+            The marker size in pixels for the dot plot.
+        
+        Returns
+        -------
+        fig - matplotlib.pyplot.Figure
+        ax - matplotlib.pyplot.AxesSubplot
+        
+        """
         import colorsys
         import seaborn as sns
         import matplotlib
@@ -800,7 +825,7 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
     
 
 
-def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3,cross_species_paralogs = True):
+def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3):
     """Identify paralog substitutions. 
     
     For all genes in `ortholog_pairs` and `paralog_pairs`, this function expects the genes to
@@ -817,15 +842,12 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3,
         Note that this would essentially result in the more generic 'homolog substitutions' rather
         than paralog substitutions.
         
+        The paralogs can be either cross-species, within-species, or a mix of both. 
+        
     psub_thr - float, optional, default 0.3
         Threshold for correlation difference between paralog pairs and ortholog pairs.
         Paralog pairs that do not have greater than `psub_thr` correlation than their 
         corresponding ortholog pairs are filtered out.
-        
-    cross_species_paralogs - bool, optional, default True
-        If True, this function expects cross-species paralogs in `paralog_pairs`. If False,
-        this function expects within-species paralogs in `paralog_pairs`. 
-        If `paralog_pairs` is `None`, this argument is ignored.
         
     Returns
     -------
@@ -833,52 +855,55 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3,
         A table of paralog substitutions.
         
     """
-    if not cross_species_paralogs and paralog_pairs is not None:
-        ZZ1 = {}
-        ZZ2 = {}
-        for i in range(paralog_pairs.shape[0]):    
-            L = ZZ1.get(paralog_pairs[i,0],[])
-            L.append(paralog_pairs[i,1])
-            ZZ1[paralog_pairs[i,0]]=L
-
-            L = ZZ2.get(paralog_pairs[i,1],[])
-            L.append(paralog_pairs[i,0])
-            ZZ2[paralog_pairs[i,1]]=L      
-
-        keys = list(ZZ1.keys())
-        for k in keys:
-            L = ZZ2.get(k,[])
-            L.extend(ZZ1[k])
-            ZZ2[k] = list(np.unique(L))
-
-        ZZ = ZZ2
-
-        L1=[]
-        L2=[]
-        for i in range(ortholog_pairs.shape[0]):
-            try:
-                x = ZZ[ortholog_pairs[i,0]]
-            except:
-                x = []
-            L1.extend([ortholog_pairs[i,1]]*len(x))
-            L2.extend(x)
-            
-            try:
-                x = ZZ[ortholog_pairs[i,1]]
-            except:
-                x = []
-            L1.extend([ortholog_pairs[i,0]]*len(x))
-            L2.extend(x)        
-        
-        L = np.vstack((L2,L1)).T
-        paralog_pairs = np.unique(np.sort(L,axis=1),axis=0)
-    elif cross_species_paralogs and paralog_pairs is not None:
+    if paralog_pairs is not None:
         ids1 = np.array([x.split('_')[0] for x in paralog_pairs[:,0]])
         ids2 = np.array([x.split('_')[0] for x in paralog_pairs[:,1]])
-        if (ids1==ids2).sum()>0:
-            raise ValueError('If cross_species_paralogs=True, then paralog_pairs must not have'
-                             ' within-species paralogs')
+        ix = np.where(ids1==ids2)[0]
+        ixnot = np.where(ids1!=ids2)[0]
+        
+        if ix.size > 0:
+            pps = paralog_pairs[ix]
             
+            ZZ1 = {}
+            ZZ2 = {}
+            for i in range(pps.shape[0]):    
+                L = ZZ1.get(pps[i,0],[])
+                L.append(pps[i,1])
+                ZZ1[pps[i,0]]=L
+
+                L = ZZ2.get(pps[i,1],[])
+                L.append(pps[i,0])
+                ZZ2[pps[i,1]]=L      
+
+            keys = list(ZZ1.keys())
+            for k in keys:
+                L = ZZ2.get(k,[])
+                L.extend(ZZ1[k])
+                ZZ2[k] = list(np.unique(L))
+
+            ZZ = ZZ2
+
+            L1=[]
+            L2=[]
+            for i in range(ortholog_pairs.shape[0]):
+                try:
+                    x = ZZ[ortholog_pairs[i,0]]
+                except:
+                    x = []
+                L1.extend([ortholog_pairs[i,1]]*len(x))
+                L2.extend(x)
+
+                try:
+                    x = ZZ[ortholog_pairs[i,1]]
+                except:
+                    x = []
+                L1.extend([ortholog_pairs[i,0]]*len(x))
+                L2.extend(x)        
+
+            L = np.vstack((L2,L1)).T
+            pps = np.unique(np.sort(L,axis=1),axis=0)
+            
+            paralog_pairs = np.unique(np.sort(np.vstack((pps,paralog_pairs[ixnot])),axis=1),axis=0)
         
         
     smp = sm.samap
@@ -955,7 +980,10 @@ def convert_eggnog_to_homologs(sm, A, B, og_key = 'eggNOG_OGs', taxon=2759):
     A: pandas.DataFrame, Eggnog output table
     
     B: pandas.DataFrame, Eggnog output table
-    
+
+    og_key: str, optional, default 'eggNOG_OGs'
+        The column name of the orthology group mapping results in the Eggnog output table.
+
     taxon: int, optional, default 2759
         Taxonomic ID corresponding to the level at which genes with overlapping orthology groups
         will be considered homologs. Defaults to the Eukaryotic level.
