@@ -28,7 +28,6 @@ class SAMAP(object):
         names1: typing.Optional[typing.Union[list, np.ndarray]] = None,
         names2: typing.Optional[typing.Union[list, np.ndarray]] = None,
         gnnm: typing.Optional[tuple] = None,
-        EGGNOG: typing.Optional[bool] = False,
         taxa: typing.Optional[int] = 33208,
         E: typing.Optional[pd.DataFrame] = None,
         reciprocal_blast: typing.Optional[bool] = True,
@@ -80,10 +79,7 @@ class SAMAP(object):
         gnnm : tuple(scipy.sparse.csr_matrix,numpy array, numpy array)
             If the homology graph was already computed, you can pass it here in the form of a tuple:
             (sparse adjacency matrix, species 1 genes, species 2 genes).
-            This is the tuple returned by `calculate_blast_graph(...)` or `coarsen_eggnog_graph(...)`.
-
-        EGGNOG : bool, optional, default False
-            If True, instructs SAMap to expect orthology group mapping tables output by Eggnog.
+            This is the tuple returned by `_calculate_blast_graph(...)` or `_coarsen_eggnog_graph(...)`.
 
         taxa : int, optional, default 33208
             Specifies the taxonomic level at which genes with overlapping orthology groups will be linked.
@@ -91,7 +87,8 @@ class SAMAP(object):
 
         E : tuple(pd.DataFrame,pd.DataFrame), optional, default None
             A tuple of EGGNOG orthology group mapping tables corresponding to species 1 and 2,
-            respectively.
+            respectively. If not `None` (default) SAMap will construct its homology graph using
+            the EGGNOG mapping tables instead of the BLAST results.
         
         reciprocal_blast : bool, optional, default True
             If True, only keep reciprocal edges in the computed BLAST graph.
@@ -197,17 +194,17 @@ class SAMAP(object):
                 prepare_SAMap_loadings(sam2)               
 
         if gnnm is None:
-            if not EGGNOG:
-                gnnm, gn1, gn2 = calculate_blast_graph(
+            if E is None:
+                gnnm, gn1, gn2 = _calculate_blast_graph(
                     id1, id2, f_maps=f_maps, reciprocate=reciprocal_blast
                 )
             else:
-                gnnm, gn1, gn2 = calculate_eggnog_graph(E[0], E[1], id1, id2, taxa=taxa)
+                gnnm, gn1, gn2 = _calculate_eggnog_graph(E[0], E[1], id1, id2, taxa=taxa)
 
             gn = np.append(gn1,gn2)
             
             if names1 is not None or names2 is not None:
-                gnnm, gn1, gn2, gn = coarsen_blast_graph(
+                gnnm, gn1, gn2, gn = _coarsen_blast_graph(
                     gnnm, gn1, gn2, gn, id1, id2, names1, names2
                 )
 
@@ -244,7 +241,7 @@ class SAMAP(object):
             )
         )
 
-        smap = Samap_Iter(sam1, sam2, gnnm, gn1, gn2, key1=key1, key2=key2)
+        smap = _Samap_Iter(sam1, sam2, gnnm, gn1, gn2, key1=key1, key2=key2)
         self.sam1 = sam1
         self.sam2 = sam2
         self.gnnm = gnnm
@@ -261,11 +258,10 @@ class SAMAP(object):
         NH1: typing.Optional[int] = 3,
         NH2: typing.Optional[int] = 3,
         K: typing.Optional[int] = 20,
-        NOPs1: typing.Optional[int] = 0,
-        NOPs2: typing.Optional[int] = 0,
         N_GENE_CHUNKS: typing.Optional[int] = 1,
-        USE_SEQ: typing.Optional[bool] = False,
+        umap: typing.Optional[bool] = False,
         ncpus=os.cpu_count(),
+        
     ):
         """Runs the SAMap algorithm.
 
@@ -285,26 +281,19 @@ class SAMAP(object):
         K : int, optional, default 20
             The number of cross-species edges to identify per cell.
 
-        NOPs1 : int, optional, default 0
-            Keeps the `NOPs1` largest outgoing edges in the homology graph, pruning
-            the rest. If 0, no pruning is done.
-
-        NOPs2 : int, optional, default 0
-            Keeps the `NOPs2` largest incoming edges in the homology graph, pruning
-            the rest. The final homology graph is the union of the outgoing- and
-            incoming-edge filtered graphs. If 0, no pruning is done.
-
-        N_GENE_CHUNKS: int, optional, default 1
+        N_GENE_CHUNKS : int, optional, default 1
             When updating the edge weights in the BLAST homology graph, the operation
             will be split up into `N_GENE_CHUNKS` chunks. For large datasets
             (>50,000 cells), use more chunks (e.g. 4) to avoid running out of
             memory.
-
-        USE_SEQ: bool, optional, default False
-            If `USE_SEQ` is False, gene-gene correlations replace the BLAST sequence
-            similarity edge weights when refining the edge weights in the homology graph.
-            If `USE_SEQ` is True, gene-gene correlations scale the BLAST sequence similarity
-            edge weights. `USE_SEQ` is False by default.
+            
+        umap : bool, optional, default True
+            If True, performs UMAP on the combined manifold to generate a 2D visualization.
+            If False, skips this step. 
+            
+        ncpus : int, optional, default `os.cpu_count()`
+            The number of CPUs to use when computing gene-gene correlations.
+            Defaults to using all available CPUs.
 
         Returns
         -------
@@ -322,8 +311,8 @@ class SAMAP(object):
 
         smap.run(
             NUMITERS=NUMITERS,
-            NOPs1=NOPs1,
-            NOPs2=NOPs2,
+            NOPs1=0,
+            NOPs2=0,
             NH1=NH1,
             NH2=NH2,
             K=K,
@@ -335,13 +324,16 @@ class SAMAP(object):
         self.ITER_DATA = smap.ITER_DATA
 
         print("Alignment score ---", _avg_as(samap).mean())
-        print("Running UMAP on the stitched manifolds.")
-        sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random')
+        if umap:
+            print("Running UMAP on the stitched manifolds.")
+            sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random')
+        
         try:
             hom_graph = smap.GNNMS_corr[-1]
             samap.adata.uns["homology_graph_reweighted"] = hom_graph
         except:
             pass
+        
         samap.adata.uns["homology_graph"] = gnnm
         samap.adata.uns["homology_gene_names"] = gn
         samap.adata.uns["homology_gene_names1"] = gn1
@@ -350,9 +342,10 @@ class SAMAP(object):
         samap.adata.obs["species"] = pd.Categorical(
             [self.id1] * sam1.adata.shape[0] + [self.id2] * sam2.adata.shape[0]
         )
-
-        self.sam1.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
-        self.sam2.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam2.adata.obs_names].obsm['X_umap']        
+        
+        if umap:
+            self.sam1.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
+            self.sam2.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam2.adata.obs_names].obsm['X_umap']        
         
         self.run_time = time.time() - start_time
         print("Elapsed time: {} minutes.".format(self.run_time / 60))
@@ -363,7 +356,59 @@ class SAMAP(object):
     def plot_expression_overlap(self,g1,g2,axes=None,
                                 COLOR0='gray', COLOR1='#000098', COLOR2='#ffb900', COLOR3='#00ceb5',
                                 s0 = 1, s1 = 3, s2 = 3, s3 = 10,
-                                reverse = False, thr = 0.1):
+                                thr = 0.1,**kwargs):
+        """Displays the expression overlap of two genes on the combined manifold.
+
+        Parameters
+        ----------
+        g1 : str
+            Gene ID from species 1.
+        
+        g2 : str
+            Gene ID from species 2.
+            
+        axes : matplotlib.pyplot.Axes, optional, default None
+            Displays the scatter plot on the provided axes if specified.
+            Otherwise creates a new figure.
+            
+        COLOR0 : str, optional, default 'gray'
+            The color for cells that do not express `g1` or `g2`.
+        
+        COLOR1 : str, optional, default '#000098'
+            The color for cells expressing `g1`.
+        
+        COLOR2 : str, optional, default '#ffb900'
+            The color for cells expressing `g2`.
+        
+        COLOR3 : str, optional, default '#00ceb5'
+            The color for cells that overlap in
+            expression of `g1` and `g2`.
+        
+        s0 : int, optional, default 1
+            Marker size corresponding to `COLOR0`.
+            
+        s1 : int, optional, default 3
+            Marker size corresponding to `COLOR1`.
+            
+        s2 : int, optional, default 3
+            Marker size corresponding to `COLOR2`.
+            
+        s3 : int, optional, default 10
+            Marker size corresponding to `COLOR3`.
+        
+        thr : float, optional, default 0.1
+            Threshold below which imputed expressions across species are zero'd out. 
+        
+        Keyword Arguments (**kwargs)
+        ----------------------------
+        Most arguments accepted by matplotlib.pyplot.scatter are available.
+        
+
+        Returns
+        -------
+        ax - matplotlib.pyplot.Axes
+        """
+        
         from matplotlib import cm
         from matplotlib.colors import to_rgba
         def hex_to_rgb(value):
@@ -423,12 +468,13 @@ class SAMAP(object):
         davg2[davg2<thr]=0
         
         davg3 = np.vstack((davg1,davg2)).min(0)
+        ma = max([davg1.max(),davg2.max(),davg3.max()])
         if davg1.max()>0:
             davg1 = davg1/davg1.max()
         if davg2.max()>0:
             davg2 = davg2/davg2.max()
         if davg3.max()>0:
-            davg3 = davg3/davg3.max()
+            davg3 = davg3/davg3.max()            
 
         c1 = hex_to_rgb(COLOR1)+[0.0]
         c2 = hex_to_rgb(COLOR2)+[0.0]
@@ -437,23 +483,55 @@ class SAMAP(object):
         c1 = np.vstack([c1]*davg1.size)
         c2 = np.vstack([c2]*davg1.size)
         c3 = np.vstack([c3]*davg1.size)
-        c1[:,-1] = davg1 if not reverse else davg2
-        c2[:,-1] = davg2 if not reverse else davg1
+        c1[:,-1] = davg1# if not reverse else davg2
+        c2[:,-1] = davg2# if not reverse else davg1
         c3[:,-1] = davg3
 
         ax = sm.samap.scatter(projection = 'X_umap', colorspec = COLOR0, axes=axes, s = s0)
-        sm.samap.scatter(projection = 'X_umap', c = c1, axes = ax, s = s1,colorbar=False)
-        sm.samap.scatter(projection = 'X_umap', c = c2, axes = ax, s = s2,colorbar=False)
-        sm.samap.scatter(projection = 'X_umap', c = c3, axes = ax, s = s3,colorbar=False)
+        sm.samap.scatter(projection = 'X_umap', c = c1, axes = ax, s = s1,colorbar=False,**kwargs)
+        sm.samap.scatter(projection = 'X_umap', c = c2, axes = ax, s = s2,colorbar=False,**kwargs)
+        sm.samap.scatter(projection = 'X_umap', c = c3, axes = ax, s = s3,colorbar=False,**kwargs)
         return ax    
     
-    def scatter(self,axes=None, c1='#000098', c2='#ffb900', reverse=False, s1=10,s2=10,alpha1=1.0,alpha2=1.0, **kwargs):
-        if not reverse:
-            ax = self.sam1.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c1, s=s1, alpha=alpha1,**kwargs)
-            ax = self.sam2.scatter(projection = 'X_umap_samap',axes=ax,colorspec=c2, s=s2, alpha=alpha2,**kwargs)
-        else:
-            ax = self.sam2.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c2, s=s2, alpha=alpha2,**kwargs)
-            ax = self.sam1.scatter(projection = 'X_umap_samap',axes=ax,colorspec=c1, s=s1, alpha=alpha1,**kwargs)
+    def scatter(self,axes=None, c1='#000098', c2='#ffb900', s1=10,s2=10,alpha1=1.0,alpha2=1.0, **kwargs):
+        """Displays the UMAP projection of the combined manifold.
+
+        Parameters
+        ----------
+        axes : matplotlib.pyplot.Axes, optional, default None
+            Displays the scatter plot on the provided axes if specified.
+            Otherwise creates a new figure.
+            
+        c1 : str, optional, default '#000098'
+            The color for cells from species 1.
+        
+        c2 : str, optional, default '#ffb900'
+            The color for cells from species 2.
+            
+        s1 : int, optional, default 10
+            Marker size corresponding to `c1`.
+            
+        s2 : int, optional, default 10
+            Marker size corresponding to `c2`.
+        
+        alpha1 : float, optional, default 1.0
+            The transparency of dots from species 1.
+            
+        alpha2 : float, optional, default 1.0
+            The transparency of dots from species 2.
+                    
+        Keyword Arguments (**kwargs)
+        ----------------------------
+        Most arguments accepted by matplotlib.pyplot.scatter are available.
+        
+
+        Returns
+        -------
+        ax - matplotlib.pyplot.Axes
+        """
+        
+        ax = self.sam1.scatter(projection = 'X_umap_samap',axes=axes,colorspec=c1, s=s1, alpha=alpha1,**kwargs)
+        ax = self.sam2.scatter(projection = 'X_umap_samap',axes=ax,colorspec=c2, s=s2, alpha=alpha2,**kwargs)
         return ax
         
     def gui(self):
@@ -485,6 +563,12 @@ class SAMAP(object):
         -----------------
         Keyword arguments passed into `matplotlib.pyplot.imshow`.
         
+        Returns
+        -------
+        fig :  matplotlib.pyplot.Figure
+        
+        mapping_table : pandas.DataFrame
+            Table with alignment scores between the cell types in `key1` and `key2`.
         """
         sam1=self.sam1
         sam2=self.sam2
@@ -511,7 +595,7 @@ class SAMAP(object):
         fig.tight_layout()
         return fig,pd.DataFrame(data=mapping_scores,index=labels1,columns=labels2)
 
-class Samap_Iter(object):
+class _Samap_Iter(object):
     def __init__(
         self, sam1, sam2, gnnm, gn1, gn2, key1="leiden_clusters", key2="leiden_clusters"
     ):
@@ -551,7 +635,7 @@ class Samap_Iter(object):
         for i in range(NUMITERS):
             if self.iter > 0 and i == 0:
                 print("Calculating gene-gene correlations in the homology graph...")
-                gnnmu = refine_corr(
+                gnnmu = _refine_corr(
                     sam1,
                     sam2,
                     sam4,
@@ -573,7 +657,7 @@ class Samap_Iter(object):
             gnnm2 = _get_pairs(sam1, sam2, gnnmu, gn1, gn2, NOPs1=NOPs1, NOPs2=NOPs2)
             self.GNNMS_pruned.append(gnnm2)
 
-            sam4 = mapper(
+            sam4 = _mapper(
                 [sam1, sam2],
                 gnnm2,
                 gn,
@@ -611,7 +695,7 @@ class Samap_Iter(object):
             self.iter += 1
             if i < NUMITERS - 1:
                 print("Calculating gene-gene correlations in the homology graph...")
-                gnnmu = refine_corr(
+                gnnmu = _refine_corr(
                     sam1,
                     sam2,
                     sam4,
@@ -638,7 +722,7 @@ class Samap_Iter(object):
         ]
 
 
-def mapper(
+def _mapper(
     sams,
     gnnm,
     gn,
@@ -848,7 +932,7 @@ def mapper(
         sc.tl.umap(sam3.adata, min_dist=0.1)
     return sam3
 
-def refine_corr(
+def _refine_corr(
     sam1,
     sam2,
     st,
@@ -925,7 +1009,7 @@ def refine_corr(
     return gnnm3.tocsr()
 
 
-def calculate_eggnog_graph(A, B, id1, id2, taxa=33208):
+def _calculate_eggnog_graph(A, B, id1, id2, taxa=33208):
     import networkx as nx
 
     A = A.copy()
@@ -973,7 +1057,7 @@ def calculate_eggnog_graph(A, B, id1, id2, taxa=33208):
     return gnnm, gn1, gn2
 
 
-def calculate_blast_graph(id1, id2, f_maps="maps/", eval_thr=1e-6, reciprocate=False):
+def _calculate_blast_graph(id1, id2, f_maps="maps/", eval_thr=1e-6, reciprocate=False):
 
     if os.path.exists(f_maps + "{}{}".format(id1, id2)):
         fA = f_maps + "{}{}/{}_to_{}.txt".format(id1, id2, id1, id2)
@@ -1057,7 +1141,7 @@ def calculate_blast_graph(id1, id2, f_maps="maps/", eval_thr=1e-6, reciprocate=F
     return gnnm, gn1, gn2
 
 
-def coarsen_blast_graph(gnnm, gn1, gn2, gn, id1, id2, namesA, namesB):
+def _coarsen_blast_graph(gnnm, gn1, gn2, gn, id1, id2, namesA, namesB):
     if namesA is not None:
         groupsA = {}
         for i in range(len(namesA)):
@@ -1146,6 +1230,17 @@ def coarsen_blast_graph(gnnm, gn1, gn2, gn, id1, id2, namesA, namesB):
 
 
 def prepare_SAMap_loadings(sam, npcs=300):
+    """ Prepares SAM object to contain the proper PC loadings associated with its manifold.
+    Deposits the loadings in `sam.adata.varm['PCs_SAMap']`.
+    
+    Parameters
+    ----------    
+    sam - SAM object
+    
+    npcs - int, optional, default 300
+        The number of PCs to calculate loadings for.
+    
+    """
     ra = sam.adata.uns["run_args"]
     preprocessing = ra.get("preprocessing", "StandardScaler")
     weight_PCs = ra.get("weight_PCs", False)

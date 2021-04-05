@@ -297,6 +297,24 @@ class FunctionalEnrichment(object):
         self.RES = RES
         
     def calculate_enrichment(self,verbose=False):
+        """ Calculates the functional enrichment.
+        
+        Parameters
+        ----------
+        verbose - bool, optional, default False
+            If False, function does not log progress to output console.
+            
+        Returns
+        -------
+        ENRICHMENT_SCORES - pandas.DataFrame (cell types x function categories)
+            Enrichment scores (-log10 p-value) for each function in each cell type.
+        
+        NUM_ENRICHED_GENES - pandas.DataFrame (cell types x function categories)
+            Number of enriched genes for each function in each cell type.        
+        
+        ENRICHED_GENES - pandas.DataFrame (cell types x function categories)
+            The IDs of enriched genes for each function in each cell type.
+        """
         DICT = self.DICT
         RES = self.RES
         CAT_NAMES = self.CAT_NAMES
@@ -377,8 +395,7 @@ class FunctionalEnrichment(object):
         Returns
         -------
         fig - matplotlib.pyplot.Figure
-        ax - matplotlib.pyplot.AxesSubplot
-        
+        ax - matplotlib.pyplot.Axes
         """
         import colorsys
         import seaborn as sns
@@ -630,9 +647,9 @@ class GenePairFinder(object):
         assert n2 in q(self.s2.adata.obs[self.k2])
 
         if True:
-            m = self.find_link_genes_avg(n1, n2, w1t=w1t, w2t=w2t, expr_thr=0.05)
+            m = self._find_link_genes_avg(n1, n2, w1t=w1t, w2t=w2t, expr_thr=0.05)
         else:
-            m = self.find_link_genes(
+            m = self._find_link_genes(
                 n1, n2, w1t=w1t, w2t=w2t, n_pairs=500, expr_thr=0.05
             )
 
@@ -657,7 +674,7 @@ class GenePairFinder(object):
         G2 = G2[np.sort(ix2)]
         return G, G1, G2
 
-    def find_link_genes_avg(self, c1, c2, w1t=0.35, w2t=0.35, expr_thr=0.05):
+    def _find_link_genes_avg(self, c1, c2, w1t=0.35, w2t=0.35, expr_thr=0.05):
         mu1 = self.mu1
         std1 = self.v1
         mu2 = self.mu2
@@ -706,7 +723,7 @@ class GenePairFinder(object):
         w2[w2 > 0] = 1
         return val * w1 * w2 * min_expr
 
-    def find_link_genes(
+    def _find_link_genes(
         self, c1, c2, w1t=0.35, w2t=0.35, knn=False, n_pairs=250, expr_thr=0.05
     ):
         mu1 = self.mu1
@@ -769,7 +786,25 @@ class GenePairFinder(object):
         return mu
 
 
-def find_cluster_markers(sam, key, layer=None, inplace=True):
+def find_cluster_markers(sam, key, inplace=True):
+    """ Finds differentially expressed genes for provided cell type labels.
+    
+    Parameters
+    ----------
+    sam - SAM object
+    
+    key - str
+        Column in `sam.adata.obs` for which to identifying differentially expressed genes.
+        
+    inplace - bool, optional, default True
+        If True, deposits enrichment scores in `sam.adata.varm[f'{key}_scores']`
+        and p-values in `sam.adata.varm[f'{key}_pvals']`.
+        
+        Otherwise, returns three pandas.DataFrame objects (genes x clusters).
+            NAMES - the gene names
+            PVALS - the p-values
+            SCORES - the enrichment scores
+    """
     sam.adata.raw = sam.adata_raw
     a,c = np.unique(q(sam.adata.obs[key]),return_counts=True)
     t = a[c==1]
@@ -781,7 +816,7 @@ def find_cluster_markers(sam, key, layer=None, inplace=True):
         method="wilcoxon",
         n_genes=sam.adata.shape[1],
         use_raw=True,
-        layer=layer,
+        layer=None,
     )
     sam.adata.uns['rank_genes_groups'] = adata.uns['rank_genes_groups']
     
@@ -1099,7 +1134,7 @@ def CellTypeTriangles(sms,keys, align_thr=0.1):
 
         smp.adata.obs["triangle_{}{}".format(x, y)] = pd.Categorical(cl1)
 
-        _, ax, bx, CSIMt = compute_csim(smp, key="triangle_{}{}".format(x, y))
+        _, ax, bx, CSIMt = _compute_csim(smp, key="triangle_{}{}".format(x, y))
         pairsi = np.vstack(CSIMt.nonzero()).T
         pairs = np.vstack((ax[pairsi[:, 0]], bx[pairsi[:, 1]])).T
         X.append(pairs)
@@ -1358,7 +1393,7 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
     return FINAL
 
 
-def compute_csim(sam3, key, X=None, n_top = 0):
+def _compute_csim(sam3, key, X=None, n_top = 0):
     if n_top ==0:
         n_top = 100000000
         
@@ -1526,7 +1561,7 @@ def get_mapping_scores(sm, key1, key2, n_top = 0):
     )
 
     samap.adata.obs["{};{}_mapping_scores".format(key1,key2)] = pd.Categorical(cl)
-    _, clu1, clu2, CSIMth = compute_csim(samap, "{};{}_mapping_scores".format(key1,key2), n_top = n_top)
+    _, clu1, clu2, CSIMth = _compute_csim(samap, "{};{}_mapping_scores".format(key1,key2), n_top = n_top)
 
     A = pd.DataFrame(data=CSIMth, index=clu1, columns=clu2)
     i = np.argsort(-A.values.max(0).flatten())
