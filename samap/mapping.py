@@ -259,7 +259,7 @@ class SAMAP(object):
         NH2: typing.Optional[int] = 3,
         K: typing.Optional[int] = 20,
         N_GENE_CHUNKS: typing.Optional[int] = 1,
-        umap: typing.Optional[bool] = False,
+        umap: typing.Optional[bool] = True,
         ncpus=os.cpu_count(),
         
     ):
