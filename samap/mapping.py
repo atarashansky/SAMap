@@ -8,7 +8,7 @@ import time
 from sklearn.preprocessing import StandardScaler
 
 from . import q, ut, pd, sp, np, warnings, sc
-from .analysis import compute_csim
+from .analysis import _compute_csim
 from .utils import prepend_var_prefix, to_vn, substr, sparse_knn
 
 from numba.core.errors import NumbaPerformanceWarning, NumbaWarning
@@ -351,7 +351,11 @@ class SAMAP(object):
         print("Elapsed time: {} minutes.".format(self.run_time / 60))
         return samap
 
-
+    def run_umap(self):
+        print("Running UMAP on the stitched manifolds.")
+        sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random')
+        self.sam1.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam1.adata.obs_names].obsm['X_umap']
+        self.sam2.adata.obsm['X_umap_samap'] = self.samap.adata[self.sam2.adata.obs_names].obsm['X_umap']        
 
     def plot_expression_overlap(self,g1,g2,axes=None,
                                 COLOR0='gray', COLOR1='#000098', COLOR2='#ffb900', COLOR3='#00ceb5',
@@ -579,7 +583,7 @@ class SAMAP(object):
         cl2 = q(sam2.adata.obs[key2])
         species = q(samap.adata.obs['species']).astype('object')
         samap.adata.obs['mapping_labels'] = pd.Categorical(species + '_' + np.append(cl1,cl2).astype('str').astype('object'))
-        _,labels1,labels2,mapping_scores = compute_csim(samap,key='mapping_labels')
+        _,labels1,labels2,mapping_scores = _compute_csim(samap,key='mapping_labels')
         mapping_scores/=20
         fig,ax = plt.subplots(nrows=1,ncols=1)
         im = ax.imshow(mapping_scores,**kwargs)
@@ -673,7 +677,7 @@ class _Samap_Iter(object):
             self.samap = sam4
             self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
 
-            _, _, _, CSIMth = compute_csim(sam4, "leiden_clusters")
+            _, _, _, CSIMth = _compute_csim(sam4, "leiden_clusters")
 
             self.SCORE_VEC.append(CSIMth.flatten())
             if len(self.SCORE_VEC) > 1:
