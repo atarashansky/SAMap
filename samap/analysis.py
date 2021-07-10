@@ -810,15 +810,24 @@ def find_cluster_markers(sam, key, inplace=True):
     t = a[c==1]
 
     adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)].copy()
-    use_raw = True if adata.raw else False
-    sc.tl.rank_genes_groups(
-        adata,
-        key,
-        method="wilcoxon",
-        n_genes=sam.adata.shape[1],
-        use_raw=use_raw,
-        layer=None,
-    )
+    try:
+        sc.tl.rank_genes_groups(
+            adata,
+            key,
+            method="wilcoxon",
+            n_genes=sam.adata.shape[1],
+            use_raw=True,
+            layer=None,
+        )
+    except ValueError:
+        sc.tl.rank_genes_groups(
+            adata,
+            key,
+            method="wilcoxon",
+            n_genes=sam.adata.shape[1],
+            use_raw=False,
+            layer=None,
+        )        
     sam.adata.uns['rank_genes_groups'] = adata.uns['rank_genes_groups']
     
     NAMES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["names"])
