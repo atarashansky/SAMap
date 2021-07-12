@@ -16,6 +16,7 @@ setup(
         "scanpy>1.7.0",
         "hnswlib",
         "dill",
+        "numba==0.51.2",
         "h5py<=2.10",
         "leidenalg",
     ],
