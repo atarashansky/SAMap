@@ -721,7 +721,7 @@ class _Samap_Iter(object):
             gc.collect()
 
         self.final_sam = sam4
-        self.final_sam.adata.var["edge_weights"] = self.final_sam.adata.uns["mdata"][
+        self.final_sam.adata.uns["edge_weights"] = self.final_sam.adata.uns["mdata"][
             "edge_weights"
         ]
 
