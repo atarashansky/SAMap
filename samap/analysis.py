@@ -534,8 +534,8 @@ class GenePairFinder(object):
         self.s2 = sm.sam2
         self.s3 = sm.samap
 
-        self.id1 = self.s3.adata.var_names[0].split(";")[0].split("_")[0]
-        self.id2 = self.s3.adata.var_names[0].split(";")[1].split("_")[0]
+        self.id1 = sm.id1
+        self.id2 = sm.id2
 
         prepend_var_prefix(self.s1, self.id1)
         prepend_var_prefix(self.s2, self.id2)
@@ -645,17 +645,12 @@ class GenePairFinder(object):
         
         assert n1 in q(self.s1.adata.obs[self.k1])
         assert n2 in q(self.s2.adata.obs[self.k2])
+        
+        m = self._find_link_genes_avg(n1, n2, w1t=w1t, w2t=w2t, expr_thr=0.05)
 
-        if True:
-            m = self._find_link_genes_avg(n1, n2, w1t=w1t, w2t=w2t, expr_thr=0.05)
-        else:
-            m = self._find_link_genes(
-                n1, n2, w1t=w1t, w2t=w2t, n_pairs=500, expr_thr=0.05
-            )
+        self.gene_pair_scores = pd.Series(index=self.s3.adata.uns['gene_pairs'], data=m)
 
-        self.gene_pair_scores = pd.Series(index=self.s3.adata.var_names, data=m)
-
-        G = q(self.s3.adata.var_names[np.argsort(-m)[:n_genes]])
+        G = q(self.s3.adata.uns['gene_pairs'][np.argsort(-m)[:n_genes]])
         G1 = substr(G, ";", 0)
         G2 = substr(G, ";", 1)
         G = q(
@@ -688,8 +683,8 @@ class GenePairFinder(object):
         x1 = sam1.get_labels(key1)
         x2 = sam2.get_labels(key2)
         g1, g2 = (
-            ut.extract_annotation(sam3.adata.var_names, 0, ";"),
-            ut.extract_annotation(sam3.adata.var_names, 1, ";"),
+            ut.extract_annotation(sam3.adata.uns['gene_pairs'], 0, ";"),
+            ut.extract_annotation(sam3.adata.uns['gene_pairs'], 1, ";"),
         )
         X1 = _sparse_sub_standardize(sam1.adata[:, g1].X[x1 == c1, :], mu1, std1)
         X2 = _sparse_sub_standardize(sam2.adata[:, g2].X[x2 == c2, :], mu2, std2)
@@ -739,8 +734,8 @@ class GenePairFinder(object):
         x1 = sam1.get_labels(key1)
         x2 = sam2.get_labels(key2)
         g1, g2 = (
-            ut.extract_annotation(sam3.adata.var_names, 0, ";"),
-            ut.extract_annotation(sam3.adata.var_names, 1, ";"),
+            ut.extract_annotation(sam3.adata.uns['gene_pairs'], 0, ";"),
+            ut.extract_annotation(sam3.adata.uns['gene_pairs'], 1, ";"),
         )
         if knn:
             X1 = _sparse_sub_standardize(
@@ -1632,8 +1627,8 @@ def _sparse_sub_standardize(X, mu, var, rows=False):
     return Xs
 
 def _get_mu_std(sam3, sam1, sam2, knn=False):
-    g1, g2 = ut.extract_annotation(sam3.adata.var_names, 0, ";"), ut.extract_annotation(
-        sam3.adata.var_names, 1, ";"
+    g1, g2 = ut.extract_annotation(sam3.adata.uns['gene_pairs'], 0, ";"), ut.extract_annotation(
+        sam3.adata.uns['gene_pairs'], 1, ";"
     )
     if knn:
         mu1, var1 = sf.mean_variance_axis(sam1.adata[:, g1].layers["X_knn_avg"], axis=0)

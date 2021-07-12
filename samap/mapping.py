@@ -721,7 +721,7 @@ class _Samap_Iter(object):
             gc.collect()
 
         self.final_sam = sam4
-        self.final_sam.adata.var["edge_weights"] = self.final_sam.adata.uns["mdata"][
+        self.final_sam.adata.uns["edge_weights"] = self.final_sam.adata.uns["mdata"][
             "edge_weights"
         ]
 
@@ -1264,17 +1264,26 @@ def _concatenate_sam(sams, nnm, op):
 
     acns = []
     obsks = []
+    exps = []
+    agns = []
     for i in range(len(sams)):
         acns.append(q(sams[i].adata.obs_names))
         obsks.append(np.array(sams[i].adata.obs_keys()))
+        exps.append(sams[i].adata.X)
+        agns.append(q(sams[i].adata.var_names))
+    
     obsk = np.unique(np.concatenate(obsks))
 
     acn = np.concatenate(acns)
-
+    agn = np.concatenate(agns)
+    xx = sp.sparse.block_diag(exps,format='csr')
+    
     gST = op[:, 0].astype("object") + ";" + op[:, 1].astype("object")
 
-    xx = sp.sparse.csr_matrix((acn.size, gST.size))
-    sam = SAM(counts=(xx, gST, acn))
+    
+    sam = SAM(counts=(xx, agn, acn))
+    sam.adata.uns['gene_pairs'] = gST
+    
     sam.adata.uns["neighbors"] = {}
     nnm.setdiag(0)
     nnm = nnm.tocsr()
@@ -1308,7 +1317,6 @@ def _concatenate_sam(sams, nnm, op):
     sam.adata.obs.columns = sam.adata.obs.columns.astype("str")
     sam.adata.var.columns = sam.adata.var.columns.astype("str")
     return sam
-
 
 def _map_features_un(A, B, sam1, sam2, thr=1e-6):
     i1 = np.where(A.columns == "10")[0][0]
