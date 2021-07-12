@@ -25,7 +25,8 @@ RUN conda install -c plotly -c conda-forge -c bioconda -c anaconda \
                             colorlover==0.3.0 \ 
                             ipyevents==0.8.1 \ 
                             numpy==1.19.2 \ 
-                            scipy==1.5.2 \ 
+                            scipy==1.5.2 \
+                            numba==0.51.2 \  
                             dill \ 
                             python-igraph==0.8.3 \ 
                             leidenalg==0.8.3 \
