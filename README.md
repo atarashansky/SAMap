@@ -2,9 +2,9 @@
 The SAMap algorithm.
 
 # Citation
-Please cite the following paper if using SAMap: https://www.biorxiv.org/content/10.1101/2020.09.28.317784v2
+Please cite the following paper if using SAMap: https://elifesciences.org/articles/66747
 
-Tarashansky, Alexander Joel, et al. "Mapping single-cell atlases throughout Metazoa unravels cell type evolution." bioRxiv (2020).
+Tarashansky, Alexander J., et al. "Mapping single-cell atlases throughout Metazoa unravels cell type evolution." Elife 10 (2021): e66747.
 
 ## Requirements
 SAMap was developed and tested in an Anaconda python environment with the following dependencies:
