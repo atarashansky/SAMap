@@ -800,29 +800,19 @@ def find_cluster_markers(sam, key, inplace=True):
             PVALS - the p-values
             SCORES - the enrichment scores
     """
-    sam.adata.raw = sam.adata_raw
     a,c = np.unique(q(sam.adata.obs[key]),return_counts=True)
     t = a[c==1]
 
     adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)].copy()
-    try:
-        sc.tl.rank_genes_groups(
-            adata,
-            key,
-            method="wilcoxon",
-            n_genes=sam.adata.shape[1],
-            use_raw=True,
-            layer=None,
-        )
-    except ValueError:
-        sc.tl.rank_genes_groups(
-            adata,
-            key,
-            method="wilcoxon",
-            n_genes=sam.adata.shape[1],
-            use_raw=False,
-            layer=None,
-        )        
+    sc.tl.rank_genes_groups(
+        adata,
+        key,
+        method="wilcoxon",
+        n_genes=sam.adata.shape[1],
+        use_raw=False,
+        layer=None,
+    )
+      
     sam.adata.uns['rank_genes_groups'] = adata.uns['rank_genes_groups']
     
     NAMES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["names"])
