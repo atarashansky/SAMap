@@ -19,6 +19,7 @@ setup(
         "numba==0.52.0",
         "h5py<=2.10",
         "leidenalg",
+        "fast-histogram",
     ],
     packages=find_packages(),
     include_package_data=True,
