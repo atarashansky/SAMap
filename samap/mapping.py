@@ -262,8 +262,8 @@ class SAMAP(object):
         N_GENE_CHUNKS: typing.Optional[int] = 1,
         umap: typing.Optional[bool] = True,
         ncpus=os.cpu_count(),
-        THR=0,
-        corr_mode = "pearson"
+        hom_edge_thr=0,
+        hom_edge_mode = "pearson"
         
     ):
         """Runs the SAMap algorithm.
@@ -297,6 +297,14 @@ class SAMAP(object):
         ncpus : int, optional, default `os.cpu_count()`
             The number of CPUs to use when computing gene-gene correlations.
             Defaults to using all available CPUs.
+            
+        hom_edge_thr : float, optional, default 0
+            Edges with weight below `hom_edge_thr` in the homology graph will be set to zero.
+            
+        hom_edge_mode: str, optional, default "pearson"
+            If "pearson", edge weights in the homology graph will be calculated using Pearson
+            correlation. If "mutual_info", edge weights will be calculated using normalized
+            mutual information. The latter requires package `fast-histogram` to be installed.
 
         Returns
         -------
@@ -321,8 +329,8 @@ class SAMAP(object):
             K=K,
             NCLUSTERS=N_GENE_CHUNKS,
             ncpus=ncpus,
-            THR=THR,
-            corr_mode=corr_mode
+            THR=hom_edge_thr,
+            corr_mode=hom_edge_mode
         )
         samap = smap.final_sam
         self.samap = samap
