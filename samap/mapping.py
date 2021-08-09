@@ -263,7 +263,8 @@ class SAMAP(object):
         umap: typing.Optional[bool] = True,
         ncpus=os.cpu_count(),
         hom_edge_thr=0,
-        hom_edge_mode = "pearson"
+        hom_edge_mode = "pearson",
+        scale_edges_by_corr = False
         
     ):
         """Runs the SAMap algorithm.
@@ -305,6 +306,10 @@ class SAMAP(object):
             If "pearson", edge weights in the homology graph will be calculated using Pearson
             correlation. If "mutual_info", edge weights will be calculated using normalized
             mutual information. The latter requires package `fast-histogram` to be installed.
+            
+        scale_edges_by_corr: bool, optional, default False
+            If True, scale cell-cell cross-species edges by their expression similarities
+            (correlations).
 
         Returns
         -------
@@ -330,7 +335,8 @@ class SAMAP(object):
             NCLUSTERS=N_GENE_CHUNKS,
             ncpus=ncpus,
             THR=hom_edge_thr,
-            corr_mode=hom_edge_mode
+            corr_mode=hom_edge_mode,
+            scale_edges_by_corr = scale_edges_by_corr
         )
         samap = smap.final_sam
         self.samap = samap
@@ -625,7 +631,7 @@ class _Samap_Iter(object):
         )
         return gnnmu
 
-    def run(self, NUMITERS=3, NOPs1=0, NOPs2=0, NH1=2, NH2=2, K=20, corr_mode='pearson', NCLUSTERS=1, THR=0, ncpus=os.cpu_count()):
+    def run(self, NUMITERS=3, NOPs1=0, NOPs2=0, NH1=2, NH2=2, K=20, corr_mode='pearson', NCLUSTERS=1, scale_edges_by_corr=False, THR=0, ncpus=os.cpu_count()):
         sam1 = self.sam1
         sam2 = self.sam2
         gnnm = self.gnnm
@@ -660,6 +666,7 @@ class _Samap_Iter(object):
                 coarsen=True,
                 key1=self.key1,
                 key2=self.key2,
+                scale_edges_by_corr=scale_edges_by_corr
             )
 
             self.samap = sam4
@@ -723,6 +730,7 @@ def _mapper(
     coarsen=True,
     key1="leiden_clusters",
     key2="leiden_clusters",
+    scale_edges_by_corr=False,
     **kwargs
 ):
     n = len(sams)
@@ -831,11 +839,12 @@ def _mapper(
                     D = D.tocsr()
 
                 mdata["xsim"] = D
-                print('Scaling edge weights by expression correlations.')                
-                x,y = D.nonzero()
-                vals = _replace(mdata["wPCA1"],mdata["wPCA2"],x,y)
-                vals[vals<0]=0
-                D.data[:] = np.sqrt(vals*D.data)
+                if scale_edges_by_corr:
+                    print('Scaling edge weights by expression correlations.')                
+                    x,y = D.nonzero()
+                    vals = _replace(mdata["wPCA1"],mdata["wPCA2"],x,y)
+                    vals[vals<0]=0
+                    D.data[:] = np.sqrt(vals*D.data)
                 
                 D1 = sparse_knn(D, k1).tocsr()
                 D2 = sparse_knn(D.T, k1).tocsr()                

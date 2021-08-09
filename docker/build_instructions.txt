@@ -1,0 +1,5 @@
+Building:
+docker build -f docker/Dockerfile -t tarashan/samap:latest . --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g)
+
+Running:
+docker run -d --rm --name=samap -v /path/to/mount/location/:/jupyter/notebooks -p 8888:8888 -e PORT=8888 tarashan/samap:latest
