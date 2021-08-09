@@ -1156,12 +1156,17 @@ def CellTypeTriangles(sms,keys, align_thr=0.1):
     import networkx as nx
 
     G = nx.Graph()
-    G.add_edges_from(ctu[np.vstack(nnm.nonzero()).T])
+    gps=ctu[np.vstack(nnm.nonzero()).T]
+    G.add_edges_from(gps)
+    alignment = pd.Series(index=to_vn(gps),data=nnm.data)
     all_cliques = nx.enumerate_all_cliques(G)
     all_triangles = [x for x in all_cliques if len(x) == 3]
     Z = np.sort(np.vstack(all_triangles), axis=1)
     DF = pd.DataFrame(data=Z, columns=[x.split("_")[0] for x in Z[0]])
     DF = DF[[A, B, C]]
+    DF[A+';'+B] = [alignment[x] for x in DF[A].values.astype('str').astype('object')+';'+DF[B].values.astype('str').astype('object')]
+    DF[A+';'+C] = [alignment[x] for x in DF[A].values.astype('str').astype('object')+';'+DF[C].values.astype('str').astype('object')]
+    DF[B+';'+C] = [alignment[x] for x in DF[B].values.astype('str').astype('object')+';'+DF[C].values.astype('str').astype('object')]    
     return DF
 
 

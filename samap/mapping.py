@@ -1,5 +1,7 @@
+from fast_histogram import histogram2d
 import hnswlib
 import typing
+from numba import njit, prange
 import os
 from os import path
 import gc
@@ -261,6 +263,8 @@ class SAMAP(object):
         N_GENE_CHUNKS: typing.Optional[int] = 1,
         umap: typing.Optional[bool] = True,
         ncpus=os.cpu_count(),
+        THR=0,
+        corr_mode = "pearson"
         
     ):
         """Runs the SAMap algorithm.
@@ -318,6 +322,8 @@ class SAMAP(object):
             K=K,
             NCLUSTERS=N_GENE_CHUNKS,
             ncpus=ncpus,
+            THR=THR,
+            corr_mode=corr_mode
         )
         samap = smap.final_sam
         self.samap = samap
@@ -552,53 +558,9 @@ class SAMAP(object):
         else:
             return self.SamapGui.SamPlot
         
-    def display_heatmap(self,key1='leiden_clusters',key2='leiden_clusters',colorbar=True,**kwargs):
-        """Displays a heatmap of mapping scores.
+    def refine_homology_graph(self, THR=0, NCLUSTERS=1, ncpus = os.cpu_count(), corr_mode='pearson'):
+        return self.smap.refine_homology_graph(NCLUSTERS=NCLUSTERS, ncpus=ncpus, THR=THR, corr_mode=corr_mode)
         
-        Parameters
-        ----------
-        key1 & key2: str, optional, default 'leiden_clusters'
-            The keys corresponding to the annotation vector in `.adata.obs` for the two SAM objects.
-        
-        colorbar: bool, optional, default True
-            If True, displays colorbar next to the heatmap.
-        
-        Keyword Arguments
-        -----------------
-        Keyword arguments passed into `matplotlib.pyplot.imshow`.
-        
-        Returns
-        -------
-        fig :  matplotlib.pyplot.Figure
-        
-        mapping_table : pandas.DataFrame
-            Table with alignment scores between the cell types in `key1` and `key2`.
-        """
-        sam1=self.sam1
-        sam2=self.sam2
-        samap=self.samap
-        from samap import q, pd
-        import matplotlib.pyplot as plt
-        cl1 = q(sam1.adata.obs[key1])
-        cl2 = q(sam2.adata.obs[key2])
-        species = q(samap.adata.obs['species']).astype('object')
-        samap.adata.obs['mapping_labels'] = pd.Categorical(species + '_' + np.append(cl1,cl2).astype('str').astype('object'))
-        _,labels1,labels2,mapping_scores = _compute_csim(samap,key='mapping_labels')
-        mapping_scores/=20
-        fig,ax = plt.subplots(nrows=1,ncols=1)
-        im = ax.imshow(mapping_scores,**kwargs)
-        ax.set_xticks(np.arange(labels2.size))
-        ax.set_yticks(np.arange(labels1.size))
-        ax.set_xticklabels(labels2,rotation=90)
-        ax.set_yticklabels(labels1)
-        h = 10
-        w = labels2.size*10/labels1.size
-        fig.set_size_inches((w,h))
-        if colorbar:
-            fig.colorbar(im,shrink=0.5)
-        fig.tight_layout()
-        return fig,pd.DataFrame(data=mapping_scores,index=labels1,columns=labels2)
-
 class _Samap_Iter(object):
     def __init__(
         self, sam1, sam2, gnnm, gn1, gn2, key1="leiden_clusters", key2="leiden_clusters"
@@ -623,7 +585,34 @@ class _Samap_Iter(object):
         ]
         self.iter = 0
 
-    def run(self, NUMITERS=3, NOPs1=0, NOPs2=0, NH1=2, NH2=2, K=20, NCLUSTERS=1, ncpus=os.cpu_count()):
+    def refine_homology_graph(self, NCLUSTERS=1, ncpus=os.cpu_count(), THR=0, corr_mode='pearson'):
+        sam1 = self.sam1
+        sam2 = self.sam2
+        sam4 = self.samap
+        
+        gnnm = self.gnnm
+        gn1 = self.gn1
+        gn2 = self.gn2
+        gnnmu = self.gnnmu
+        
+        gnnmu = _refine_corr(
+            sam1,
+            sam2,
+            sam4,
+            gnnm,
+            gn1,
+            gn2,
+            THR=THR,
+            use_seq=False,
+            T1=0,
+            T2=0,
+            NCLUSTERS=NCLUSTERS,
+            ncpus=ncpus,
+            corr_mode=corr_mode
+        )
+        return gnnmu
+
+    def run(self, NUMITERS=3, NOPs1=0, NOPs2=0, NH1=2, NH2=2, K=20, corr_mode='pearson', NCLUSTERS=1, THR=0, ncpus=os.cpu_count()):
         sam1 = self.sam1
         sam2 = self.sam2
         gnnm = self.gnnm
@@ -639,21 +628,7 @@ class _Samap_Iter(object):
         for i in range(NUMITERS):
             if self.iter > 0 and i == 0:
                 print("Calculating gene-gene correlations in the homology graph...")
-                gnnmu = _refine_corr(
-                    sam1,
-                    sam2,
-                    sam4,
-                    gnnm,
-                    gn1,
-                    gn2,
-                    THR=0,
-                    use_seq=False,
-                    corr_mode="pearson",
-                    T1=0,
-                    T2=0,
-                    NCLUSTERS=NCLUSTERS,
-                    ncpus=ncpus,
-                )
+                gnnmu = self.refine_homology_graph(ncpus = ncpus, NCLUSTERS = NCLUSTERS, THR=THR, corr_mode=corr_mode)
 
                 self.GNNMS_corr.append(gnnmu)
                 self.gnnmu = gnnmu
@@ -699,21 +674,8 @@ class _Samap_Iter(object):
             self.iter += 1
             if i < NUMITERS - 1:
                 print("Calculating gene-gene correlations in the homology graph...")
-                gnnmu = _refine_corr(
-                    sam1,
-                    sam2,
-                    sam4,
-                    gnnm,
-                    gn1,
-                    gn2,
-                    THR=0,
-                    use_seq=False,
-                    corr_mode="pearson",
-                    T1=0,
-                    T2=0,
-                    NCLUSTERS=NCLUSTERS,
-                    ncpus=ncpus,
-                )
+                self.samap = sam4
+                gnnmu = self.refine_homology_graph(ncpus = ncpus,  NCLUSTERS = NCLUSTERS,  THR=THR, corr_mode=corr_mode)
 
                 self.GNNMS_corr.append(gnnmu)
                 self.gnnmu = gnnmu
@@ -724,8 +686,16 @@ class _Samap_Iter(object):
         self.final_sam.adata.uns["edge_weights"] = self.final_sam.adata.uns["mdata"][
             "edge_weights"
         ]
-
-
+        
+@njit(parallel=True)        
+def _replace(X,Y,xi,yi):
+    data = np.zeros(xi.size)
+    for i in prange(xi.size):
+        x=X[xi[i]]
+        y=Y[yi[i]]
+        data[i] = ((x-x.mean())*(y-y.mean()) / x.std() / y.std()).sum() / x.size
+    return data
+    
 def _mapper(
     sams,
     gnnm,
@@ -848,9 +818,14 @@ def _mapper(
                     D = D.tocsr()
 
                 mdata["xsim"] = D
-
+                print('Scaling edge weights by expression correlations.')                
+                x,y = D.nonzero()
+                vals = _replace(mdata["wPCA1"],mdata["wPCA2"],x,y)
+                vals[vals<0]=0
+                D.data[:] = np.sqrt(vals*D.data)
+                
                 D1 = sparse_knn(D, k1).tocsr()
-                D2 = sparse_knn(D.T, k1).tocsr()
+                D2 = sparse_knn(D.T, k1).tocsr()                
 
             else:
                 D1 = h2m
@@ -943,7 +918,7 @@ def _refine_corr(
     gnnm,
     gn1,
     gn2,
-    corr_mode="pearson",
+    corr_mode="mutual_info",
     THR=0,
     use_seq=False,
     T1=0.25,
@@ -1446,7 +1421,38 @@ def _parallel_init(ipl1x, isc1x, ipairs, ign1O, ign2O, iT2, iCORR, icorr_mode):
     CORR = iCORR
     corr_mode = icorr_mode
 
+@njit(parallel=True)
+def _refine_corr_kernel(p,indptr1,indices1,data1,indptr2,indices2,data2,n1,n2):
+    p1 = p[:,0]
+    p2 = p[:,1]
+    res = np.zeros(p1.size)
+    
+    for j in prange(len(p1)):
+        j1, j2 = p1[j], p2[j]
 
+        pl1d = data1[indptr1[j1] : indptr1[j1 + 1]]
+        pl1i = indices1[indptr1[j1] : indptr1[j1 + 1]]
+
+        sc1d = data2[indptr2[j2] : indptr2[j2 + 1]]
+        sc1i = indices2[indptr2[j2] : indptr2[j2 + 1]]
+
+        x = np.zeros(n1)
+        x[pl1i] = pl1d
+        y = np.zeros(n2)
+        y[sc1i] = sc1d
+        iz = np.logical_or(x>0,y>0)
+        izf = np.logical_and(x>0,y>0)
+
+        if izf.sum()>0:
+            x=x[iz]
+            y=y[iz]
+            res[j] = ((x-x.mean())*(y-y.mean()) / x.std() / y.std()).sum() / x.size
+        else:
+            res[j] = 0
+            
+    return res
+            
+        
 def _refine_corr_parallel(
     sam1,
     sam2,
@@ -1502,35 +1508,40 @@ def _refine_corr_parallel(
 
     sc1x = nnm2.dot(x2).multiply(1 / s2).tocsc()
 
-    CORR = {}
-
-    from multiprocessing import Pool, Manager
-
-    CORR = Manager().dict()
     p = pairs
     pl1 = pl1x
     sc1 = sc1x
-    pc_chunksize = pl1.shape[1] // ncpus + 1
 
-    pool = Pool(
-        ncpus, _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode]
-    )
-    try:
-        pool.map(_parallel_wrapper, range(p.shape[0]), chunksize=pc_chunksize)
-    finally:
-        pool.close()
-        pool.join()
-
-    CORR = CORR._getvalue()
+    if corr_mode == 'mutual_info':
+        from multiprocessing import Pool, Manager
+        CORR = Manager().dict()
+        pc_chunksize = pl1.shape[1] // ncpus + 1
+        pool = Pool(
+            ncpus, _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode]
+        )
+        try:
+            pool.map(_parallel_wrapper, range(p.shape[0]), chunksize=pc_chunksize)
+        finally:
+            pool.close()
+            pool.join()
+        CORR = CORR._getvalue()
+    else:
+        vals = _refine_corr_kernel(p,pl1.indptr,pl1.indices,pl1.data,sc1.indptr,sc1.indices,sc1.data,pl1.shape[0],sc1.shape[0])
+        CORR = dict(zip(to_vn(np.vstack((gn1O[p[:,0]],gn2O[p[:,1]])).T),vals))
+    
+    
     for k in CORR.keys():
+        weight1 = sam1.adata.var["weights"][k.split(';')[0]]
+        weight2 = sam2.adata.var["weights"][k.split(';')[1]]
         CORR[k] = 0 if CORR[k] < THR else CORR[k]
+        CORR[k] = np.sqrt(CORR[k] * np.sqrt(weight1 * weight2))
 
     gnnm2 = gnnm.multiply(w[:, None]).multiply(w[None, :]).tocsr()
     x, y = gnnm2.nonzero()
     pairs = np.unique(np.sort(np.vstack((x, y)).T, axis=1), axis=0)
-
     CORR = np.array([CORR[x] for x in to_vn(gn[pairs])])
 
+    
     gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
 
     if use_seq:
@@ -1550,6 +1561,39 @@ def _refine_corr_parallel(
     return gnnm3, CORR
 
 
+def hist2d(X,Y,bins=100):
+    xmin = X.min()
+    xmax = X.max()
+    ymin=Y.min()
+    ymax=Y.max()    
+    return histogram2d(X,Y,bins,[(xmin,xmax),(ymin,ymax)])
+
+def calc_MI(X,Y,bins=100):
+    c_XY = hist2d(X,Y,bins=bins)
+    c_X = c_XY.sum(1)
+    c_Y = c_XY.sum(0)
+    
+    c = c_XY
+    c_normalized = c / c.sum()
+    c1 = c_normalized.sum(1)
+    c2 = c_normalized.sum(0)
+    c1[c1==0]=1
+    c2[c2==0]=1
+    c_normalized[c_normalized==0]=1
+    H_X = -(c1*np.log2(c1)).sum()
+    H_Y = -(c2*np.log2(c2)).sum()
+    H_XY = -(c_normalized*np.log2(c_normalized)).sum()
+    
+    H_Y = 0 if H_Y < 0 else H_Y
+    H_X = 0 if H_X < 0 else H_X
+    H_XY = 0 if H_XY < 0 else H_XY
+
+    MI = H_X + H_Y - H_XY
+    if MI <= 0 or H_X <= 0 or H_Y <= 0:
+        return 0
+    else:
+        return MI / np.sqrt(H_X*H_Y)
+
 def _parallel_wrapper(j):
     j1, j2 = p[j, 0], p[j, 1]
 
@@ -1565,16 +1609,21 @@ def _parallel_wrapper(j):
     y[sc1i] = sc1d
 
     ha = gn1O[j1] + ";" + gn2O[j2]
-    iz = np.logical_or(x > T2, y > T2)
-    izf = np.logical_and(x > T2, y > T2)
 
-    if izf.sum() > 0:
-        if corr_mode == "pearson":
-            CORR[ha] = np.corrcoef(x[iz], y[iz])[0, 1]
+    try:
+        if corr_mode == 'pearson':
+            iz = np.logical_or(x>0,y>0)
+            izf = np.logical_and(x>0,y>0)
+            if izf.sum()>0:
+                CORR[ha] = np.corrcoef(x[iz],y[iz])[0,1]
+            else:
+                CORR[ha] = 0
+
+        elif corr_mode == 'mutual_info':
+            CORR[ha] = calc_MI(x,y)
         else:
-            print("Correlation mode not recognized.")
-            return
-    else:
+            raise ValueError(f'`{corr_mode}` not recognized.')
+    except:
         CORR[ha] = 0
 
 
@@ -1639,13 +1688,13 @@ def _mapping_window(sam1, sam2, gnnm, gn, K=20):
     adata1 = sam1.adata[:, g1]
     adata2 = sam2.adata[:, g2]
 
-    W1 = adata1.var["weights"].values
-    W2 = adata2.var["weights"].values
+    W1 = adata1.var["weights"].values[None,:]
+    W2 = adata2.var["weights"].values[None,:]
 
     std = StandardScaler(with_mean=False)
 
-    s1 = std.fit_transform(adata1.X).multiply(W1[None, :]).tocsr()
-    s2 = std.fit_transform(adata2.X).multiply(W2[None, :]).tocsr()
+    s1 = std.fit_transform(adata1.X)#.multiply(W1[None, :]).tocsr()
+    s2 = std.fit_transform(adata2.X)#.multiply(W2[None, :]).tocsr()
 
     k = K
 
@@ -1666,6 +1715,11 @@ def _mapping_window(sam1, sam2, gnnm, gn, K=20):
 
     sp1 = std.fit_transform(sp1)
     sp2 = std.fit_transform(sp2)
+    
+    s1 = s1.multiply(W1).tocsr()
+    sp1 = sp1.multiply(W2).tocsr()
+    s2 = s2.multiply(W2).tocsr()
+    sp2 = sp2.multiply(W1).tocsr()
 
     mu1 = s1.mean(0).A.flatten()[None, :]
     mu2 = s2.mean(0).A.flatten()[None, :]
@@ -1686,8 +1740,10 @@ def _mapping_window(sam1, sam2, gnnm, gn, K=20):
     wpca2 = wpca[s1.shape[0] :, :]
 
     b1, b2 = _united_proj(wpca1, wpca2, k=k)
-
+    
     output_dict = {}
+    output_dict["translated_data1"] = sp.sparse.hstack((s1,sp1)).tocsr()
+    output_dict["translated_data2"] = sp.sparse.hstack((sp2,s2)).tocsr()    
     output_dict["knn_1v2"] = b1.tocsr()
     output_dict["knn_2v1"] = b2.tocsr()
     output_dict["wPCA1"] = wpca1
