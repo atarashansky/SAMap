@@ -1,4 +1,3 @@
-from fast_histogram import histogram2d
 import hnswlib
 import typing
 from numba import njit, prange
@@ -586,6 +585,12 @@ class _Samap_Iter(object):
         self.iter = 0
 
     def refine_homology_graph(self, NCLUSTERS=1, ncpus=os.cpu_count(), THR=0, corr_mode='pearson'):
+        if corr_mode=='mutual_info':
+            try:
+                from fast_histogram import histogram2d
+            except:
+                raise ImportError("Package `fast_histogram` must be installed for `corr_mode='mutual_info'`.");
+                
         sam1 = self.sam1
         sam2 = self.sam2
         sam4 = self.samap
@@ -1560,6 +1565,10 @@ def _refine_corr_parallel(
 
     return gnnm3, CORR
 
+try:
+    from fast_histogram import histogram2d
+except:
+    pass;
 
 def hist2d(X,Y,bins=100):
     xmin = X.min()
