@@ -5,6 +5,16 @@ def save_samap(sm,fn):
     if len(fn.split('.pkl')) == 1:
         fn = fn + '.pkl'
     sm.path_to_file = fn
+    try:
+        del sm.sam1.umap_obj
+    except:
+        pass;
+    
+    try:
+        del sm.sam2.umap_obj
+    except:
+        pass;
+    
     with open(fn,'wb') as f:
         dill.dump(sm,f)
         
