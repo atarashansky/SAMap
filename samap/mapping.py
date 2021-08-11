@@ -1,3 +1,4 @@
+from scipy.stats import binned_statistic
 import hnswlib
 import typing
 from numba import njit, prange
@@ -571,8 +572,8 @@ class SAMAP(object):
         else:
             return self.SamapGui.SamPlot
         
-    def refine_homology_graph(self, THR=0, NCLUSTERS=1, ncpus = os.cpu_count(), corr_mode='pearson'):
-        return self.smap.refine_homology_graph(NCLUSTERS=NCLUSTERS, ncpus=ncpus, THR=THR, corr_mode=corr_mode)
+    def refine_homology_graph(self, THR=0, NCLUSTERS=1, ncpus = os.cpu_count(), corr_mode='pearson', ct_labels = None):
+        return self.smap.refine_homology_graph(NCLUSTERS=NCLUSTERS, ncpus=ncpus, THR=THR, corr_mode=corr_mode, ct_labels=ct_labels)
         
 class _Samap_Iter(object):
     def __init__(
@@ -598,7 +599,7 @@ class _Samap_Iter(object):
         ]
         self.iter = 0
 
-    def refine_homology_graph(self, NCLUSTERS=1, ncpus=os.cpu_count(), THR=0, corr_mode='pearson'):
+    def refine_homology_graph(self, NCLUSTERS=1, ncpus=os.cpu_count(), THR=0, corr_mode='pearson', ct_labels=None):
         if corr_mode=='mutual_info':
             try:
                 from fast_histogram import histogram2d
@@ -627,7 +628,8 @@ class _Samap_Iter(object):
             T2=0,
             NCLUSTERS=NCLUSTERS,
             ncpus=ncpus,
-            corr_mode=corr_mode
+            corr_mode=corr_mode,
+            ct_labels=ct_labels
         )
         return gnnmu
 
@@ -947,6 +949,7 @@ def _refine_corr(
     T2=0,
     NCLUSTERS=1,
     ncpus=os.cpu_count(),
+    ct_labels=None
 ):
     # import networkx as nx
     gn = np.append(gn1, gn2)
@@ -983,6 +986,7 @@ def _refine_corr(
             T1=T1,
             T2=T2,
             ncpus=ncpus,
+            ct_labels=ct_labels
         )
         GNNMSUBS.append(gnnm2_sub)
         CORRSUBS.append(CORR_sub)
@@ -1425,7 +1429,7 @@ def _avg_as(s):
     )  / s.adata.uns['mdata']['knn_1v2'][0].data.size )
 
 
-def _parallel_init(ipl1x, isc1x, ipairs, ign1O, ign2O, iT2, iCORR, icorr_mode):
+def _parallel_init(ipl1x, isc1x, ipairs, ign1O, ign2O, iT2, iCORR, icorr_mode,icl,ics):
     global pl1
     global sc1
     global p
@@ -1433,7 +1437,11 @@ def _parallel_init(ipl1x, isc1x, ipairs, ign1O, ign2O, iT2, iCORR, icorr_mode):
     global gn2O
     global T2
     global CORR
+    global cs
+    global cl
     global corr_mode
+    cs = ics
+    cl = icl
     pl1 = ipl1x
     sc1 = isc1x
     p = ipairs
@@ -1444,7 +1452,7 @@ def _parallel_init(ipl1x, isc1x, ipairs, ign1O, ign2O, iT2, iCORR, icorr_mode):
     corr_mode = icorr_mode
 
 @njit(parallel=True)
-def _refine_corr_kernel(p,indptr1,indices1,data1,indptr2,indices2,data2,n1,n2):
+def _refine_corr_kernel(filt, p,indptr1,indices1,data1,indptr2,indices2,data2,n1,n2):
     p1 = p[:,0]
     p2 = p[:,1]
     res = np.zeros(p1.size)
@@ -1468,13 +1476,26 @@ def _refine_corr_kernel(p,indptr1,indices1,data1,indptr2,indices2,data2,n1,n2):
         if izf.sum()>0:
             x=x[iz]
             y=y[iz]
-            res[j] = ((x-x.mean())*(y-y.mean()) / x.std() / y.std()).sum() / x.size
+            res[j] = ((x-x.mean())*(y-y.mean()) / x.std() / y.std())[filt[iz]].sum() / x.size
         else:
             res[j] = 0
             
     return res
             
-        
+def _xicorr(X,Y):
+    n = X.size
+    xi = np.argsort(X,kind='quicksort')
+    Y = Y[xi]
+    _,b,c = np.unique(Y,return_counts=True,return_inverse=True)
+    r = np.cumsum(c)[b]
+    _,b,c = np.unique(-Y,return_counts=True,return_inverse=True)
+    l = np.cumsum(c)[b]
+    denominator = (2*(l*(n-l)).sum())
+    if denominator > 0:
+        return 1 - n*np.abs(np.diff(r)).sum() / denominator
+    else:
+        return 0
+
 def _refine_corr_parallel(
     sam1,
     sam2,
@@ -1488,6 +1509,7 @@ def _refine_corr_parallel(
     T1=0.0,
     T2=0.0,
     ncpus=os.cpu_count(),
+    ct_labels=None    
 ):
 
     import scipy as sp
@@ -1533,13 +1555,22 @@ def _refine_corr_parallel(
     p = pairs
     pl1 = pl1x
     sc1 = sc1x
-
-    if corr_mode == 'mutual_info':
+    
+    if corr_mode == 'mutual_info' or corr_mode == "xicorr":
         from multiprocessing import Pool, Manager
         CORR = Manager().dict()
         pc_chunksize = pl1.shape[1] // ncpus + 1
+        if ct_labels is None:
+            cl=cs=None
+        else:
+            cl,cs = ct_labels
+            if not (isinstance(cs,list) or isinstance(cs,tuple)):
+                cs = [cs]           
+            if np.in1d(cl,cs).sum()==0:
+                raise ValueError('Cell types not found in provided labels.')
+                
         pool = Pool(
-            ncpus, _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode]
+            ncpus, _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode, cl, cs]
         )
         try:
             pool.map(_parallel_wrapper, range(p.shape[0]), chunksize=pc_chunksize)
@@ -1548,7 +1579,17 @@ def _refine_corr_parallel(
             pool.join()
         CORR = CORR._getvalue()
     else:
-        vals = _refine_corr_kernel(p,pl1.indptr,pl1.indices,pl1.data,sc1.indptr,sc1.indices,sc1.data,pl1.shape[0],sc1.shape[0])
+        if ct_labels is not None:
+            cl,cs = ct_labels
+            if not (isinstance(cs,list) or isinstance(cs,tuple)):
+                cs = [cs]                      
+            filt = np.in1d(cl,cs)
+            if filt.sum()==0:
+                raise ValueError('Cell types not found in provided labels.')
+                
+        else:
+            filt = np.array([True]*pl1.shape[0])       
+        vals = _refine_corr_kernel(filt, p,pl1.indptr,pl1.indices,pl1.data,sc1.indptr,sc1.indices,sc1.data,pl1.shape[0],sc1.shape[0])
         CORR = dict(zip(to_vn(np.vstack((gn1O[p[:,0]],gn2O[p[:,1]])).T),vals))
     
     
@@ -1587,15 +1628,36 @@ try:
 except:
     pass;
 
-def hist2d(X,Y,bins=100):
+def hist2d(X,Y,bins=100,domain=None):
+    if domain is None:
+        xmin = X.min()
+        xmax = X.max()
+        ymin=Y.min()
+        ymax=Y.max()    
+        domain = [(xmin,xmax),(ymin,ymax)]
+    return histogram2d(X,Y,bins,domain)
+
+def calc_MI(X,Y,bins=100,cl=None,cs=None):    
     xmin = X.min()
     xmax = X.max()
     ymin=Y.min()
     ymax=Y.max()    
-    return histogram2d(X,Y,bins,[(xmin,xmax),(ymin,ymax)])
-
-def calc_MI(X,Y,bins=100):
-    c_XY = hist2d(X,Y,bins=bins)
+    domain = [(xmin,xmax),(ymin,ymax)]
+    c_XY = hist2d(X,Y,bins=bins,domain=domain)
+    
+    if cl is not None and cs is not None:
+        f = np.in1d(cl,cs)*1.0
+        bins1 = np.linspace(xmin,xmax,bins+1)
+        bins2 = np.linspace(ymin,ymax,bins+1)
+        w1 = binned_statistic(X,f,bins=bins1).statistic
+        w2 = binned_statistic(Y,f,bins=bins2).statistic
+        w1[np.isnan(w1)]=0
+        w2[np.isnan(w2)]=0
+    else:
+        w1 = np.ones(c_XY.shape[1])
+        w2 = np.ones(c_XY.shape[0])
+    
+    c_XY =np.sqrt(w1[:,None]*w2[None,:])*c_XY
     c_X = c_XY.sum(1)
     c_Y = c_XY.sum(0)
     
@@ -1637,16 +1699,10 @@ def _parallel_wrapper(j):
     ha = gn1O[j1] + ";" + gn2O[j2]
 
     try:
-        if corr_mode == 'pearson':
-            iz = np.logical_or(x>0,y>0)
-            izf = np.logical_and(x>0,y>0)
-            if izf.sum()>0:
-                CORR[ha] = np.corrcoef(x[iz],y[iz])[0,1]
-            else:
-                CORR[ha] = 0
-
+        if corr_mode == 'xicorr':
+            CORR[ha] = _xicorr(x,y)
         elif corr_mode == 'mutual_info':
-            CORR[ha] = calc_MI(x,y)
+            CORR[ha] = calc_MI(x,y,cl=cl,cs=cs)
         else:
             raise ValueError(f'`{corr_mode}` not recognized.')
     except:
