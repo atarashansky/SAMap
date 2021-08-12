@@ -1526,7 +1526,7 @@ def _refine_corr_kernel(filt, p,indptr1,indices1,data1,indptr2,indices2,data2,n1
             
     return res
             
-def _xicorr(X,Y):        
+def _xicorr(X,Y):
     n = X.size
     xi = np.argsort(X,kind='quicksort')
     Y = Y[xi]
@@ -1534,7 +1534,6 @@ def _xicorr(X,Y):
     r = np.cumsum(c)[b]
     _,b,c = np.unique(-Y,return_counts=True,return_inverse=True)
     l = np.cumsum(c)[b]
-
     denominator = (2*(l*(n-l)).sum())
     if denominator > 0:
         return 1 - n*np.abs(np.diff(r)).sum() / denominator
