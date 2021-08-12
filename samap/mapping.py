@@ -265,7 +265,9 @@ class SAMAP(object):
         ncpus=os.cpu_count(),
         hom_edge_thr=0,
         hom_edge_mode = "pearson",
-        scale_edges_by_corr = False
+        scale_edges_by_corr = False,
+        neigh_from_key1 = False,
+        neigh_from_key2 = False
         
     ):
         """Runs the SAMap algorithm.
@@ -311,7 +313,15 @@ class SAMAP(object):
         scale_edges_by_corr: bool, optional, default False
             If True, scale cell-cell cross-species edges by their expression similarities
             (correlations).
-
+            
+        neigh_from_key1 : bool, optional, default False
+            If True, species 1 neighborhoods are calculated directly from the chosen clustering (`self.key1`).
+            Cells within the same cluster belong to the same neighborhood.
+            
+        neigh_from_key2 : bool, optional, default False
+            If True, species 2 neighborhoods are calculated directly from the chosen clustering (`self.key2`).
+            Cells within the same cluster belong to the same neighborhood.
+            
         Returns
         -------
         samap - Species-merged SAM object
@@ -337,7 +347,9 @@ class SAMAP(object):
             ncpus=ncpus,
             THR=hom_edge_thr,
             corr_mode=hom_edge_mode,
-            scale_edges_by_corr = scale_edges_by_corr
+            scale_edges_by_corr = scale_edges_by_corr,
+            neigh_from_key1=neigh_from_key1,
+            neigh_from_key2=neigh_from_key2
         )
         samap = smap.final_sam
         self.samap = samap
@@ -633,7 +645,8 @@ class _Samap_Iter(object):
         )
         return gnnmu
 
-    def run(self, NUMITERS=3, NOPs1=0, NOPs2=0, NH1=2, NH2=2, K=20, corr_mode='pearson', NCLUSTERS=1, scale_edges_by_corr=False, THR=0, ncpus=os.cpu_count()):
+    def run(self, NUMITERS=3, NOPs1=0, NOPs2=0, NH1=2, NH2=2, K=20, corr_mode='pearson', NCLUSTERS=1,
+                  scale_edges_by_corr=False, THR=0, neigh_from_key1=False, neigh_from_key2=False, ncpus=os.cpu_count()):
         sam1 = self.sam1
         sam2 = self.sam2
         gnnm = self.gnnm
@@ -668,7 +681,9 @@ class _Samap_Iter(object):
                 coarsen=True,
                 key1=self.key1,
                 key2=self.key2,
-                scale_edges_by_corr=scale_edges_by_corr
+                scale_edges_by_corr=scale_edges_by_corr,
+                neigh_from_key1=neigh_from_key1,
+                neigh_from_key2=neigh_from_key2
             )
 
             self.samap = sam4
@@ -718,6 +733,16 @@ def _replace(X,Y,xi,yi):
         data[i] = ((x-x.mean())*(y-y.mean()) / x.std() / y.std()).sum() / x.size
     return data
     
+    
+def _generate_coclustering_matrix(cl):
+    cl = ut.convert_annotations(np.array(list(cl)))
+    clu,cluc=np.unique(cl,return_counts=True)    
+    v = np.zeros((cl.size,clu.size))
+    v[np.arange(v.shape[0]),cl]=1
+    v = sp.sparse.csr_matrix(v)
+    return v
+
+    
 def _mapper(
     sams,
     gnnm,
@@ -733,6 +758,8 @@ def _mapper(
     key1="leiden_clusters",
     key2="leiden_clusters",
     scale_edges_by_corr=False,
+    neigh_from_key1=False,
+    neigh_from_key2=False,
     **kwargs
 ):
     n = len(sams)
@@ -774,14 +801,21 @@ def _mapper(
                 print("Out-neighbor smart expansion 1")
                 nnm = sam.adata.obsp["connectivities"].copy()
                 nnm1_out = nnm
-                nnm1_in = _smart_expand(nnm, K1, NH=NH1)
-                nnm1_in.data[:] = 1
+                if not neigh_from_key1:
+                    nnm1_in = _smart_expand(nnm, K1, NH=NH1)
+                    nnm1_in.data[:] = 1
+                else:
+                    nnm1_in = _generate_coclustering_matrix(CL1)
 
                 print("Out-neighbor smart expansion 2")
                 nnm = sam2.adata.obsp["connectivities"].copy()
                 nnm2_out = nnm
-                nnm2_in = _smart_expand(nnm, K2, NH=NH2)
-                nnm2_in.data[:] = 1
+                if not neigh_from_key2:
+                    nnm2_in = _smart_expand(nnm, K2, NH=NH2)
+                    nnm2_in.data[:] = 1
+                else:
+                    nnm2_in = _generate_coclustering_matrix(CL2)                    
+
 
                 mdata["nnm1_out"] = nnm1_out
                 mdata["nnm1_in"] = nnm1_in
@@ -811,19 +845,29 @@ def _mapper(
                 for bl in range(numiter):
                     print(str(bl) + "/" + str(numiter), D.shape, R)
                     if not R:
-                        C = nnm2_in[bl * chunksize : (bl + 1) * chunksize].dot(B.T)
+                        if neigh_from_key2:
+                            C = nnm2_in[bl * chunksize : (bl + 1) * chunksize].dot(nnm2_in.T.dot(B.T))
+                        else:
+                            C = nnm2_in[bl * chunksize : (bl + 1) * chunksize].dot(B.T)
                         C.data[C.data < 0.1] = 0
                         C.eliminate_zeros()
-
-                        C2 = B2[bl * chunksize : (bl + 1) * chunksize].dot(nnm1_in.T)
+                        if neigh_from_key1:
+                            C2 = nnm1_in.dot(nnm1_in.T.dot(B2[bl * chunksize : (bl + 1) * chunksize].T)).T
+                        else:
+                            C2 = nnm1_in.dot(B2[bl * chunksize : (bl + 1) * chunksize].T).T
                         C2.data[C2.data < 0.1] = 0
                         C2.eliminate_zeros()
                     else:
-                        C = B[bl * chunksize : (bl + 1) * chunksize].dot(nnm2_in.T)
+                        if neigh_from_key2:
+                            C = nnm2_in.dot(nnm2_in.T.dot(B[bl * chunksize : (bl + 1) * chunksize].T)).T
+                        else:
+                            C = nnm2_in.dot(B[bl * chunksize : (bl + 1) * chunksize].T).T
                         C.data[C.data < 0.1] = 0
                         C.eliminate_zeros()
-
-                        C2 = nnm1_in[bl * chunksize : (bl + 1) * chunksize].dot(B2.T)
+                        if neigh_from_key1:
+                            C2 = nnm1_in[bl * chunksize : (bl + 1) * chunksize].dot(nnm1_in.T.dot(B2.T))
+                        else:
+                            C2 = nnm1_in[bl * chunksize : (bl + 1) * chunksize].dot(B2.T)
                         C2.data[C2.data < 0.1] = 0
                         C2.eliminate_zeros()
 
@@ -838,7 +882,7 @@ def _mapper(
 
                 if not R:
                     D = D.T
-                    D = D.tocsr()
+                D = D.tocsr()
 
                 mdata["xsim"] = D
                 if scale_edges_by_corr:
@@ -1388,7 +1432,7 @@ def _get_pairs(sam1, sam2, gnnm, gn1, gn2, NOPs1=2, NOPs2=5):
     # gnnm = filter_gnnm(gnnm)
     su = gnnm.max(1).A
     su[su == 0] = 1
-    gnnm = gnnm.multiply(1 / su).tocsr()
+    #gnnm = gnnm.multiply(1 / su).tocsr()
     W1 = sam1.adata.var["weights"][gn1].values
     W2 = sam2.adata.var["weights"][gn2].values
     W = np.append(W1, W2)
@@ -1482,7 +1526,7 @@ def _refine_corr_kernel(filt, p,indptr1,indices1,data1,indptr2,indices2,data2,n1
             
     return res
             
-def _xicorr(X,Y):
+def _xicorr(X,Y):        
     n = X.size
     xi = np.argsort(X,kind='quicksort')
     Y = Y[xi]
@@ -1490,11 +1534,12 @@ def _xicorr(X,Y):
     r = np.cumsum(c)[b]
     _,b,c = np.unique(-Y,return_counts=True,return_inverse=True)
     l = np.cumsum(c)[b]
+
     denominator = (2*(l*(n-l)).sum())
     if denominator > 0:
         return 1 - n*np.abs(np.diff(r)).sum() / denominator
     else:
-        return 0
+        return 0        
 
 def _refine_corr_parallel(
     sam1,
@@ -1644,20 +1689,6 @@ def calc_MI(X,Y,bins=100,cl=None,cs=None):
     ymax=Y.max()    
     domain = [(xmin,xmax),(ymin,ymax)]
     c_XY = hist2d(X,Y,bins=bins,domain=domain)
-    
-    if cl is not None and cs is not None:
-        f = np.in1d(cl,cs)*1.0
-        bins1 = np.linspace(xmin,xmax,bins+1)
-        bins2 = np.linspace(ymin,ymax,bins+1)
-        w1 = binned_statistic(X,f,bins=bins1).statistic
-        w2 = binned_statistic(Y,f,bins=bins2).statistic
-        w1[np.isnan(w1)]=0
-        w2[np.isnan(w2)]=0
-    else:
-        w1 = np.ones(c_XY.shape[1])
-        w2 = np.ones(c_XY.shape[0])
-    
-    c_XY =np.sqrt(w1[:,None]*w2[None,:])*c_XY
     c_X = c_XY.sum(1)
     c_Y = c_XY.sum(0)
     
