@@ -606,9 +606,9 @@ class GenePairFinder(object):
         x,y = data.nonzero()
         ct1,ct2 = ax[x],bx[y]
         if n1 is not None:
-            f = ct1==n1
+            f = ct1==self.id1+'_'+n1
         elif n2 is not None:        
-            f = ct2==n2
+            f = ct2==self.id2+'_'+n2
         else:
             f = np.array([True]*ct2.size)
         
@@ -817,59 +817,62 @@ def find_cluster_markers(sam, key, inplace=True):
             PVALS - the p-values
             SCORES - the enrichment scores
     """
-    a,c = np.unique(q(sam.adata.obs[key]),return_counts=True)
-    t = a[c==1]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")   
+        
+        a,c = np.unique(q(sam.adata.obs[key]),return_counts=True)
+        t = a[c==1]
 
-    adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)].copy()
-    sc.tl.rank_genes_groups(
-        adata,
-        key,
-        method="wilcoxon",
-        n_genes=sam.adata.shape[1],
-        use_raw=False,
-        layer=None,
-    )
-      
-    sam.adata.uns['rank_genes_groups'] = adata.uns['rank_genes_groups']
-    
-    NAMES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["names"])
-    PVALS = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["pvals"])
-    SCORES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["scores"])
-    if not inplace:
-        return NAMES, PVALS, SCORES
-    dfs1 = []
-    dfs2 = []
-    for i in range(SCORES.shape[1]):
-        names = NAMES.iloc[:, i]
-        scores = SCORES.iloc[:, i]
-        pvals = PVALS.iloc[:, i]
-        pvals[scores < 0] = 1.0
-        scores[scores < 0] = 0
-        pvals = q(pvals)
-        scores = q(scores)
-        
-        dfs1.append(pd.DataFrame(
-            data=scores[None, :], index = [SCORES.columns[i]], columns=names
-        )[sam.adata.var_names].T)
-        dfs2.append(pd.DataFrame(
-            data=pvals[None, :], index = [SCORES.columns[i]], columns=names
-        )[sam.adata.var_names].T)
-    df1 = pd.concat(dfs1,axis=1)
-    df2 = pd.concat(dfs2,axis=1)
-    
-    try:
-        sam.adata.varm[key+'_scores'] = df1
-        sam.adata.varm[key+'_pvals'] = df2
-    except:
-        sam.adata.varm.dim_names = sam.adata.var_names
-        sam.adata.varm.dim_names = sam.adata.var_names
-        sam.adata.varm[key+'_scores'] = df1
-        sam.adata.varm[key+'_pvals'] = df2        
-        
-    for i in range(t.size):
-        sam.adata.varm[key+'_scores'][t[i]]=0
-        sam.adata.varm[key+'_pvals'][t[i]]=1
-    
+        adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)].copy()
+        sc.tl.rank_genes_groups(
+            adata,
+            key,
+            method="wilcoxon",
+            n_genes=sam.adata.shape[1],
+            use_raw=False,
+            layer=None,
+        )
+
+        sam.adata.uns['rank_genes_groups'] = adata.uns['rank_genes_groups']
+
+        NAMES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["names"])
+        PVALS = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["pvals"])
+        SCORES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["scores"])
+        if not inplace:
+            return NAMES, PVALS, SCORES
+        dfs1 = []
+        dfs2 = []
+        for i in range(SCORES.shape[1]):
+            names = NAMES.iloc[:, i]
+            scores = SCORES.iloc[:, i]
+            pvals = PVALS.iloc[:, i]
+            pvals[scores < 0] = 1.0
+            scores[scores < 0] = 0
+            pvals = q(pvals)
+            scores = q(scores)
+
+            dfs1.append(pd.DataFrame(
+                data=scores[None, :], index = [SCORES.columns[i]], columns=names
+            )[sam.adata.var_names].T)
+            dfs2.append(pd.DataFrame(
+                data=pvals[None, :], index = [SCORES.columns[i]], columns=names
+            )[sam.adata.var_names].T)
+        df1 = pd.concat(dfs1,axis=1)
+        df2 = pd.concat(dfs2,axis=1)
+
+        try:
+            sam.adata.varm[key+'_scores'] = df1
+            sam.adata.varm[key+'_pvals'] = df2
+        except:
+            sam.adata.varm.dim_names = sam.adata.var_names
+            sam.adata.varm.dim_names = sam.adata.var_names
+            sam.adata.varm[key+'_scores'] = df1
+            sam.adata.varm[key+'_pvals'] = df2        
+
+        for i in range(t.size):
+            sam.adata.varm[key+'_scores'][t[i]]=0
+            sam.adata.varm[key+'_pvals'][t[i]]=1
+
 
 
 def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3):

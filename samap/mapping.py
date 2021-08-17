@@ -1867,9 +1867,9 @@ def _mapping_window(sam1, sam2, gnnm, gn, K=20):
     sp2 = std.fit_transform(sp2)
     
     #s1 = s1.multiply(W1).tocsr()
-    #sp1 = sp1.multiply(W2).tocsr()
+    sp1 = sp1.multiply(W2).tocsr()
     #s2 = s2.multiply(W2).tocsr()
-    #sp2 = sp2.multiply(W1).tocsr()
+    sp2 = sp2.multiply(W1).tocsr()
 
     mu1 = s1.mean(0).A.flatten()[None, :]
     mu2 = s2.mean(0).A.flatten()[None, :]
