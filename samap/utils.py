@@ -5,11 +5,28 @@ def save_samap(sm,fn):
     if len(fn.split('.pkl')) == 1:
         fn = fn + '.pkl'
     sm.path_to_file = fn
+    
+    #TODO: Clean this up...
+    try:
+        del sm.sam1.SamGui
+    except:
+        pass
+    try:
+        del sm.sam2.SamGui
+    except:
+        pass
+    try:
+        del sm.samap.SamGui
+    except:
+        pass    
+    try:
+        del sm.SamapGui
+    except:
+        pass    
     try:
         del sm.sam1.umap_obj
     except:
         pass;
-    
     try:
         del sm.sam2.umap_obj
     except:

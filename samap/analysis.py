@@ -568,11 +568,17 @@ class GenePairFinder(object):
             find_cluster_markers(self.s2, self.k2)
             gc.collect()
         
-    def find_all(self,thr=0.1,n_top=0,**kwargs):
+    def find_all(self,n1=None,n2=None,thr=0.1,n_top=0,**kwargs):
         """Find enriched gene pairs in all pairs of mapped cell types.
         
         Parameters
         ----------
+        n1: str, optional, default None
+            If passed, find enriched gene pairs of all cell types connected to `n1`.
+        
+        n2: str, optional, default None
+            If passed, find enriched gene pairs of all cell types connected to `n2`.
+            
         thr: float, optional, default 0.2
             Alignment score threshold above which to consider cell type pairs mapped.
         
@@ -590,6 +596,7 @@ class GenePairFinder(object):
         -------
         Table of enriched gene pairs for each cell type pair
         """        
+
         _,_,M = get_mapping_scores(self.sm, self.k1, self.k2, n_top = n_top)
         M=M.T
         ax = q(M.index)
@@ -598,6 +605,16 @@ class GenePairFinder(object):
         data[data<thr]=0
         x,y = data.nonzero()
         ct1,ct2 = ax[x],bx[y]
+        if n1 is not None:
+            f = ct1==self.id1+'_'+n1
+        elif n2 is not None:        
+            f = ct2==self.id2+'_'+n2
+        else:
+            f = np.array([True]*ct2.size)
+        
+        ct1=ct1[f]
+        ct2=ct2[f]
+        
         res={}
         for i in range(ct1.size):
             a = '_'.join(ct1[i].split('_')[1:])
@@ -800,59 +817,62 @@ def find_cluster_markers(sam, key, inplace=True):
             PVALS - the p-values
             SCORES - the enrichment scores
     """
-    a,c = np.unique(q(sam.adata.obs[key]),return_counts=True)
-    t = a[c==1]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")   
+        
+        a,c = np.unique(q(sam.adata.obs[key]),return_counts=True)
+        t = a[c==1]
 
-    adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)].copy()
-    sc.tl.rank_genes_groups(
-        adata,
-        key,
-        method="wilcoxon",
-        n_genes=sam.adata.shape[1],
-        use_raw=False,
-        layer=None,
-    )
-      
-    sam.adata.uns['rank_genes_groups'] = adata.uns['rank_genes_groups']
-    
-    NAMES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["names"])
-    PVALS = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["pvals"])
-    SCORES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["scores"])
-    if not inplace:
-        return NAMES, PVALS, SCORES
-    dfs1 = []
-    dfs2 = []
-    for i in range(SCORES.shape[1]):
-        names = NAMES.iloc[:, i]
-        scores = SCORES.iloc[:, i]
-        pvals = PVALS.iloc[:, i]
-        pvals[scores < 0] = 1.0
-        scores[scores < 0] = 0
-        pvals = q(pvals)
-        scores = q(scores)
-        
-        dfs1.append(pd.DataFrame(
-            data=scores[None, :], index = [SCORES.columns[i]], columns=names
-        )[sam.adata.var_names].T)
-        dfs2.append(pd.DataFrame(
-            data=pvals[None, :], index = [SCORES.columns[i]], columns=names
-        )[sam.adata.var_names].T)
-    df1 = pd.concat(dfs1,axis=1)
-    df2 = pd.concat(dfs2,axis=1)
-    
-    try:
-        sam.adata.varm[key+'_scores'] = df1
-        sam.adata.varm[key+'_pvals'] = df2
-    except:
-        sam.adata.varm.dim_names = sam.adata.var_names
-        sam.adata.varm.dim_names = sam.adata.var_names
-        sam.adata.varm[key+'_scores'] = df1
-        sam.adata.varm[key+'_pvals'] = df2        
-        
-    for i in range(t.size):
-        sam.adata.varm[key+'_scores'][t[i]]=0
-        sam.adata.varm[key+'_pvals'][t[i]]=1
-    
+        adata = sam.adata[np.in1d(q(sam.adata.obs[key]),a[c==1],invert=True)].copy()
+        sc.tl.rank_genes_groups(
+            adata,
+            key,
+            method="wilcoxon",
+            n_genes=sam.adata.shape[1],
+            use_raw=False,
+            layer=None,
+        )
+
+        sam.adata.uns['rank_genes_groups'] = adata.uns['rank_genes_groups']
+
+        NAMES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["names"])
+        PVALS = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["pvals"])
+        SCORES = pd.DataFrame(sam.adata.uns["rank_genes_groups"]["scores"])
+        if not inplace:
+            return NAMES, PVALS, SCORES
+        dfs1 = []
+        dfs2 = []
+        for i in range(SCORES.shape[1]):
+            names = NAMES.iloc[:, i]
+            scores = SCORES.iloc[:, i]
+            pvals = PVALS.iloc[:, i]
+            pvals[scores < 0] = 1.0
+            scores[scores < 0] = 0
+            pvals = q(pvals)
+            scores = q(scores)
+
+            dfs1.append(pd.DataFrame(
+                data=scores[None, :], index = [SCORES.columns[i]], columns=names
+            )[sam.adata.var_names].T)
+            dfs2.append(pd.DataFrame(
+                data=pvals[None, :], index = [SCORES.columns[i]], columns=names
+            )[sam.adata.var_names].T)
+        df1 = pd.concat(dfs1,axis=1)
+        df2 = pd.concat(dfs2,axis=1)
+
+        try:
+            sam.adata.varm[key+'_scores'] = df1
+            sam.adata.varm[key+'_pvals'] = df2
+        except:
+            sam.adata.varm.dim_names = sam.adata.var_names
+            sam.adata.varm.dim_names = sam.adata.var_names
+            sam.adata.varm[key+'_scores'] = df1
+            sam.adata.varm[key+'_pvals'] = df2        
+
+        for i in range(t.size):
+            sam.adata.varm[key+'_scores'][t[i]]=0
+            sam.adata.varm[key+'_pvals'][t[i]]=1
+
 
 
 def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3):
@@ -1416,11 +1436,11 @@ def _compute_csim(sam3, key, X=None, n_top = 0):
 
     for i, c1 in enumerate(clu1s):
         for j, c2 in enumerate(clu2s):
-            CSIM1[i, j] = np.append(
-                np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top],
-                np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top],
-            ).mean()
-    CSIMth = CSIM1 / sam3.adata.uns['mdata']['knn_1v2'][0].data.size    
+            CSIM1[i, j] = max(
+                np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top].mean(),
+                np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top].mean(),
+            )
+    CSIMth = CSIM1 / sam3.adata.uns['mdata']['k']
     s1 = CSIMth.sum(1).flatten()[:, None]
     s2 = CSIMth.sum(0).flatten()[None, :]
     s1[s1 == 0] = 1

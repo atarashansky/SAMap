@@ -1,4 +1,4 @@
-# SAMap -- version 0.2.1
+# SAMap -- version 0.2.2
 The SAMap algorithm.
 
 # Citation
