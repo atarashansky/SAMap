@@ -259,13 +259,13 @@ class SAMAP(object):
         NUMITERS: typing.Optional[int] = 3,
         NH1: typing.Optional[int] = 3,
         NH2: typing.Optional[int] = 3,
-        K: typing.Optional[int] = 20,
+        crossK: typing.Optional[int] = 20,
         N_GENE_CHUNKS: typing.Optional[int] = 1,
         umap: typing.Optional[bool] = True,
         ncpus=os.cpu_count(),
         hom_edge_thr=0,
         hom_edge_mode = "pearson",
-        scale_edges_by_corr = False,
+        scale_edges_by_corr = True,
         neigh_from_key1 = False,
         neigh_from_key2 = False
         
@@ -285,7 +285,7 @@ class SAMAP(object):
             Cells up to `NH2` hops away from a particular cell in organism 2
             will be included in its neighborhood.
 
-        K : int, optional, default 20
+        crossK : int, optional, default 20
             The number of cross-species edges to identify per cell.
 
         N_GENE_CHUNKS : int, optional, default 1
@@ -310,8 +310,8 @@ class SAMAP(object):
             correlation. If "mutual_info", edge weights will be calculated using normalized
             mutual information. The latter requires package `fast-histogram` to be installed.
             
-        scale_edges_by_corr: bool, optional, default False
-            If True, scale cell-cell cross-species edges by their expression similarities
+        scale_edges_by_corr: bool, optional, default True
+            If True, rescale cell-cell cross-species edges by their expression similarities
             (correlations).
             
         neigh_from_key1 : bool, optional, default False
@@ -342,7 +342,7 @@ class SAMAP(object):
             NOPs2=0,
             NH1=NH1,
             NH2=NH2,
-            K=K,
+            K=crossK,
             NCLUSTERS=N_GENE_CHUNKS,
             ncpus=ncpus,
             THR=hom_edge_thr,
@@ -646,7 +646,7 @@ class _Samap_Iter(object):
         return gnnmu
 
     def run(self, NUMITERS=3, NOPs1=0, NOPs2=0, NH1=2, NH2=2, K=20, corr_mode='pearson', NCLUSTERS=1,
-                  scale_edges_by_corr=False, THR=0, neigh_from_key1=False, neigh_from_key2=False, ncpus=os.cpu_count()):
+                  scale_edges_by_corr=True, THR=0, neigh_from_key1=False, neigh_from_key2=False, ncpus=os.cpu_count()):
         sam1 = self.sam1
         sam2 = self.sam2
         gnnm = self.gnnm
@@ -689,6 +689,7 @@ class _Samap_Iter(object):
             self.samap = sam4
             self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
 
+            # TODO, change this to use the given keys.
             _, _, _, CSIMth = _compute_csim(sam4, "leiden_clusters")
 
             self.SCORE_VEC.append(CSIMth.flatten())
@@ -777,6 +778,8 @@ def _mapper(
                 k1 = sam.run_args.get("k", 20)
             else:
                 k1 = k
+            
+            mdata['k']=k1
 
             print("Using " + key1 + " and " + key2 + " cluster labels.")
 
@@ -793,11 +796,6 @@ def _mapper(
             m2h = mdata["knn_2v1"]
 
             if coarsen:
-                h2m0 = h2m.copy()
-                m2h0 = m2h.copy()
-                h2m0.data[:] = 1
-                m2h0.data[:] = 1
-
                 print("Out-neighbor smart expansion 1")
                 nnm = sam.adata.obsp["connectivities"].copy()
                 nnm1_out = nnm
@@ -886,11 +884,36 @@ def _mapper(
 
                 mdata["xsim"] = D
                 if scale_edges_by_corr:
-                    print('Scaling edge weights by expression correlations.')                
+                    print('Rescaling edge weights by expression correlations.')                
                     x,y = D.nonzero()
                     vals = _replace(mdata["wPCA1"],mdata["wPCA2"],x,y)
-                    vals[vals<0]=0
-                    D.data[:] = np.sqrt(vals*D.data)
+                    vals[vals<1e-3]=1e-3
+                    
+                    # make a copy and write correlations
+                    F = D.copy()
+                    F.data[:] = vals
+                    
+                    # normalize by maximum and rescale with tanh
+                    su = F.sum(1).A
+                    su[su==0]=1
+                    F = F.multiply(1/su).tocsr()
+                    F.data[:] = _tanh_scale(F.data,center=0.7,scale=10)
+                    
+                    # get max aligment score from before
+                    ma = D.max(1).A
+                    ma[ma==0]=1
+                    
+                    # geometric mean expression correlation scores by alignment scores
+                    D = F.multiply(D).tocsr()
+                    D.data[:] = np.sqrt(D.data)
+                    
+                    # get new max scores
+                    ma2 = D.max(1).A
+                    ma2[ma2==0]=1
+                    
+                    # change new max scores to old max scores
+                    D = D.multiply(ma/ma2).tocsr()
+                    
                 
                 D1 = sparse_knn(D, k1).tocsr()
                 D2 = sparse_knn(D.T, k1).tocsr()                
@@ -1470,7 +1493,7 @@ def _avg_as(s):
         ]
         .sum(1)
         .A.flatten()
-    )  / s.adata.uns['mdata']['knn_1v2'][0].data.size )
+    )  / s.adata.uns['mdata']['k'] )
 
 
 def _parallel_init(ipl1x, isc1x, ipairs, ign1O, ign2O, iT2, iCORR, icorr_mode,icl,ics):
@@ -1739,15 +1762,15 @@ def _parallel_wrapper(j):
         CORR[ha] = 0
 
 
-def _united_proj(wpca1, wpca2, k=20, metric="correlation", sigma=500, ef=200, M=48):
+def _united_proj(wpca1, wpca2, k=20, metric="cosine", sigma=500, ef=200, M=48):
 
-    print("Running hsnwlib")
-
+    metric = 'l2' if metric == 'euclidean' else metric
+    metric = 'cosine' if metric == 'correlation' else metric
     labels1 = np.arange(wpca1.shape[0])
     labels2 = np.arange(wpca2.shape[0])
 
-    p1 = hnswlib.Index(space="cosine", dim=wpca1.shape[1])
-    p2 = hnswlib.Index(space="cosine", dim=wpca2.shape[1])
+    p1 = hnswlib.Index(space=metric, dim=wpca1.shape[1])
+    p2 = hnswlib.Index(space=metric, dim=wpca2.shape[1])
 
     p1.init_index(max_elements=wpca1.shape[0], ef_construction=ef, M=M)
     p2.init_index(max_elements=wpca2.shape[0], ef_construction=ef, M=M)
@@ -1761,24 +1784,39 @@ def _united_proj(wpca1, wpca2, k=20, metric="correlation", sigma=500, ef=200, M=
     idx2, dist2 = p1.knn_query(wpca2, k=k)
     idx1, dist1 = p2.knn_query(wpca1, k=k)
 
-    dist2 = 1 - dist2
-    dist1 = 1 - dist1
-
-    dist1[dist1 < 0] = 0
-    dist2[dist2 < 0] = 0
-    Dist1 = dist1  # np.exp(-1*(1-dist1)**2)
-    Dist2 = dist2  # np.exp(-1*(1-dist2)**2)
+    if metric == 'cosine':
+        dist2 = 1 - dist2
+        dist1 = 1 - dist1
+        dist1[dist1 < 1e-3] = 1e-3
+        dist2[dist2 < 1e-3] = 1e-3
+        dist1 = dist1/dist1.max(1)[:,None]
+        dist2 = dist2/dist2.max(1)[:,None]
+        dist1 = _tanh_scale(dist1,scale=10, center=0.7)
+        dist2 = _tanh_scale(dist2,scale=10, center=0.7)
+    else:
+        sigma1 = dist1[:,4]
+        sigma2 = dist2[:,4]
+        sigma1[sigma1<1e-3]=1e-3
+        sigma2[sigma2<1e-3]=1e-3
+        dist1 = np.exp(-dist1/sigma1[:,None])
+        dist2 = np.exp(-dist2/sigma2[:,None])
+        
+        
+    Sim1 = dist1  # np.exp(-1*(1-dist1)**2)
+    Sim2 = dist2  # np.exp(-1*(1-dist2)**2)
 
     knn1v2 = sp.sparse.lil_matrix((wpca1.shape[0], wpca2.shape[0]))
     knn2v1 = sp.sparse.lil_matrix((wpca2.shape[0], wpca1.shape[0]))
 
     x1 = np.tile(np.arange(idx1.shape[0])[:, None], (1, idx1.shape[1])).flatten()
     x2 = np.tile(np.arange(idx2.shape[0])[:, None], (1, idx2.shape[1])).flatten()
-    knn1v2[x1, idx1.flatten()] = Dist1.flatten()
-    knn2v1[x2, idx2.flatten()] = Dist2.flatten()
+    knn1v2[x1, idx1.flatten()] = Sim1.flatten()
+    knn2v1[x2, idx2.flatten()] = Sim2.flatten()
 
     return knn1v2.tocsr(), knn2v1.tocsr()
 
+def _tanh_scale(x,scale=10,center=0.5):
+    return center + (1-center) * np.tanh(scale * (x - center))
 
 def _mapping_window(sam1, sam2, gnnm, gn, K=20):
 
@@ -1786,7 +1824,7 @@ def _mapping_window(sam1, sam2, gnnm, gn, K=20):
     ortholog_pairs = gn[ix]
     print("Found", ortholog_pairs.shape[0], "gene pairs")
     corr = gnnm[ix[:, 0], ix[:, 1]].A.flatten()
-    corr = 0.5 + 0.5 * np.tanh(10 * (corr - 0.5))
+    corr = _tanh_scale(corr)
 
     gns1 = ortholog_pairs[:, 0]
     gns2 = ortholog_pairs[:, 1]

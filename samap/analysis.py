@@ -568,11 +568,17 @@ class GenePairFinder(object):
             find_cluster_markers(self.s2, self.k2)
             gc.collect()
         
-    def find_all(self,thr=0.1,n_top=0,**kwargs):
+    def find_all(self,n1=None,n2=None,thr=0.1,n_top=0,**kwargs):
         """Find enriched gene pairs in all pairs of mapped cell types.
         
         Parameters
         ----------
+        n1: str, optional, default None
+            If passed, find enriched gene pairs of all cell types connected to `n1`.
+        
+        n2: str, optional, default None
+            If passed, find enriched gene pairs of all cell types connected to `n2`.
+            
         thr: float, optional, default 0.2
             Alignment score threshold above which to consider cell type pairs mapped.
         
@@ -590,6 +596,7 @@ class GenePairFinder(object):
         -------
         Table of enriched gene pairs for each cell type pair
         """        
+
         _,_,M = get_mapping_scores(self.sm, self.k1, self.k2, n_top = n_top)
         M=M.T
         ax = q(M.index)
@@ -598,6 +605,16 @@ class GenePairFinder(object):
         data[data<thr]=0
         x,y = data.nonzero()
         ct1,ct2 = ax[x],bx[y]
+        if n1 is not None:
+            f = ct1==n1
+        elif n2 is not None:        
+            f = ct2==n2
+        else:
+            f = np.array([True]*ct2.size)
+        
+        ct1=ct1[f]
+        ct2=ct2[f]
+        
         res={}
         for i in range(ct1.size):
             a = '_'.join(ct1[i].split('_')[1:])
@@ -1420,7 +1437,7 @@ def _compute_csim(sam3, key, X=None, n_top = 0):
                 np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top].mean(),
                 np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top].mean(),
             )
-    CSIMth = CSIM1 / sam3.adata.uns['mdata']['knn_1v2'][0].data.size    
+    CSIMth = CSIM1 / sam3.adata.uns['mdata']['k']
     s1 = CSIMth.sum(1).flatten()[:, None]
     s2 = CSIMth.sum(0).flatten()[None, :]
     s1[s1 == 0] = 1
