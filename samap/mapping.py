@@ -1432,7 +1432,7 @@ def _get_pairs(sam1, sam2, gnnm, gn1, gn2, NOPs1=2, NOPs2=5):
     # gnnm = filter_gnnm(gnnm)
     su = gnnm.max(1).A
     su[su == 0] = 1
-    #gnnm = gnnm.multiply(1 / su).tocsr()
+    gnnm = gnnm.multiply(1 / su).tocsr()
     W1 = sam1.adata.var["weights"][gn1].values
     W2 = sam2.adata.var["weights"][gn2].values
     W = np.append(W1, W2)
@@ -1805,8 +1805,8 @@ def _mapping_window(sam1, sam2, gnnm, gn, K=20):
 
     std = StandardScaler(with_mean=False)
 
-    s1 = std.fit_transform(adata1.X)#.multiply(W1[None, :]).tocsr()
-    s2 = std.fit_transform(adata2.X)#.multiply(W2[None, :]).tocsr()
+    s1 = std.fit_transform(adata1.X).multiply(W1).tocsr()#[None, :]).tocsr()
+    s2 = std.fit_transform(adata2.X).multiply(W2).tocsr()#[None, :]).tocsr()
 
     k = K
 
@@ -1828,10 +1828,10 @@ def _mapping_window(sam1, sam2, gnnm, gn, K=20):
     sp1 = std.fit_transform(sp1)
     sp2 = std.fit_transform(sp2)
     
-    s1 = s1.multiply(W1).tocsr()
-    sp1 = sp1.multiply(W2).tocsr()
-    s2 = s2.multiply(W2).tocsr()
-    sp2 = sp2.multiply(W1).tocsr()
+    #s1 = s1.multiply(W1).tocsr()
+    #sp1 = sp1.multiply(W2).tocsr()
+    #s2 = s2.multiply(W2).tocsr()
+    #sp2 = sp2.multiply(W1).tocsr()
 
     mu1 = s1.mean(0).A.flatten()[None, :]
     mu2 = s2.mean(0).A.flatten()[None, :]
