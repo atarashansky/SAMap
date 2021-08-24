@@ -48,7 +48,7 @@ greenlet>=1.1.0
 grequests>=0.6.0
 gseapy>=0.10.4
 h5py>=2.10.0
-hnswlib>=0.5.2
+hnswlib==0.4.0
 holoviews>=1.14.4
 idna>=2.10
 imagesize>=1.2.0

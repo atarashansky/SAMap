@@ -27,7 +27,7 @@ RUN conda install nodejs -y
 RUN pip install jupyterlab
 RUN jupyter labextension install jupyterlab-plotly --no-build
 RUN jupyter labextension install plotlywidget --no-build
-RUN jupyter lab build
+RUN jupyter lab build --dev-build=False --minimize=False
 RUN /root/miniconda/bin/pip install git+https://github.com/eggnogdb/eggnog-mapper.git
 RUN rm -rf ~/.cache
 
