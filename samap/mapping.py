@@ -584,8 +584,8 @@ class SAMAP(object):
         else:
             return self.SamapGui.SamPlot
         
-    def refine_homology_graph(self, THR=0, NCLUSTERS=1, ncpus = os.cpu_count(), corr_mode='pearson', ct_labels = None):
-        return self.smap.refine_homology_graph(NCLUSTERS=NCLUSTERS, ncpus=ncpus, THR=THR, corr_mode=corr_mode, ct_labels=ct_labels)
+    def refine_homology_graph(self, THR=0, NCLUSTERS=1, ncpus = os.cpu_count(), corr_mode='pearson', ct_labels = None, wscale = False):
+        return self.smap.refine_homology_graph(NCLUSTERS=NCLUSTERS, ncpus=ncpus, THR=THR, corr_mode=corr_mode, ct_labels=ct_labels, wscale=wscale)
         
 class _Samap_Iter(object):
     def __init__(
@@ -611,7 +611,7 @@ class _Samap_Iter(object):
         ]
         self.iter = 0
 
-    def refine_homology_graph(self, NCLUSTERS=1, ncpus=os.cpu_count(), THR=0, corr_mode='pearson', ct_labels=None):
+    def refine_homology_graph(self, NCLUSTERS=1, ncpus=os.cpu_count(), THR=0, corr_mode='pearson', ct_labels=None,wscale=False):
         if corr_mode=='mutual_info':
             try:
                 from fast_histogram import histogram2d
@@ -641,7 +641,8 @@ class _Samap_Iter(object):
             NCLUSTERS=NCLUSTERS,
             ncpus=ncpus,
             corr_mode=corr_mode,
-            ct_labels=ct_labels
+            ct_labels=ct_labels,
+            wscale=wscale
         )
         return gnnmu
 
@@ -1016,7 +1017,8 @@ def _refine_corr(
     T2=0,
     NCLUSTERS=1,
     ncpus=os.cpu_count(),
-    ct_labels=None
+    ct_labels=None,
+    wscale=False
 ):
     # import networkx as nx
     gn = np.append(gn1, gn2)
@@ -1032,7 +1034,6 @@ def _refine_corr(
     assert np.concatenate(ixs).size == gn.size
 
     GNNMSUBS = []
-    CORRSUBS = []
     GNSUBS = []
     for i in range(len(ixs)):
         ixs[i] = np.unique(np.append(ixs[i], gnnm[ixs[i], :].nonzero()[1]))
@@ -1040,7 +1041,7 @@ def _refine_corr(
         gnsub = gn[ixs[i]]
         gn1_sub = gn1[np.in1d(gn1, gnsub)]
         gn2_sub = gn2[np.in1d(gn2, gnsub)]
-        gnnm2_sub, CORR_sub = _refine_corr_parallel(
+        gnnm2_sub = _refine_corr_parallel(
             sam1,
             sam2,
             st,
@@ -1053,32 +1054,40 @@ def _refine_corr(
             T1=T1,
             T2=T2,
             ncpus=ncpus,
-            ct_labels=ct_labels
+            ct_labels=ct_labels,
+            wscale=wscale
         )
         GNNMSUBS.append(gnnm2_sub)
-        CORRSUBS.append(CORR_sub)
         GNSUBS.append(gnsub)
         gc.collect()
-    I = []
-    P = []
-    for i in range(len(GNNMSUBS)):
-        I.append(
-            np.unique(np.sort(np.vstack((GNNMSUBS[i].nonzero())).T, axis=1), axis=0)
-        )
-        P.append(GNSUBS[i][I[-1]])
+    
+    GNNMS = {}
+    for key in GNNMSUBS[0].keys():
+        I = []
+        P = []
+        for i in range(len(GNNMSUBS)):
+            I.append(
+                np.unique(np.sort(np.vstack((GNNMSUBS[i][key].nonzero())).T, axis=1), axis=0)
+            )
+            P.append(GNSUBS[i][I[-1]])
 
-    GN = pd.DataFrame(data=np.arange(gn.size)[None, :], columns=gn)
-    gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
-    for i in range(len(I)):
-        x, y = GN[P[i][:, 0]].values.flatten(), GN[P[i][:, 1]].values.flatten()
-        gnnm3[x, y] = GNNMSUBS[i][I[i][:, 0], I[i][:, 1]].A.flatten()
+        GN = pd.DataFrame(data=np.arange(gn.size)[None, :], columns=gn)
+        gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
+        for i in range(len(I)):
+            x, y = GN[P[i][:, 0]].values.flatten(), GN[P[i][:, 1]].values.flatten()
+            gnnm3[x, y] = GNNMSUBS[i][key][I[i][:, 0], I[i][:, 1]].A.flatten()
 
-    gnnm3 = gnnm3.tocsr()
-    x, y = gnnm3.nonzero()
-    # gnnm3[y,x]=gnnm3.data
-    gnnm3 = gnnm3.tolil()
-    gnnm3[y, x] = gnnm3[x, y].A.flatten()
-    return gnnm3.tocsr()
+        gnnm3 = gnnm3.tocsr()
+        x, y = gnnm3.nonzero()
+        # gnnm3[y,x]=gnnm3.data
+        gnnm3 = gnnm3.tolil()
+        gnnm3[y, x] = gnnm3[x, y].A.flatten()
+        gnnm3 = gnnm3.tocsr()
+        if key == '0.0.0stash':
+            return gnnm3
+        else:
+            GNNMS[key] = gnnm3
+    return GNNMS
 
 
 def _calculate_eggnog_graph(A, B, id1, id2, taxa=33208):
@@ -1576,7 +1585,8 @@ def _refine_corr_parallel(
     T1=0.0,
     T2=0.0,
     ncpus=os.cpu_count(),
-    ct_labels=None    
+    ct_labels=None,
+    wscale=False
 ):
 
     import scipy as sp
@@ -1623,72 +1633,110 @@ def _refine_corr_parallel(
     pl1 = pl1x
     sc1 = sc1x
     
-    if corr_mode == 'mutual_info' or corr_mode == "xicorr":
-        from multiprocessing import Pool, Manager
-        CORR = Manager().dict()
-        pc_chunksize = pl1.shape[1] // ncpus + 1
-        if ct_labels is None:
-            cl=cs=None
-        else:
-            cl,cs = ct_labels
-            if not (isinstance(cs,list) or isinstance(cs,tuple)):
-                cs = [cs]           
-            if np.in1d(cl,cs).sum()==0:
-                raise ValueError('Cell types not found in provided labels.')
-                
-        pool = Pool(
-            ncpus, _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode, cl, cs]
-        )
-        try:
-            pool.map(_parallel_wrapper, range(p.shape[0]), chunksize=pc_chunksize)
-        finally:
-            pool.close()
-            pool.join()
-        CORR = CORR._getvalue()
-    else:
-        if ct_labels is not None:
-            cl,cs = ct_labels
-            if not (isinstance(cs,list) or isinstance(cs,tuple)):
-                cs = [cs]                      
-            filt = np.in1d(cl,cs)
-            if filt.sum()==0:
-                raise ValueError('Cell types not found in provided labels.')
-                
-        else:
-            filt = np.array([True]*pl1.shape[0])       
-        vals = _refine_corr_kernel(filt, p,pl1.indptr,pl1.indices,pl1.data,sc1.indptr,sc1.indices,sc1.data,pl1.shape[0],sc1.shape[0])
-        CORR = dict(zip(to_vn(np.vstack((gn1O[p[:,0]],gn2O[p[:,1]])).T),vals))
-    
-    
-    for k in CORR.keys():
-        weight1 = sam1.adata.var["weights"][k.split(';')[0]]
-        weight2 = sam2.adata.var["weights"][k.split(';')[1]]
-        CORR[k] = 0 if CORR[k] < THR else CORR[k]
-        CORR[k] = np.sqrt(CORR[k] * np.sqrt(weight1 * weight2))
-
     gnnm2 = gnnm.multiply(w[:, None]).multiply(w[None, :]).tocsr()
     x, y = gnnm2.nonzero()
     pairs = np.unique(np.sort(np.vstack((x, y)).T, axis=1), axis=0)
-    CORR = np.array([CORR[x] for x in to_vn(gn[pairs])])
-
     
-    gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
+    from multiprocessing import Pool, Manager
+    pc_chunksize = pl1.shape[1] // ncpus + 1    
+    
+    CORRS = {}    
+    if ct_labels is not None and corr_mode == 'pearson':
+        try:
+            cl,cs = ct_labels
+            cs = list(cs)
+        except:
+            cl = ct_labels
+            cs = list(np.unique(cl))
+        if not (isinstance(cs,np.ndarray) or isinstance(cs,list) or isinstance(cs,tuple) or cs is None):
+            cs = [cs]  
 
-    if use_seq:
-        gnnm3[pairs[:, 0], pairs[:, 1]] = (
-            CORR * gnnm2[pairs[:, 0], pairs[:, 1]].A.flatten()
-        )
-        gnnm3[pairs[:, 1], pairs[:, 0]] = (
-            CORR * gnnm2[pairs[:, 1], pairs[:, 0]].A.flatten()
-        )
+        if np.in1d(cl,cs).sum()==0:
+            raise ValueError('None of the cell types are present in the provided list.')  
+            
+        for ct in cs:
+            filt = cl==ct
+            if filt.sum()>0:
+                print(ct)                
+                vals = _refine_corr_kernel(filt, p,pl1.indptr,pl1.indices,pl1.data,sc1.indptr,sc1.indices,sc1.data,pl1.shape[0],sc1.shape[0])
+                CORR = dict(zip(to_vn(np.vstack((gn1O[p[:,0]],gn2O[p[:,1]])).T),vals))
+                for k in CORR.keys():
+                    CORR[k] = 0 if CORR[k] < THR else CORR[k]
+                    if wscale:
+                        weight1 = sam1.adata.var["weights"][k.split(';')[0]]
+                        weight2 = sam2.adata.var["weights"][k.split(';')[1]]
+                        CORR[k] = np.sqrt(CORR[k] * np.sqrt(weight1 * weight2))  
+
+                CORR = np.array([CORR[x] for x in to_vn(gn[pairs])])        
+                CORRS[ct] = CORR
+            
+        
     else:
-        gnnm3[pairs[:, 0], pairs[:, 1]] = CORR  # *gnnm2[x,y].A.flatten()
-        gnnm3[pairs[:, 1], pairs[:, 0]] = CORR  # *gnnm2[x,y].A.flatten()
+        cl=cs=None
+        if corr_mode == 'mutual_info' or corr_mode == "xicorr":
+            CORR = Manager().dict()
+            pool = Pool(
+                ncpus, _parallel_init, [pl1, sc1, p, gn1O, gn2O, T2, CORR, corr_mode, cl, cs]
+            )
+            try:
+                pool.map(_parallel_wrapper, range(p.shape[0]), chunksize=pc_chunksize)
+            finally:
+                pool.close()
+                pool.join()
+            CORR = CORR._getvalue()
+        else:    
+            filt = np.array([True]*pl1.shape[0])
+            vals = _refine_corr_kernel(filt, p,pl1.indptr,pl1.indices,pl1.data,sc1.indptr,sc1.indices,sc1.data,pl1.shape[0],sc1.shape[0])
+            CORR = dict(zip(to_vn(np.vstack((gn1O[p[:,0]],gn2O[p[:,1]])).T),vals))  
+        for k in CORR.keys():
+            CORR[k] = 0 if CORR[k] < THR else CORR[k]
+            if wscale:
+                weight1 = sam1.adata.var["weights"][k.split(';')[0]]
+                weight2 = sam2.adata.var["weights"][k.split(';')[1]]
+                CORR[k] = np.sqrt(CORR[k] * np.sqrt(weight1 * weight2)) 
+        CORR = np.array([CORR[x] for x in to_vn(gn[pairs])])    
+        CORRS = None
+    
 
-    gnnm3 = gnnm3.tocsr()
-    gnnm3.eliminate_zeros()
 
-    return gnnm3, CORR
+    GNNMS={}
+    if CORRS is not None:
+        for ct in CORRS.keys():
+            CORR=CORRS[ct]
+            gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
+
+            if use_seq:
+                gnnm3[pairs[:, 0], pairs[:, 1]] = (
+                    CORR * gnnm2[pairs[:, 0], pairs[:, 1]].A.flatten()
+                )
+                gnnm3[pairs[:, 1], pairs[:, 0]] = (
+                    CORR * gnnm2[pairs[:, 1], pairs[:, 0]].A.flatten()
+                )
+            else:
+                gnnm3[pairs[:, 0], pairs[:, 1]] = CORR  # *gnnm2[x,y].A.flatten()
+                gnnm3[pairs[:, 1], pairs[:, 0]] = CORR  # *gnnm2[x,y].A.flatten()
+
+            gnnm3 = gnnm3.tocsr()
+            gnnm3.eliminate_zeros()
+            GNNMS[ct]=gnnm3
+    else:
+        gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
+
+        if use_seq:
+            gnnm3[pairs[:, 0], pairs[:, 1]] = (
+                CORR * gnnm2[pairs[:, 0], pairs[:, 1]].A.flatten()
+            )
+            gnnm3[pairs[:, 1], pairs[:, 0]] = (
+                CORR * gnnm2[pairs[:, 1], pairs[:, 0]].A.flatten()
+            )
+        else:
+            gnnm3[pairs[:, 0], pairs[:, 1]] = CORR  # *gnnm2[x,y].A.flatten()
+            gnnm3[pairs[:, 1], pairs[:, 0]] = CORR  # *gnnm2[x,y].A.flatten()
+
+        gnnm3 = gnnm3.tocsr()
+        gnnm3.eliminate_zeros()
+        GNNMS['0.0.0stash']=gnnm3        
+    return GNNMS
 
 try:
     from fast_histogram import histogram2d
