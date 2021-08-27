@@ -477,18 +477,16 @@ def sankey_plot(M,align_thr=0.1):
 
     align_thr: float, optional, default 0.1
         The alignment score threshold below which to remove cell type mappings.
-    """    
-    id1 = M.index[0].split('_')[0]
-    id2 = M.columns[0].split('_')[0]
+    """
+    ids = np.unique([x.split('_')[0] for x in M.index])
+
     d = M.values.copy()
     d[d<align_thr]=0
     x,y = d.nonzero()
     values = d[x,y]
-    y = y + M.index.size
-    nodes = np.append(q(M.index),q(M.columns))
-    xPos = [0]*M.index.size + [1]*M.columns.size
-
-
+    nodes = q(M.index)
+    xPos = ut.convert_annotations(q([x.split('_')[0] for x in M.index]))
+    xPos = xPos/xPos.max()
     R = pd.DataFrame(data = nodes[np.vstack((x,y))].T,columns=['source','target'])
     R['Value'] = values
     
@@ -502,10 +500,6 @@ def sankey_plot(M,align_thr=0.1):
 
     def f(plot,element):
         plot.handles['plot'].sizing_mode='scale_width'    
-        plot.handles['plot'].x_range.start = -600    
-        plot.handles['plot'].add_layout(Label(x=plot.handles['plot'].x_range.end*0.78, y=plot.handles['plot'].y_range.end*0.96, text=id2))
-        plot.handles['plot'].x_range.end = 1500    
-        plot.handles['plot'].add_layout(Label(x=0, y=plot.handles['plot'].y_range.end*0.96, text=id1))
 
     sankey1 = hv.Sankey(R, kdims=["source", "target"], vdims=["Value"])
 
@@ -519,8 +513,7 @@ def sankey_plot(M,align_thr=0.1):
 
 
 class GenePairFinder(object):
-    def __init__(self, sm, k1="leiden_clusters",
-                 k2="leiden_clusters"):
+    def __init__(self, sm, keys=None):
         """Find enriched gene pairs in cell type mappings.
         
         sm: SAMAP object
@@ -529,45 +522,46 @@ class GenePairFinder(object):
             Keys corresponding to the annotation vector in `s1.adata.obs` and `s2.adata.obs`.
 
         """
+        if keys is None:
+            keys={}
+            for sid in sm.sams.keys():
+                keys[sid] = 'leiden_clusters'
         self.sm = sm
-        self.s1 = sm.sam1
-        self.s2 = sm.sam2
+        self.sams = sm.sams
         self.s3 = sm.samap
+        self.gns = sm.gns
+        self.gnnm = sm.samap.adata.uns['homology_graph_reweighted']
+        self.gns_dict = sm.gns_dict
 
-        self.id1 = sm.id1
-        self.id2 = sm.id2
+        self.ids = sm.ids
+        
+        mus={}
+        stds={}
+        for sid in self.sams.keys():
+            self.sams[sid] = self.sams[sid].adata.obs[keys[sid]].astype('str')
+            mu, var = sf.mean_variance_axis(self.sams[sid].adata[:, self.gns_dict[sid]].X, axis=0)
+            var[var == 0] = 1
+            var = var ** 0.5
+            mus[sid]=mu
+            stds[sid]=var
 
-        prepend_var_prefix(self.s1, self.id1)
-        prepend_var_prefix(self.s2, self.id2)
-
-        self.s1.adata.obs[k1] = self.s1.adata.obs[k1].astype("str")
-        self.s2.adata.obs[k2] = self.s2.adata.obs[k2].astype("str")
-
-        mu1, v1, mu2, v2 = _get_mu_std(self.s3, self.s1, self.s2)
-        self.mu1 = mu1
-        self.v1 = v1
-        self.mu2 = mu2
-        self.v2 = v2
-        self.k1 = k1
-        self.k2 = k2
-
+        self.mus = mus
+        self.stds = stds
+        self.keys = keys
         self.find_markers()
 
     def find_markers(self):
-        print(
-            "Finding cluster-specific markers in {}:{} and {}:{}.".format(
-                self.id1, self.k1, self.id2, self.k2
-            )
-        )        
-        import gc
-        if self.k1+'_scores' not in self.s1.adata.varm.keys():
-            find_cluster_markers(self.s1, self.k1)
-            gc.collect()
-            
-        if self.k2+'_scores' not in self.s2.adata.varm.keys():
-            find_cluster_markers(self.s2, self.k2)
-            gc.collect()
-        
+        for sid in self.sams.keys():
+            print(
+                "Finding cluster-specific markers in {}:{}.".format(
+                    self.ids[sid], self.keys[sid]
+                )
+            )        
+            import gc
+            if self.keys[sid]+'_scores' not in self.sams[sid].adata.varm.keys():
+                find_cluster_markers(self.sams[sid], self.keys[sid])
+                gc.collect()
+                    
     def find_all(self,n1=None,n2=None,thr=0.1,n_top=0,**kwargs):
         """Find enriched gene pairs in all pairs of mapped cell types.
         
@@ -597,18 +591,16 @@ class GenePairFinder(object):
         Table of enriched gene pairs for each cell type pair
         """        
 
-        _,_,M = get_mapping_scores(self.sm, self.k1, self.k2, n_top = n_top)
-        M=M.T
+        _,M = get_mapping_scores(self.sm, self.keys, n_top = n_top)
         ax = q(M.index)
-        bx = q(M.columns)
         data = M.values.copy()
         data[data<thr]=0
         x,y = data.nonzero()
-        ct1,ct2 = ax[x],bx[y]
+        ct1,ct2 = ax[x],ax[y]
         if n1 is not None:
-            f = ct1==self.id1+'_'+n1
+            f = ct1==n1
         elif n2 is not None:        
-            f = ct2==self.id2+'_'+n2
+            f = ct2==n2
         else:
             f = np.array([True]*ct2.size)
         
@@ -659,22 +651,25 @@ class GenePairFinder(object):
         """
         n1 = str(n1)
         n2 = str(n2)
-        
-        assert n1 in q(self.s1.adata.obs[self.k1])
-        assert n2 in q(self.s2.adata.obs[self.k2])
-        
-        m = self._find_link_genes_avg(n1, n2, w1t=w1t, w2t=w2t, expr_thr=0.05)
+        id1,id2 = n1.split('_')[0],n2.split('_')[0]
+        sam1,sam2=self.sams[id1],self.sams[id2]
 
-        self.gene_pair_scores = pd.Series(index=self.s3.adata.uns['gene_pairs'], data=m)
+        n1,n2 = '_'.join(n1.split('_')[1:]),'_'.join(n2.split('_')[1:])
+        assert n1 in q(self.sams[id1].adata.obs[self.keys[id1]])
+        assert n2 in q(self.sams[id2].adata.obs[self.keys[id2]])
+        
+        m,gpairs = self._find_link_genes_avg(n1, n2, id1,id2, w1t=w1t, w2t=w2t, expr_thr=0.05)
 
-        G = q(self.s3.adata.uns['gene_pairs'][np.argsort(-m)[:n_genes]])
+        self.gene_pair_scores = pd.Series(index=gpairs, data=m)
+
+        G = q(gpairs[np.argsort(-m)[:n_genes]])
         G1 = substr(G, ";", 0)
         G2 = substr(G, ";", 1)
         G = q(
             G[
                 np.logical_and(
-                    q(self.s1.adata.varm[self.k1 + "_pvals"][n1][G1] < thr),
-                    q(self.s2.adata.varm[self.k2 + "_pvals"][n2][G2] < thr),
+                    q(sam1.adata.varm[self.k1 + "_pvals"][n1][G1] < thr),
+                    q(sam2.adata.varm[self.k2 + "_pvals"][n2][G2] < thr),
                 )
             ]
         )
@@ -686,31 +681,30 @@ class GenePairFinder(object):
         G2 = G2[np.sort(ix2)]
         return G, G1, G2
 
-    def _find_link_genes_avg(self, c1, c2, w1t=0.35, w2t=0.35, expr_thr=0.05):
-        mu1 = self.mu1
-        std1 = self.v1
-        mu2 = self.mu2
-        std2 = self.v2
-        sam1 = self.s1
-        sam2 = self.s2
-        key1 = self.k1
-        key2 = self.k2
-        sam3 = self.s3
+    def _find_link_genes_avg(self, c1, c2, id1, id2, w1t=0.35, w2t=0.35, expr_thr=0.05):
+        mus = self.mus
+        stds = self.stds
+        sams=self.sams
 
-        x1 = sam1.get_labels(key1)
-        x2 = sam2.get_labels(key2)
-        g1, g2 = (
-            ut.extract_annotation(sam3.adata.uns['gene_pairs'], 0, ";"),
-            ut.extract_annotation(sam3.adata.uns['gene_pairs'], 1, ";"),
-        )
+        keys=self.keys
+        sam3=self.s3
+        gnnm = self.gnnm
+        gns = self.gns
+        
+        xs = []
+        for sid in [id1,id2]:
+            xs.append(sid+'_'+sams[sid].get_labels(keys[sid]).astype('str').astype('object'))
+        x1,x2 = xs
+        g1, g2 = gns[np.vstack(gnnm.nonzero())]
+        sam1,sam2 = sams[id1],sams[id2]
+        mu1,std1,mu2,std2 = mus[id1],stds[id1],mus[id2],stds[id2]
+
         X1 = _sparse_sub_standardize(sam1.adata[:, g1].X[x1 == c1, :], mu1, std1)
         X2 = _sparse_sub_standardize(sam2.adata[:, g2].X[x2 == c2, :], mu2, std2)
-        a, b = sam3.adata.obsp["connectivities"][
-            : sam1.adata.shape[0], sam1.adata.shape[0] :
-        ][x1 == c1, :][:, x2 == c2].nonzero()
-        c, d = sam3.adata.obsp["connectivities"][
-            sam1.adata.shape[0] :, : sam1.adata.shape[0]
-        ][x2 == c2, :][:, x1 == c1].nonzero()
+        a, b = sam3.adata.obsp["connectivities"][sam3.adata.obs['species']==id1,:][:,sam3.adata.obs['species']==id2][
+            x1 == c1, :][:, x2 == c2].nonzero()
+        c, d = sam3.adata.obsp["connectivities"][sam3.adata.obs['species']==id2,:][:,sam3.adata.obs['species']==id1][
+            x2 == c2, :][:, x1 == c1].nonzero()            
 
         pairs = np.unique(np.vstack((np.vstack((a, b)).T, np.vstack((d, c)).T)), axis=0)
 
@@ -733,70 +727,7 @@ class GenePairFinder(object):
         w2[w2 < 0.2] = 0
         w1[w1 > 0] = 1
         w2[w2 > 0] = 1
-        return val * w1 * w2 * min_expr
-
-    def _find_link_genes(
-        self, c1, c2, w1t=0.35, w2t=0.35, knn=False, n_pairs=250, expr_thr=0.05
-    ):
-        mu1 = self.mu1
-        std1 = self.v1
-        mu2 = self.mu2
-        std2 = self.v2
-        sam1 = self.s1
-        sam2 = self.s2
-        key1 = self.k1
-        key2 = self.k2
-        sam3 = self.s3
-
-        x1 = sam1.get_labels(key1)
-        x2 = sam2.get_labels(key2)
-        g1, g2 = (
-            ut.extract_annotation(sam3.adata.uns['gene_pairs'], 0, ";"),
-            ut.extract_annotation(sam3.adata.uns['gene_pairs'], 1, ";"),
-        )
-        if knn:
-            X1 = _sparse_sub_standardize(
-                sam1.adata[:, g1].layers["X_knn_avg"][x1 == c1, :], mu1, std1
-            )
-            X2 = _sparse_sub_standardize(
-                sam2.adata[:, g2].layers["X_knn_avg"][x2 == c2, :], mu2, std2
-            )
-        else:
-            X1 = _sparse_sub_standardize(sam1.adata[:, g1].X[x1 == c1, :], mu1, std1)
-            X2 = _sparse_sub_standardize(sam2.adata[:, g2].X[x2 == c2, :], mu2, std2)
-
-        X1 = _sparse_sub_standardize(X1, mu1, std1, rows=True).tocsr()
-        X2 = _sparse_sub_standardize(X2, mu2, std2, rows=True).tocsr()
-
-        a, b = sam3.adata.obsp["connectivities"][
-            : sam1.adata.shape[0], sam1.adata.shape[0] :
-        ][x1 == c1, :][:, x2 == c2].nonzero()
-        c, d = sam3.adata.obsp["connectivities"][
-            sam1.adata.shape[0] :, : sam1.adata.shape[0]
-        ][x2 == c2, :][:, x1 == c1].nonzero()
-
-        pairs = np.unique(np.vstack((np.vstack((a, b)).T, np.vstack((d, c)).T)), axis=0)
-
-        Z = X1[pairs[:, 0], :].multiply(X2[pairs[:, 1], :]).tocsr()
-        Z.data[:] /= X1.shape[1]
-        X1.data[:] = 1
-        X2.data[:] = 1
-        min_expr = (X1.mean(0).A.flatten() > expr_thr) * (
-            X2.mean(0).A.flatten() > expr_thr
-        )
-
-        w1 = sam1.adata.var["weights"][g1].values.copy()
-        w2 = sam2.adata.var["weights"][g2].values.copy()
-        w1[w1 < w1t] = 0
-        w2[w2 < w2t] = 0
-        w1[w1 > 0] = 1
-        w2[w2 > 0] = 1
-
-        Z = sparse_knn(Z.T, n_pairs)
-        val = _knndist(Z, n_pairs).T
-        mu = val.mean(0) * w1 * w2 * min_expr
-        return mu
-
+        return val * w1 * w2 * min_expr, to_vn(np.array([g1,g2]))
 
 def find_cluster_markers(sam, key, inplace=True):
     """ Finds differentially expressed genes for provided cell type labels.
@@ -1413,43 +1344,38 @@ def SubstitutionTriangles(sms,orths,keys=None,compute_markers=True,corr_thr=0.3,
     return FINAL
 
 
-def _compute_csim(sam3, key, X=None, n_top = 0):
+def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
     if n_top ==0:
         n_top = 100000000
+    
+    skeys = q(sam3.adata.obs['species'])[np.sort(np.unique(sam3.adata.obs["species"],return_index=True)[1])]
+    
+    cl = []
+    clu = []
+    for sid in skeys:
+        if prepend:
+            cl.append(sid+'_'+q(sam3.adata.obs[key])[sam3.adata.obs['species']==sid].astype('str').astype('object'))
+        else:
+            cl.append(q(sam3.adata.obs[key])[sam3.adata.obs['species']==sid])            
+        clu.append(np.unique(cl[-1]))
         
-    cl1 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch1"])
-    clu1,cluc1 = np.unique(cl1,return_counts=True)
-    cl2 = q(sam3.adata.obs[key].values[sam3.adata.obs["batch"] == "batch2"])
-    clu2,cluc2 = np.unique(cl2,return_counts=True)
-
-    clu1s = q("batch1_" + clu1.astype("str").astype("object"))
-    clu2s = q("batch2_" + clu2.astype("str").astype("object"))
-    cl = q(
-        sam3.adata.obs["batch"].values.astype("object")
-        + "_"
-        + sam3.adata.obs[key].values.astype("str").astype("object")
-    )
-
-    CSIM1 = np.zeros((clu1s.size, clu2s.size))
+    clu = np.concatenate(clu)
+    cl = np.concatenate(cl)
+    
+    CSIM = np.zeros((clu.size, clu.size))
     if X is None:
         X = sam3.adata.obsp["connectivities"].copy()
 
-    for i, c1 in enumerate(clu1s):
-        for j, c2 in enumerate(clu2s):
-            CSIM1[i, j] = max(
-                np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top].mean(),
-                np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top].mean(),
-            )
-    CSIMth = CSIM1 / sam3.adata.uns['mdata']['k']
-    s1 = CSIMth.sum(1).flatten()[:, None]
-    s2 = CSIMth.sum(0).flatten()[None, :]
-    s1[s1 == 0] = 1
-    s2[s2 == 0] = 1
-    CSIM1 = CSIMth / s1
-    CSIM2 = CSIMth / s2
-    CSIM = (CSIM1 * CSIM2) ** 0.5
-
-    return CSIM, clu1, clu2, CSIMth
+    for i, c1 in enumerate(clu):
+        for j, c2 in enumerate(clu):
+            if c1.split('_')[0] != c2.split('_')[0] and j > i:
+                CSIM[i, j] = np.append(
+                    np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top],
+                    np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top],
+                ).mean()
+    
+    CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * len(skeys)
+    return CSIMth, clu
 
 def transfer_annotations(sm,reference=1, keys=[],num_iters=5, inplace = True):
     """ Transfer annotations across species using label propagation along the combined manifold.
@@ -1549,13 +1475,14 @@ def transfer_annotations(sm,reference=1, keys=[],num_iters=5, inplace = True):
         res['labels'] = labels
         return res
 
-def get_mapping_scores(sm, key1, key2, n_top = 0):
+def get_mapping_scores(sm, keys, n_top = 0):
     """Calculate mapping scores
     Parameters
     ----------
     sm: SAMAP object
     
-    key1 & key2: str, annotation vector keys for species 1 and 2
+    keys: dict, annotation vector keys for at least two species with species identifiers as the keys
+        e.g. {'pl':'tissue','sc':'tissue'}
     
     n_top: int, optional, default 0
         If `n_top` is 0, average the alignment scores for all cells in a pair of clusters.
@@ -1564,26 +1491,30 @@ def get_mapping_scores(sm, key1, key2, n_top = 0):
         to distinct cell types in the other species.
     Returns
     -------
-    D1 - table of highest mapping scores for cell types in species 1
-    D2 - table of highest mapping scores for cell types in species 2
-    A - pairwise table of mapping scores between cell types in species 1 (row) and 2 (columns)
+    D - table of highest mapping scores for cell types 
+    A - pairwise table of mapping scores between cell types across species
     """
-    sam1=sm.sam1
-    sam2=sm.sam2
-    samap=sm.samap
+    
 
-    cl1 = q(sam1.adata.obs[key1])
-    cl2 = q(sam2.adata.obs[key2])
-    cl = (
-        q(samap.adata.obs["species"]).astype("object")
-        + "_"
-        + np.append(cl1, cl2).astype("str").astype("object")
-    )
+    if len(list(keys.keys()))<len(list(sm.sams.keys())):
+        samap = SAM(counts = sm.samap.adata[np.in1d(sm.samap.adata.obs['species'],list(keys.keys()))])
+    else:
+        samap=sm.samap
+    
+    clusters = []
+    ix = np.unique(samap.adata.obs['species'],return_index=True)[1]
+    skeys = q(samap.adata.obs['species'])[np.sort(ix)]
+    
+    for sid in skeys:
+        clusters.append(q([sid+'_'+x for x in sm.sams[sid].adata.obs[keys[sid]]]))
+    
+    cl = np.concatenate(clusters)
+    l = "{}_mapping_scores".format(';'.join([keys[sid] for sid in skeys]))
+    samap.adata.obs[l] = pd.Categorical(cl)
+    
+    CSIMth, clu = _compute_csim(samap, l, n_top = n_top, prepend = False)
 
-    samap.adata.obs["{};{}_mapping_scores".format(key1,key2)] = pd.Categorical(cl)
-    _, clu1, clu2, CSIMth = _compute_csim(samap, "{};{}_mapping_scores".format(key1,key2), n_top = n_top)
-
-    A = pd.DataFrame(data=CSIMth, index=clu1, columns=clu2)
+    A = pd.DataFrame(data=CSIMth, index=clu, columns=clu)
     i = np.argsort(-A.values.max(0).flatten())
     H = []
     C = []
@@ -1593,20 +1524,8 @@ def get_mapping_scores(sm, key1, key2, n_top = 0):
         C.append(A.columns[i[I]])
         C.append(A.columns[i[I]])
     H = np.hstack(H)
-    D2 = pd.DataFrame(data=H, columns=[C, ["Cluster","Alignment score"]*(H.shape[1]//2)])
-
-    A = pd.DataFrame(data=CSIMth, index=clu1, columns=clu2).T
-    i = np.argsort(-A.values.max(0).flatten())
-    H = []
-    C = []
-    for I in range(A.shape[1]):
-        x = A.iloc[:, i[I]].sort_values(ascending=False)
-        H.append(np.vstack((x.index, x.values)).T)
-        C.append(A.columns[i[I]])
-        C.append(A.columns[i[I]])
-    H = np.hstack(H)
-    D1 = pd.DataFrame(data=H, columns=[C, ["Cluster","Alignment score"]*(H.shape[1]//2)])
-    return D1, D2, A
+    D = pd.DataFrame(data=H, columns=[C, ["Cluster","Alignment score"]*(H.shape[1]//2)])
+    return D, A
 
 
 def _knndist(nnma, k):
