@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="samap",
-    version="0.2.3",
+    version="0.2.4",
     description="The SAMap algorithm",
     long_description="The Self-Assembling Manifold Mapping algorithm for mapping single-cell datasets across species.",
     long_description_content_type="text/markdown",
