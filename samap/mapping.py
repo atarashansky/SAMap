@@ -1,5 +1,6 @@
 from scipy.stats import binned_statistic
 import hnswlib
+import sklearn.utils.sparsefuncs as sf
 import typing
 from numba import njit, prange
 import os
@@ -154,9 +155,7 @@ class SAMAP(object):
         if gnnm is None:
             gnnm, gns, gns_dict = _calculate_blast_graph(
                 ids, f_maps=f_maps, reciprocate=True
-            )
-            gn = np.append(gn1,gn2)
-            
+            )            
             if names is not None:
                 gnnm, gns, gns_dict  = _coarsen_blast_graph(
                     gnnm, gns_list, gns, ids, names
@@ -164,8 +163,7 @@ class SAMAP(object):
 
             gnnm = _filter_gnnm(gnnm, thr=0.25)
         else:
-            gnnm, gn1, gn2 = gnnm
-            gn = np.append(gn1,gn2)
+            gnnm, gns, gns_dict = gnnm
 
         gns_list=[]
         ges_list=[]
@@ -322,12 +320,6 @@ class SAMAP(object):
         samap.adata.uns["homology_gene_names"] = gn
         samap.adata.uns["homology_gene_names_dict"] = gns_dict
 
-        species_list = []
-        for sid in ids:
-            species_list += [sid]*sams[sid].adata.shape[0]
-        
-        samap.adata.obs["species"] = pd.Categorical(species_list)
-        
         if umap:
             for sid in ids:
                 sams[sid].adata.obsm['X_umap_samap'] = self.samap.adata[sams[sid].adata.obs_names].obsm['X_umap']     
@@ -619,7 +611,7 @@ class _Samap_Iter(object):
             for sid in sams.keys():
                 labels.extend(q(sams[sid].adata.obs[keys[sid]]))
             sam4.adata.obs['tempv1.0.0.0'] = labels
-            _, _, _, CSIMth = _compute_csim(sam4, "tempv1.0.0.0")
+            CSIMth, _ = _compute_csim(sam4, "tempv1.0.0.0")
             del sam4.adata.obs['tempv1.0.0.0']
 
             self.SCORE_VEC.append(CSIMth.flatten())
@@ -721,11 +713,11 @@ def _mapper(
         nnms_in0[sid] = sams[sid].adata.obsp["connectivities"].copy()
         
         if not neigh_from_keys[sid]:
-            nnm_in = _smart_expand(nnm, K, NH=NHS[sid])
+            nnm_in = _smart_expand(nnms_in0[sid], K, NH=NHS[sid])
             nnm_in.data[:] = 1
             nnms_in[sid]=nnm_in
         else:
-            nnms_in[sid=_generate_coclustering_matrix(cl)
+            nnms_in[sid]=_generate_coclustering_matrix(cl)
             flag=True
     
     if not flag:
@@ -835,7 +827,12 @@ def _mapper(
 
     print("Concatenating SAM objects...")
     sam3 = _concatenate_sam(sams, NNM)
-
+    
+    species_list = []
+    for sid in sams.keys():
+        species_list += [sid]*sams[sid].adata.shape[0]
+    
+    sam3.adata.obs["species"] = pd.Categorical(species_list)
 
     sam3.adata.uns["gnnm_corr"] = mdata.get("gnnm_corr",None)
     sam3.adata.obsp["xsim"] = D
@@ -875,14 +872,14 @@ def _refine_corr(
     for i in range(NCLUSTERS):
         ixs.append(np.sort(ix[i * NGPC : (i + 1) * NGPC]))
 
-    assert np.concatenate(ixs).size == gn.size
+    assert np.concatenate(ixs).size == gns.size
 
     GNNMSUBS = []
     GNSUBS = []
     for i in range(len(ixs)):
         ixs[i] = np.unique(np.append(ixs[i], gnnm[ixs[i], :].nonzero()[1]))
         gnnm_sub = gnnm[ixs[i], :][:, ixs[i]]
-        gnsub = gn[ixs[i]]
+        gnsub = gns[ixs[i]]
         gns_dict_sub={}
         for sid in gns_dict.keys():
             gn = gns_dict[sid]
@@ -920,7 +917,7 @@ def _refine_corr(
         gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
         for i in range(len(I)):
             x, y = GNS[P[i][:, 0]].values.flatten(), GNS[P[i][:, 1]].values.flatten()
-            gnnm3[x, y] = GNNMSUBS[i][I[i][:, 0], I[i][:, 1]].A.flatten()
+            gnnm3[x, y] = GNNMSUBS[i][key][I[i][:, 0], I[i][:, 1]].A.flatten()
 
         gnnm3 = gnnm3.tocsr()
         x, y = gnnm3.nonzero()
@@ -1308,7 +1305,7 @@ def _avg_as(s):
     for i in range(xu.size):
         a.extend(s.adata.obsp['connectivities'][x==xu[i],:][:,x!=xu[i]].sum(1).A.flatten())
 
-    return  np.array(a) / s.adata.uns['mdata']['k']# * xu.size
+    return  np.array(a) / s.adata.obsp['knn'][0].data.size * xu.size
 
 
 def _parallel_init(iXavg, ipairs, igns_dictO, iT2, iCORR, icorr_mode,icl,ics):
@@ -1330,7 +1327,7 @@ def _parallel_init(iXavg, ipairs, igns_dictO, iT2, iCORR, icorr_mode,icl,ics):
     corr_mode = icorr_mode
 
 @njit(parallel=True)
-def _refine_corr_kernel(filt, p,indptr,indices,data,n):
+def _refine_corr_kernel(filt, p,indptr,indices,data,n, T2):
     p1 = p[:,0]
     p2 = p[:,1]
     res = np.zeros(p1.size)
@@ -1457,7 +1454,7 @@ def _refine_corr_parallel(
             filt = cl==ct
             if filt.sum()>0:
                 print(ct)                
-                vals = _refine_corr_kernel(filt, p,Xavg.indptr,Xavg.indices,Xavg.data,Xavg.shape[0])
+                vals = _refine_corr_kernel(filt, p,Xavg.indptr,Xavg.indices,Xavg.data,Xavg.shape[0],T2)
                 CORR = dict(zip(to_vn(np.vstack((gnO[p[:,0]],gnO[p[:,1]])).T),vals))
                 for k in CORR.keys():
                     CORR[k] = 0 if CORR[k] < THR else CORR[k]
@@ -1485,8 +1482,8 @@ def _refine_corr_parallel(
                 pool.join()
             CORR = CORR._getvalue()
         else:    
-            filt = np.array([True]*pl1.shape[0])
-            vals = _refine_corr_kernel(filt, p,Xavg.indptr,Xavg.indices,Xavg.data,Xavg.shape[0])
+            filt = np.array([True]*Xavg.shape[0])
+            vals = _refine_corr_kernel(filt, p,Xavg.indptr,Xavg.indices,Xavg.data,Xavg.shape[0], T2)
             CORR = dict(zip(to_vn(np.vstack((gnO[p[:,0]],gnO[p[:,1]])).T),vals))
         for k in CORR.keys():
             CORR[k] = 0 if CORR[k] < THR else CORR[k]
@@ -1687,43 +1684,30 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20):
             gs[sid] = gns[np.in1d(gns,q(sams[sid].adata.var_names))]
             adatas[sid] = sams[sid].adata[:,gs[sid]]
             Ws[sid] = adatas[sid].var["weights"].values
-            ss[sid] = std.fit_transform(adatas[sid].X)#.multiply(Ws[sid][None,:]).tocsr()
+            ss[sid] = std.fit_transform(adatas[sid].X).multiply(Ws[sid][None,:]).tocsr()
             species_indexer.append(np.arange(ss[sid].shape[0]))
 
         for i in range(1,len(species_indexer)):
             species_indexer[i] = species_indexer[i]+species_indexer[i-1].max()+1
 
-        
-        X = sp.sparse.block_diag(list(ss.values())).tocsr()
         su = gnnm.sum(0).A
         su[su==0]=1
         gnnm_corr = gnnm_corr.multiply(1/su).tocsr()
+        
+        
         ttt=time.time()
         print('Translating feature spaces.')    
-        Xtr = X.dot(gnnm_corr).tocsr() 
-        Xc = X + Xtr    
-        it = 0  
-        it2 = 0
-        xc=[]
-        mus = []
-
         W = np.concatenate(list(Ws.values())).flatten()
-        print('Rescaling data.',time.time()-ttt)       
-        ttt=time.time()
-        for sid in sams.keys():
-            s = ss[sid]
-            xx = Xc[it:it + s.shape[0]]
-            _,var = sf.mean_variance_axis(xx,axis=0)
-            var[it2 : it2 + gs[sid].size] = 1
-            std = var[None,:]**0.5
-            std[std==0]=1
-            xc.append(xx.multiply(1/std).multiply(W[None,:]))
-            it += s.shape[0]
-            it2 += gs[sid].size          
-            mus.append(xc[-1].mean(0).A.flatten())
 
-        Xc = sp.sparse.vstack(xc).tocsr()    
-        del xc    
+        X = sp.sparse.block_diag(list(ss.values())).tocsr()
+        Xtr = []
+        mus = []
+        for i,sid in enumerate(sams.keys()):
+            Xtr.append(X[species_indexer[i]].dot(gnnm_corr))
+            Xtr[-1] = std.fit_transform(Xtr[-1]).multiply(W[None,:])
+            mus.append(Xtr[-1].mean(0).A.flatten())
+        Xtr = sp.sparse.vstack(Xtr)
+        Xc = X + Xtr    
         gc.collect()   
         
         print('Projecting data into joint latent space.',time.time()-ttt) 
