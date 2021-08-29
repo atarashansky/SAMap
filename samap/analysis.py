@@ -510,6 +510,37 @@ def sankey_plot(M,align_thr=0.1):
 
     return sankey1
 
+def chord_plot(A,align_thr=0.1):
+    try:
+        from holoviews import dim
+        from bokeh.models import Label
+        import holoviews as hv
+        hv.extension('bokeh',logo=False)
+        hv.output(size=300)        
+    except:
+        raise ImportError('Please install holoviews with `!pip install holoviews`.')
+
+    xx=A.values.copy()
+    xx[xx<align_thr]=0
+    x,y = xx.nonzero()
+    z=xx[x,y]
+    x,y = A.index[x],A.columns[y]
+    links=pd.DataFrame(data=np.array([x,y,z]).T,columns=['source','target','value'])
+    links['edge_grp'] = [x.split('_')[0]+y.split('_')[0] for x,y in zip(links['source'],links['target'])]
+    links['value']*=100
+    f = links['value'].values
+    z=((f-f.min())/(f.max()-f.min())*0.99+0.01)*100
+    links['value']=z
+    links['value']=np.round([x for x in links['value'].values]).astype('int')
+    clu=np.unique(cl)
+    clu = clu[np.in1d(clu,np.unique(np.array([x,y])))]
+    links = hv.Dataset(links)
+    nodes = hv.Dataset(pd.DataFrame(data=np.array([clu,clu,np.array([x.split('_')[0] for x in clu])]).T,columns=['index','name','group']),'index')
+    chord = hv.Chord((links, nodes),kdims=["source", "target"], vdims=["value","edge_grp"])#.select(value=(5, None))
+    chord.opts(
+        opts.Chord(cmap='Category20', edge_cmap='Category20',edge_color=dim('edge_grp'),
+                   labels='name', node_color=dim('group').str()))    
+    return chord
 
 
 class GenePairFinder(object):
