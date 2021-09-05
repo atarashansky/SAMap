@@ -483,6 +483,7 @@ def sankey_plot(M,align_thr=0.1):
     d = M.values.copy()
     d[d<align_thr]=0
     x,y = d.nonzero()
+    x,y = np.unique(np.sort(np.vstack((x,y)).T,axis=1),axis=0).T
     values = d[x,y]
     nodes = q(M.index)
     xPos = ut.convert_annotations(q([x.split('_')[0] for x in M.index]))
@@ -495,6 +496,7 @@ def sankey_plot(M,align_thr=0.1):
         from bokeh.models import Label
         import holoviews as hv
         hv.extension('bokeh',logo=False)
+        #hv.output(size=200)        
     except:
         raise ImportError('Please install holoviews with `!pip install holoviews`.')
 
@@ -512,7 +514,7 @@ def sankey_plot(M,align_thr=0.1):
 
 def chord_plot(A,align_thr=0.1):
     try:
-        from holoviews import dim
+        from holoviews import dim, opts
         from bokeh.models import Label
         import holoviews as hv
         hv.extension('bokeh',logo=False)
@@ -532,7 +534,7 @@ def chord_plot(A,align_thr=0.1):
     z=((f-f.min())/(f.max()-f.min())*0.99+0.01)*100
     links['value']=z
     links['value']=np.round([x for x in links['value'].values]).astype('int')
-    clu=np.unique(cl)
+    clu=np.unique(A.index)
     clu = clu[np.in1d(clu,np.unique(np.array([x,y])))]
     links = hv.Dataset(links)
     nodes = hv.Dataset(pd.DataFrame(data=np.array([clu,clu,np.array([x.split('_')[0] for x in clu])]).T,columns=['index','name','group']),'index')
@@ -1400,12 +1402,12 @@ def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
     for i, c1 in enumerate(clu):
         for j, c2 in enumerate(clu):
             if c1.split('_')[0] != c2.split('_')[0] and j > i:
-                CSIM[i, j] = np.append(
-                    np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top],
-                    np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top],
-                ).mean()
-    
-    CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * len(skeys)
+                CSIM[i, j] = max(
+                    np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top].mean(),
+                    np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top].mean(),
+                )
+    CSIM=CSIM+CSIM.T
+    CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * (len(skeys)-1)
     return CSIMth, clu
 
 def transfer_annotations(sm,reference=1, keys=[],num_iters=5, inplace = True):

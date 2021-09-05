@@ -317,7 +317,7 @@ class SAMAP(object):
             pass
         
         samap.adata.uns["homology_graph"] = gnnm
-        samap.adata.uns["homology_gene_names"] = gn
+        samap.adata.uns["homology_gene_names"] = gns
         samap.adata.uns["homology_gene_names_dict"] = gns_dict
 
         if umap:
@@ -398,12 +398,12 @@ class SAMAP(object):
         
         if ss is None:
             ss={}
-            for sid in sm.ids:
+            for sid in self.ids:
                 ss[sid] = 3
         
         if COLORS is None:
             COLORS={}
-            for sid in sm.sids:
+            for sid in self.sids:
                 s = ''
                 for i in range(6):
                     s+=hex(np.random.randint(16))[-1].upper()
@@ -416,36 +416,34 @@ class SAMAP(object):
             lv = list(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
             lv = [x/255 for x in lv]
             return lv
-        
-        sm = self
-        
-        nnm = sm.samap.adata.obsp['connectivities']
+                
+        nnm = self.samap.adata.obsp['connectivities']
         su = nnm.sum(1).A.flatten()[:,None]
         su[su==0]=1
 
         nnm = nnm.multiply(1/su).tocsr()
         AS={}
-        for sid in sm.ids:
+        for sid in self.ids:
             g = gs[sid]
             AS[sid] = sams[sid].adata[:,g].X.A.flatten()[:,None]
             
         davgs={}
-        for sid in sm.ids:
-            d = np.zeros(sm.samap.adata.shape[0])
-            d[sm.samap.adata.obs['species']==sid] = AS[sid]
+        for sid in self.ids:
+            d = np.zeros(self.samap.adata.shape[0])
+            d[self.samap.adata.obs['species']==sid] = AS[sid]
             davg = nnm.dot(d).flatten()
             davg[davg<thr]=0
             davgs[sid] = davg
         davg = np.vstack(list(davgs.values())).min(0)
         ma = np.vstack(list(davgs.values())).max()
-        for sid in sm.ids:
+        for sid in self.ids:
             if davgs[sid].max()>0:
                 davgs[sid] = davgs[sid]/davgs[sid].max()
         if davg.max()>0:
             davg = davg/davg.max()
         
         cs={}
-        for sid in sm.ids:
+        for sid in self.ids:
             c = hex_to_rgb(COLORS[sid])+[0.0]
             cs[sid] = np.vstack([c]*davg.size)
             cs[sid][:,-1] = davgs[sid]
@@ -453,12 +451,12 @@ class SAMAP(object):
         cc = np.vstack([cc]*davg.size)
         cc[:,-1] = davg
 
-        ax = sm.samap.scatter(projection = 'X_umap', colorspec = COLOR0, axes=axes, s = s0)        
+        ax = self.samap.scatter(projection = 'X_umap', colorspec = COLOR0, axes=axes, s = s0)        
         
-        for sid in sm.ids:            
-            sm.samap.scatter(projection = 'X_umap', c = cs[sid], axes = ax, s = ss[sid],colorbar=False,**kwargs)
+        for sid in self.ids:            
+            self.samap.scatter(projection = 'X_umap', c = cs[sid], axes = ax, s = ss[sid],colorbar=False,**kwargs)
         
-        sm.samap.scatter(projection = 'X_umap', c = cc, axes = ax, s = sc,colorbar=False,**kwargs)
+        self.samap.scatter(projection = 'X_umap', c = cc, axes = ax, s = sc,colorbar=False,**kwargs)
         
         return ax    
     
@@ -466,12 +464,12 @@ class SAMAP(object):
         
         if ss is None:
             ss={}
-            for sid in sm.ids:
+            for sid in self.ids:
                 ss[sid] = 3
         
         if COLORS is None:
             COLORS={}
-            for sid in sm.sids:
+            for sid in self.ids:
                 s = ''
                 for i in range(6):
                     s+=hex(np.random.randint(16))[-1].upper()
@@ -479,7 +477,7 @@ class SAMAP(object):
                 COLORS[sid] = s
                 
         for sid in self.ids:            
-            axes = self.samap.scatter(projection = 'X_umap', c = COLORS[sid], axes = axes, s = ss[sid],colorbar=False,**kwargs)
+            axes = self.samap.scatter(projection = 'X_umap', colorspec = COLORS[sid], axes = axes, s = ss[sid],colorbar=False,**kwargs)
         
         return axes    
         
@@ -705,13 +703,14 @@ def _mapper(
     nnms_in={}
     nnms_in0={}
     flag=False
+    species_indexer=[]
     for sid in sams.keys():
-        print(f"Expanding neighwbourhoods of species {sid}...")
+        print(f"Expanding neighbourhoods of species {sid}...")
         cl = sams[sid].get_labels(keys[sid])
-        clu, ix, cluc = np.unique(cl, return_counts=True, return_inverse=True)
+        _, ix, cluc = np.unique(cl, return_counts=True, return_inverse=True)
         K = cluc[ix]
         nnms_in0[sid] = sams[sid].adata.obsp["connectivities"].copy()
-        
+        species_indexer.append(np.arange(sams[sid].adata.shape[0]))
         if not neigh_from_keys[sid]:
             nnm_in = _smart_expand(nnms_in0[sid], K, NH=NHS[sid])
             nnm_in.data[:] = 1
@@ -719,6 +718,9 @@ def _mapper(
         else:
             nnms_in[sid]=_generate_coclustering_matrix(cl)
             flag=True
+    
+    for i in range(1,len(species_indexer)):
+        species_indexer[i] += species_indexer[i-1].max()+1
     
     if not flag:
         nnm_internal = sp.sparse.block_diag(list(nnms_in.values())).tocsr()
@@ -735,29 +737,30 @@ def _mapper(
 
     print("Indegree coarsening")
     
-    numiter = nnm_internal.shape[0] // chunksize + 1
+    numiter = nnm_internal0.shape[0] // chunksize + 1
 
-    D = sp.sparse.csr_matrix((0, nnm_internal.shape[0]))
-    for bl in range(numiter):
-        print(str(bl) + "/" + str(numiter), D.shape)
-        if flag:
-            for sid in sams.keys():
-                nfk = neigh_from_keys[sid]
-                Cs=[]
-                if nfk:
-                    Cs.append(nnms_in[sid].dot(nnms_in[sid].T.dot(B[bl * chunksize : (bl + 1) * chunksize].T)).T)
-                else:
-                    Cs.append(B[bl * chunksize : (bl + 1) * chunksize].dot(nnms_in[sid].T))
-            C = sp.sparse.hstack(C).tocsr()
-        else:
-            C = B[bl * chunksize : (bl + 1) * chunksize].dot(nnm_internal.T)
-        
-        C.data[C.data < 0.1] = 0
-        C.eliminate_zeros()
-
-        D = sp.sparse.vstack((D, C))        
-        del C
+    D = sp.sparse.csr_matrix((0, nnm_internal0.shape[0]))
+    if flag:
+        Cs=[]
+        for it,sid in enumerate(sams.keys()):
+            nfk = neigh_from_keys[sid]
+            if nfk:
+                Cs.append(nnms_in[sid].dot(nnms_in[sid].T.dot(B.T[species_indexer[it]])))
+            else:
+                Cs.append(nnms_in[sid].dot(B.T[species_indexer[it]]))
+        D = sp.sparse.vstack(Cs).T
+        del Cs
         gc.collect()
+    else:
+        for bl in range(numiter):
+            print(str(bl) + "/" + str(numiter), D.shape)
+            C = B[bl * chunksize : (bl + 1) * chunksize].dot(nnm_internal.T)
+            C.data[C.data < 0.1] = 0
+            C.eliminate_zeros()
+
+            D = sp.sparse.vstack((D, C))        
+            del C
+            gc.collect()
 
     D = D.multiply(D.T).tocsr()
     D.data[:] = D.data**0.5
@@ -774,7 +777,7 @@ def _mapper(
         F.data[:] = vals
         
         # normalize by maximum and rescale with tanh
-        su = F.sum(1).A
+        su = F.max(1).A
         su[su==0]=1
         F = F.multiply(1/su).tocsr()
         F.data[:] = _tanh_scale(F.data,center=0.7,scale=10)
@@ -798,6 +801,7 @@ def _mapper(
 
     sr = Dk.sum(1).A    
     x = 1 - sr.flatten() / k1
+    
     sr[sr==0]=1
     st = Dk.sum(0).A.flatten()[None,:]
     st[st==0]=1
@@ -819,7 +823,8 @@ def _mapper(
     omp[X2, Y2] = np.vstack((proj[X2, Y2].A.flatten(), np.ones(X2.size) * 0.3)).max(
         0
     )
-    omp = omp.tocsr()
+
+    omp = nnm_internal0.tocsr()
     NNM = omp.multiply(x[:, None])
     NNM = (NNM+Dk).tolil()
     NNM.setdiag(0)
@@ -1305,7 +1310,7 @@ def _avg_as(s):
     for i in range(xu.size):
         a.extend(s.adata.obsp['connectivities'][x==xu[i],:][:,x!=xu[i]].sum(1).A.flatten())
 
-    return  np.array(a) / s.adata.obsp['knn'][0].data.size * xu.size
+    return  np.array(a) / s.adata.obsp['knn'][0].data.size * (xu.size-1)
 
 
 def _parallel_init(iXavg, ipairs, igns_dictO, iT2, iCORR, icorr_mode,icl,ics):
@@ -1608,58 +1613,33 @@ def _parallel_wrapper(j):
         CORR[ha] = 0
 
 
-def _united_proj(wpca1, wpca2, k=20, metric="cosine", sigma=500, ef=200, M=48):
+def _united_proj(wpca1, wpca2, k=20, metric="cosine", ef=200, M=48):
 
     metric = 'l2' if metric == 'euclidean' else metric
     metric = 'cosine' if metric == 'correlation' else metric
-    labels1 = np.arange(wpca1.shape[0])
     labels2 = np.arange(wpca2.shape[0])
-
-    p1 = hnswlib.Index(space=metric, dim=wpca1.shape[1])
     p2 = hnswlib.Index(space=metric, dim=wpca2.shape[1])
-
-    p1.init_index(max_elements=wpca1.shape[0], ef_construction=ef, M=M)
     p2.init_index(max_elements=wpca2.shape[0], ef_construction=ef, M=M)
-
-    p1.add_items(wpca1, labels1)
     p2.add_items(wpca2, labels2)
-
-    p1.set_ef(ef)
     p2.set_ef(ef)
-
-    idx2, dist2 = p1.knn_query(wpca2, k=k)
     idx1, dist1 = p2.knn_query(wpca1, k=k)
 
     if metric == 'cosine':
-        dist2 = 1 - dist2
         dist1 = 1 - dist1
         dist1[dist1 < 1e-3] = 1e-3
-        dist2[dist2 < 1e-3] = 1e-3
         dist1 = dist1/dist1.max(1)[:,None]
-        dist2 = dist2/dist2.max(1)[:,None]
         dist1 = _tanh_scale(dist1,scale=10, center=0.7)
-        dist2 = _tanh_scale(dist2,scale=10, center=0.7)
     else:
         sigma1 = dist1[:,4]
-        sigma2 = dist2[:,4]
         sigma1[sigma1<1e-3]=1e-3
-        sigma2[sigma2<1e-3]=1e-3
         dist1 = np.exp(-dist1/sigma1[:,None])
-        dist2 = np.exp(-dist2/sigma2[:,None])
-        
         
     Sim1 = dist1  # np.exp(-1*(1-dist1)**2)
-    Sim2 = dist2  # np.exp(-1*(1-dist2)**2)
-
     knn1v2 = sp.sparse.lil_matrix((wpca1.shape[0], wpca2.shape[0]))
-    knn2v1 = sp.sparse.lil_matrix((wpca2.shape[0], wpca1.shape[0]))
-
     x1 = np.tile(np.arange(idx1.shape[0])[:, None], (1, idx1.shape[1])).flatten()
-    x2 = np.tile(np.arange(idx2.shape[0])[:, None], (1, idx2.shape[1])).flatten()
     knn1v2[x1, idx1.flatten()] = Sim1.flatten()
-    knn2v1[x2, idx2.flatten()] = Sim2.flatten()
+    return knn1v2.tocsr()
 
-    return knn1v2.tocsr(), knn2v1.tocsr()
 
 def _tanh_scale(x,scale=10,center=0.5):
     return center + (1-center) * np.tanh(scale * (x - center))
@@ -1701,13 +1681,16 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20):
 
         X = sp.sparse.block_diag(list(ss.values())).tocsr()
         Xtr = []
-        mus = []
         for i,sid in enumerate(sams.keys()):
             Xtr.append(X[species_indexer[i]].dot(gnnm_corr))
             Xtr[-1] = std.fit_transform(Xtr[-1]).multiply(W[None,:])
-            mus.append(Xtr[-1].mean(0).A.flatten())
         Xtr = sp.sparse.vstack(Xtr)
         Xc = X + Xtr    
+        
+        mus = []        
+        for i,sid in enumerate(sams.keys()):
+            mus.append(Xc[species_indexer[i]].mean(0).A.flatten())
+
         gc.collect()   
         
         print('Projecting data into joint latent space.',time.time()-ttt) 
@@ -1765,7 +1748,7 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20):
                 ixr = species_indexer[j]
                 reference = wpca[ixr]
 
-                b, _ = _united_proj(query, reference, k=k)
+                b = _united_proj(query, reference, k=k)
                 A = pd.Series(index = np.arange(b.shape[0]), data = ixq)        
                 B = pd.Series(index = np.arange(b.shape[1]), data = ixr)
 
