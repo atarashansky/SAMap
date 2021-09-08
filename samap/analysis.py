@@ -467,7 +467,7 @@ class FunctionalEnrichment(object):
         #ax.figure.tight_layout()
         return fig,ax
     
-def sankey_plot(M,species_order=None,align_thr=0.1):
+def sankey_plot(M,species_order=None,align_thr=0.1,**params):
     """Generate a sankey plot
     
     Parameters
@@ -539,10 +539,24 @@ def sankey_plot(M,species_order=None,align_thr=0.1):
 
     sankey1 = hv.Sankey(R, kdims=["source", "target"])#, vdims=["Value"])
 
+    cmap = params.get('cmap','Colorblind')
+    label_position = params.get('label_position','outer')
+    edge_line_width = params.get('edge_line_width',0)
+    show_values = params.get('show_values',False)
+    node_padding = params.get('node_padding',4)
+    node_alpha = params.get('node_alpha',1.0)
+    node_width = params.get('node_width',40)
+    node_sort = params.get('node_sort',True)
+    frame_height = params.get('frame_height',1000)
+    frame_width = params.get('frame_width',800)
+    bgcolor = params.get('bgcolor','snow')
+    apply_ranges = params.get('apply_ranges',True)
 
-    sankey1.opts(cmap='Colorblind',label_position='outer', edge_line_width=0, show_values=False, node_padding=1,depth_map=depth_map,
-                                     node_alpha=1.0, node_width=40, node_sort=True,frame_height=1000,frame_width=800,
-                                     bgcolor="snow",apply_ranges = True,hooks=[f])
+
+    sankey1.opts(cmap=cmap,label_position=label_position, edge_line_width=edge_line_width, show_values=show_values,
+                 node_padding=node_padding,depth_map=depth_map, node_alpha=node_alpha, node_width=node_width,
+                 node_sort=node_sort,frame_height=frame_height,frame_width=frame_width,bgcolor=bgcolor,
+                 apply_ranges=apply_ranges,hooks=[f])
 
     return sankey1
 
