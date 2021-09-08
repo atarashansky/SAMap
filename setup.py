@@ -20,6 +20,7 @@ setup(
         "h5py<=2.10",
         "leidenalg",
         "fast-histogram",
+        "holoviews-samap"
     ],
     packages=find_packages(),
     include_package_data=True,

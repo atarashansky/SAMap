@@ -1,7 +1,7 @@
 import sklearn.utils.sparsefuncs as sf
 from . import q, ut, pd, sp, np, warnings, sc
 from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
-
+from samalg import SAM
 from scipy.stats import rankdata
 
 
@@ -467,7 +467,7 @@ class FunctionalEnrichment(object):
         #ax.figure.tight_layout()
         return fig,ax
     
-def sankey_plot(M,align_thr=0.1):
+def sankey_plot(M,species_order=None,align_thr=0.1):
     """Generate a sankey plot
     
     Parameters
@@ -477,36 +477,70 @@ def sankey_plot(M,align_thr=0.1):
 
     align_thr: float, optional, default 0.1
         The alignment score threshold below which to remove cell type mappings.
-    """
-    ids = np.unique([x.split('_')[0] for x in M.index])
+    """    
+    if species_order is not None:
+        ids = np.array(species_order)
+    else:
+        ids = np.unique([x.split('_')[0] for x in M.index])
 
-    d = M.values.copy()
-    d[d<align_thr]=0
-    x,y = d.nonzero()
-    x,y = np.unique(np.sort(np.vstack((x,y)).T,axis=1),axis=0).T
-    values = d[x,y]
-    nodes = q(M.index)
-    xPos = ut.convert_annotations(q([x.split('_')[0] for x in M.index]))
-    xPos = xPos/xPos.max()
-    R = pd.DataFrame(data = nodes[np.vstack((x,y))].T,columns=['source','target'])
-    R['Value'] = values
+    if len(ids)>2:
+        d = M.values.copy()
+        d[d<align_thr]=0
+        x,y = d.nonzero()
+        x,y = np.unique(np.sort(np.vstack((x,y)).T,axis=1),axis=0).T
+        values = d[x,y]
+        nodes = q(M.index)
+
+        node_pairs = nodes[np.vstack((x,y)).T]
+        sn1 = q([xi.split('_')[0] for xi in node_pairs[:,0]])
+        sn2 = q([xi.split('_')[0] for xi in node_pairs[:,1]])
+        filt = np.logical_or(
+            np.logical_or(np.logical_and(sn1==ids[0],sn2==ids[1]),np.logical_and(sn1==ids[1],sn2==ids[0])),
+            np.logical_or(np.logical_and(sn1==ids[1],sn2==ids[2]),np.logical_and(sn1==ids[2],sn2==ids[1]))
+        )
+        x,y,values=x[filt],y[filt],values[filt]
+        
+        d=dict(zip(ids,list(np.arange(len(ids)))))        
+        depth_map = dict(zip(nodes,[d[xi.split('_')[0]] for xi in nodes]))
+        data =  nodes[np.vstack((x,y))].T
+        for i in range(data.shape[0]):
+            if d[data[i,0].split('_')[0]] > d[data[i,1].split('_')[0]]:
+                data[i,:]=data[i,::-1]
+        R = pd.DataFrame(data = data,columns=['source','target'])
+        
+        R['Value'] = values       
+    else:
+        d = M.values.copy()
+        d[d<align_thr]=0
+        x,y = d.nonzero()
+        x,y = np.unique(np.sort(np.vstack((x,y)).T,axis=1),axis=0).T
+        values = d[x,y]
+        nodes = q(M.index)
+        R = pd.DataFrame(data = nodes[np.vstack((x,y))].T,columns=['source','target'])
+        R['Value'] = values
+        depth_map=None
     
     try:
-        from holoviews import dim
-        from bokeh.models import Label
-        import holoviews as hv
+        from holoviews_samap import dim
+        #from bokeh.models import Label
+        import holoviews_samap as hv
         hv.extension('bokeh',logo=False)
-        #hv.output(size=200)        
+        hv.output(size=100)        
     except:
-        raise ImportError('Please install holoviews with `!pip install holoviews`.')
+        raise ImportError('Please install holoviews-samap with `!pip install holoviews-samap`.')
 
     def f(plot,element):
         plot.handles['plot'].sizing_mode='scale_width'    
+        plot.handles['plot'].x_range.start = -600    
+        #plot.handles['plot'].add_layout(Label(x=plot.handles['plot'].x_range.end*0.78, y=plot.handles['plot'].y_range.end*0.96, text=id2))
+        plot.handles['plot'].x_range.end = 1500    
+        #plot.handles['plot'].add_layout(Label(x=0, y=plot.handles['plot'].y_range.end*0.96, text=id1))
 
-    sankey1 = hv.Sankey(R, kdims=["source", "target"], vdims=["Value"])
+
+    sankey1 = hv.Sankey(R, kdims=["source", "target"])#, vdims=["Value"])
 
 
-    sankey1.opts(cmap='Colorblind',label_position='outer', edge_line_width=0, show_values=False,
+    sankey1.opts(cmap='Colorblind',label_position='outer', edge_line_width=0, show_values=False, node_padding=1,depth_map=depth_map,
                                      node_alpha=1.0, node_width=40, node_sort=True,frame_height=1000,frame_width=800,
                                      bgcolor="snow",apply_ranges = True,hooks=[f])
 
@@ -514,13 +548,12 @@ def sankey_plot(M,align_thr=0.1):
 
 def chord_plot(A,align_thr=0.1):
     try:
-        from holoviews import dim, opts
-        from bokeh.models import Label
-        import holoviews as hv
+        from holoviews_samap import dim, opts
+        import holoviews_samap as hv
         hv.extension('bokeh',logo=False)
         hv.output(size=300)        
     except:
-        raise ImportError('Please install holoviews with `!pip install holoviews`.')
+        raise ImportError('Please install holoviews-samap with `!pip install holoviews-samap`.')
 
     xx=A.values.copy()
     xx[xx<align_thr]=0
@@ -571,12 +604,12 @@ class GenePairFinder(object):
         mus={}
         stds={}
         for sid in self.sams.keys():
-            self.sams[sid] = self.sams[sid].adata.obs[keys[sid]].astype('str')
+            self.sams[sid].adata.obs[keys[sid]] = self.sams[sid].adata.obs[keys[sid]].astype('str')
             mu, var = sf.mean_variance_axis(self.sams[sid].adata[:, self.gns_dict[sid]].X, axis=0)
             var[var == 0] = 1
             var = var ** 0.5
-            mus[sid]=mu
-            stds[sid]=var
+            mus[sid]=pd.Series(data=mu,index=self.gns_dict[sid])
+            stds[sid]=pd.Series(data=var,index=self.gns_dict[sid])
 
         self.mus = mus
         self.stds = stds
@@ -587,7 +620,7 @@ class GenePairFinder(object):
         for sid in self.sams.keys():
             print(
                 "Finding cluster-specific markers in {}:{}.".format(
-                    self.ids[sid], self.keys[sid]
+                    sid, self.keys[sid]
                 )
             )        
             import gc
@@ -639,13 +672,13 @@ class GenePairFinder(object):
         
         ct1=ct1[f]
         ct2=ct2[f]
-        
+        ct1,ct2 = np.unique(np.sort(np.vstack((ct1,ct2)).T,axis=1),axis=0).T
         res={}
         for i in range(ct1.size):
             a = '_'.join(ct1[i].split('_')[1:])
             b = '_'.join(ct2[i].split('_')[1:])
-            print('Calculating gene pairs for the mapping: {};{} to {};{}'.format(self.id1,a,self.id2,b))
-            res['{};{}'.format(ct1[i],ct2[i])] = self.find_genes(a,b,**kwargs)
+            print('Calculating gene pairs for the mapping: {};{} to {};{}'.format(ct1[i].split('_')[0],a,ct2[i].split('_')[0],b))
+            res['{};{}'.format(ct1[i],ct2[i])] = self.find_genes(ct1[i],ct2[i],**kwargs)
             
         res = pd.DataFrame([res[k][0] for k in res.keys()],index=res.keys()).fillna(np.nan).T            
         return res
@@ -701,8 +734,8 @@ class GenePairFinder(object):
         G = q(
             G[
                 np.logical_and(
-                    q(sam1.adata.varm[self.k1 + "_pvals"][n1][G1] < thr),
-                    q(sam2.adata.varm[self.k2 + "_pvals"][n2][G2] < thr),
+                    q(sam1.adata.varm[self.keys[id1] + "_pvals"][n1][G1] < thr),
+                    q(sam2.adata.varm[self.keys[id2] + "_pvals"][n2][G2] < thr),
                 )
             ]
         )
@@ -726,11 +759,15 @@ class GenePairFinder(object):
         
         xs = []
         for sid in [id1,id2]:
-            xs.append(sid+'_'+sams[sid].get_labels(keys[sid]).astype('str').astype('object'))
+            xs.append(sams[sid].get_labels(keys[sid]).astype('str').astype('object'))
         x1,x2 = xs
         g1, g2 = gns[np.vstack(gnnm.nonzero())]
+        gs1,gs2 = q([x.split('_')[0] for x in g1]),q([x.split('_')[0] for x in g2])
+        filt = np.logical_and(gs1==id1,gs2==id2)
+        g1=g1[filt]
+        g2=g2[filt]
         sam1,sam2 = sams[id1],sams[id2]
-        mu1,std1,mu2,std2 = mus[id1],stds[id1],mus[id2],stds[id2]
+        mu1,std1,mu2,std2 = mus[id1][g1].values,stds[id1][g1].values,mus[id2][g2].values,stds[id2][g2].values
 
         X1 = _sparse_sub_standardize(sam1.adata[:, g1].X[x1 == c1, :], mu1, std1)
         X2 = _sparse_sub_standardize(sam2.adata[:, g2].X[x2 == c2, :], mu2, std2)
@@ -760,7 +797,7 @@ class GenePairFinder(object):
         w2[w2 < 0.2] = 0
         w1[w1 > 0] = 1
         w2[w2 > 0] = 1
-        return val * w1 * w2 * min_expr, to_vn(np.array([g1,g2]))
+        return val * w1 * w2 * min_expr, to_vn(np.array([g1,g2]).T)
 
 def find_cluster_markers(sam, key, inplace=True):
     """ Finds differentially expressed genes for provided cell type labels.

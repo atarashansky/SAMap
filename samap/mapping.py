@@ -345,12 +345,11 @@ class SAMAP(object):
 
         Parameters
         ----------
-        g1 : str
-            Gene ID from species 1.
-        
-        g2 : str
-            Gene ID from species 2.
-            
+        gs : dict
+            Dictionary of genes to display, keyed by species IDs. 
+            For example, human ('hu') and mouse ('ms') genes: 
+            gs = {'hu':'TOP2A','ms':'Top2a'}
+                    
         axes : matplotlib.pyplot.Axes, optional, default None
             Displays the scatter plot on the provided axes if specified.
             Otherwise creates a new figure.
@@ -358,27 +357,24 @@ class SAMAP(object):
         COLOR0 : str, optional, default 'gray'
             The color for cells that do not express `g1` or `g2`.
         
-        COLOR1 : str, optional, default '#000098'
-            The color for cells expressing `g1`.
+        COLORS : dict, optional, default None
+            Dictionary of colors (hex codes) for cells expressing the
+            corresponding genes for each species. This dictionary is
+            keyed by species IDs. If not set, colors are chosen randomly.
         
-        COLOR2 : str, optional, default '#ffb900'
-            The color for cells expressing `g2`.
-        
-        COLOR3 : str, optional, default '#00ceb5'
+        COLORC : str, optional, default '#00ceb5'
             The color for cells that overlap in
-            expression of `g1` and `g2`.
+            expression of the two genes.
         
         s0 : int, optional, default 1
             Marker size corresponding to `COLOR0`.
             
-        s1 : int, optional, default 3
-            Marker size corresponding to `COLOR1`.
-            
-        s2 : int, optional, default 3
-            Marker size corresponding to `COLOR2`.
-            
-        s3 : int, optional, default 10
-            Marker size corresponding to `COLOR3`.
+        ss : dict, optional, default None
+            Dictionary of marker sizes corresponding to the colors in `COLORS`.
+            If not set, marker sizes default to 3.
+                        
+        sc : int, optional, default 10
+            Marker size corresponding to `COLORC`.
         
         thr : float, optional, default 0.1
             Threshold below which imputed expressions across species are zero'd out. 
@@ -391,11 +387,14 @@ class SAMAP(object):
         Returns
         -------
         ax - matplotlib.pyplot.Axes
-        """
-        
-        from matplotlib import cm
-        from matplotlib.colors import to_rgba
-        
+        """   
+
+
+        if len(list(gs.keys()))<len(list(self.sams.keys())):
+            samap = SAM(counts = self.samap.adata[np.in1d(self.samap.adata.obs['species'],list(gs.keys()))])
+        else:
+            samap=self.samap
+                                
         if ss is None:
             ss={}
             for sid in self.ids:
@@ -403,7 +402,7 @@ class SAMAP(object):
         
         if COLORS is None:
             COLORS={}
-            for sid in self.sids:
+            for sid in self.ids:
                 s = ''
                 for i in range(6):
                     s+=hex(np.random.randint(16))[-1].upper()
@@ -416,8 +415,10 @@ class SAMAP(object):
             lv = list(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
             lv = [x/255 for x in lv]
             return lv
-                
-        nnm = self.samap.adata.obsp['connectivities']
+        
+        
+
+        nnm = samap.adata.obsp['connectivities']
         su = nnm.sum(1).A.flatten()[:,None]
         su[su==0]=1
 
@@ -425,12 +426,18 @@ class SAMAP(object):
         AS={}
         for sid in self.ids:
             g = gs[sid]
-            AS[sid] = sams[sid].adata[:,g].X.A.flatten()[:,None]
+            try:
+                AS[sid] = self.sams[sid].adata[:,g].X.A.flatten()
+            except KeyError:
+                try:
+                    AS[sid] = self.sams[sid].adata[:,sid+'_'+g].X.A.flatten()
+                except KeyError:
+                    raise KeyError(f'Gene not found in species {sid}')
             
         davgs={}
         for sid in self.ids:
-            d = np.zeros(self.samap.adata.shape[0])
-            d[self.samap.adata.obs['species']==sid] = AS[sid]
+            d = np.zeros(samap.adata.shape[0])
+            d[samap.adata.obs['species']==sid] = AS[sid]
             davg = nnm.dot(d).flatten()
             davg[davg<thr]=0
             davgs[sid] = davg
@@ -451,12 +458,12 @@ class SAMAP(object):
         cc = np.vstack([cc]*davg.size)
         cc[:,-1] = davg
 
-        ax = self.samap.scatter(projection = 'X_umap', colorspec = COLOR0, axes=axes, s = s0)        
+        ax = samap.scatter(projection = 'X_umap', colorspec = COLOR0, axes=axes, s = s0)        
         
         for sid in self.ids:            
-            self.samap.scatter(projection = 'X_umap', c = cs[sid], axes = ax, s = ss[sid],colorbar=False,**kwargs)
+            samap.scatter(projection = 'X_umap', c = cs[sid], axes = ax, s = ss[sid],colorbar=False,**kwargs)
         
-        self.samap.scatter(projection = 'X_umap', c = cc, axes = ax, s = sc,colorbar=False,**kwargs)
+        samap.scatter(projection = 'X_umap', c = cc, axes = ax, s = sc,colorbar=False,**kwargs)
         
         return ax    
     
@@ -731,9 +738,10 @@ def _mapper(
     ovt0.data[:]=1
 
     B = ovt
-    s = B.sum(1).A
-    s[s == 0] = 1
-    B = B.multiply(1 / s).tocsr()
+    # already sum-normalized per species
+    #s = B.sum(1).A
+    #s[s == 0] = 1
+    #B = B.multiply(1 / s).tocsr()
 
     print("Indegree coarsening")
     
@@ -777,9 +785,9 @@ def _mapper(
         F.data[:] = vals
         
         # normalize by maximum and rescale with tanh
-        su = F.max(1).A
-        su[su==0]=1
-        F = F.multiply(1/su).tocsr()
+        ma = F.max(1).A
+        ma[ma==0]=1
+        F = F.multiply(1/ma).tocsr()
         F.data[:] = _tanh_scale(F.data,center=0.7,scale=10)
         
         # get max aligment score from before
@@ -1749,6 +1757,12 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20):
                 reference = wpca[ixr]
 
                 b = _united_proj(query, reference, k=k)
+                
+                # sum-normalize each species individually.
+                su = b.sum(1).A
+                su[su==0]=1
+                b = b.multiply(1/su).tocsr()
+
                 A = pd.Series(index = np.arange(b.shape[0]), data = ixq)        
                 B = pd.Series(index = np.arange(b.shape[1]), data = ixr)
 
