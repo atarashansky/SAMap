@@ -29,6 +29,7 @@ class SAMAP(object):
         keys: typing.Optional[dict] = None,
         resolutions: typing.Optional[dict] = None,
         gnnm: typing.Optional[tuple] = None,
+        save_processed: typing.Optional[bool] = True
     ):
 
         """Initializes and preprocess data structures for SAMap algorithm.
@@ -123,7 +124,7 @@ class SAMAP(object):
             res = resolutions[sid]
             
             if isinstance(data, str):
-                print("Processing data 1 from:\n{}".format(data))
+                print("Processing data {} from:\n{}".format(sid,data))
                 sam = SAM()
                 sam.load_data(data)
                 sam.preprocess_data(
@@ -144,12 +145,15 @@ class SAMAP(object):
             else:
                 sam = data                
             
-            print(f"Preparing data for SAMap for species {sid}.")
             if key == "leiden_clusters":
                 sam.leiden_clustering(res=res)
                 
             if "PCs_SAMap" not in sam.adata.varm.keys():
                 prepare_SAMap_loadings(sam)  
+
+            if save_processed and isinstance(data,str):
+                sam.save_anndata(data.split('.h5ad')[0]+'_pr.h5ad')
+
             sams[sid] = sam             
 
         if gnnm is None:
@@ -424,7 +428,7 @@ class SAMAP(object):
 
         nnm = nnm.multiply(1/su).tocsr()
         AS={}
-        for sid in self.ids:
+        for sid in gs.keys():
             g = gs[sid]
             try:
                 AS[sid] = self.sams[sid].adata[:,g].X.A.flatten()
@@ -435,7 +439,7 @@ class SAMAP(object):
                     raise KeyError(f'Gene not found in species {sid}')
             
         davgs={}
-        for sid in self.ids:
+        for sid in gs.keys():
             d = np.zeros(samap.adata.shape[0])
             d[samap.adata.obs['species']==sid] = AS[sid]
             davg = nnm.dot(d).flatten()
@@ -443,14 +447,14 @@ class SAMAP(object):
             davgs[sid] = davg
         davg = np.vstack(list(davgs.values())).min(0)
         ma = np.vstack(list(davgs.values())).max()
-        for sid in self.ids:
+        for sid in gs.keys():
             if davgs[sid].max()>0:
                 davgs[sid] = davgs[sid]/davgs[sid].max()
         if davg.max()>0:
             davg = davg/davg.max()
         
         cs={}
-        for sid in self.ids:
+        for sid in gs.keys():
             c = hex_to_rgb(COLORS[sid])+[0.0]
             cs[sid] = np.vstack([c]*davg.size)
             cs[sid][:,-1] = davgs[sid]
@@ -460,7 +464,7 @@ class SAMAP(object):
 
         ax = samap.scatter(projection = 'X_umap', colorspec = COLOR0, axes=axes, s = s0)        
         
-        for sid in self.ids:            
+        for sid in gs.keys():            
             samap.scatter(projection = 'X_umap', c = cs[sid], axes = ax, s = ss[sid],colorbar=False,**kwargs)
         
         samap.scatter(projection = 'X_umap', c = cc, axes = ax, s = sc,colorbar=False,**kwargs)
@@ -484,7 +488,7 @@ class SAMAP(object):
                 COLORS[sid] = s
                 
         for sid in self.ids:            
-            axes = self.samap.scatter(projection = 'X_umap', colorspec = COLORS[sid], axes = axes, s = ss[sid],colorbar=False,**kwargs)
+            axes = self.sams[sid].scatter(projection = 'X_umap_samap', colorspec = COLORS[sid], axes = axes, s = ss[sid],colorbar=False,**kwargs)
         
         return axes    
         
@@ -687,7 +691,7 @@ def _mapper(
     if NHS is None:
         NHS={}
         for sid in sams.keys():
-            NHS[sid] = 2            
+            NHS[sid] = 3         
     
     if neigh_from_keys is None:
         neigh_from_keys={}
