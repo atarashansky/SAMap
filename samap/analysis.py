@@ -1523,7 +1523,6 @@ def transfer_annotations(sm,reference_id=None, keys=[],num_iters=5, inplace = Tr
         labels = clu[1:][np.argmax(P,axis=1)]
         labels[uncertainty==1.0]='NAN'
         uncertainty[uncertainty>=uncertainty.max()*0.99] = 1
-
         if inplace:
             stitched.adata.obs[key+'_transfer'] = pd.Series(labels,index = stitched.adata.obs_names)
             stitched.adata.obs[key+'_uncertainty'] = pd.Series(uncertainty,index=stitched.adata.obs_names)
