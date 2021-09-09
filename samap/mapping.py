@@ -687,7 +687,7 @@ def _mapper(
     if NHS is None:
         NHS={}
         for sid in sams.keys():
-            NHS[sid] = 2            
+            NHS[sid] = 3         
     
     if neigh_from_keys is None:
         neigh_from_keys={}
