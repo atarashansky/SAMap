@@ -1649,7 +1649,7 @@ def _united_proj(wpca1, wpca2, k=20, metric="cosine", ef=200, M=48):
     Sim1 = dist1  # np.exp(-1*(1-dist1)**2)
     knn1v2 = sp.sparse.lil_matrix((wpca1.shape[0], wpca2.shape[0]))
     x1 = np.tile(np.arange(idx1.shape[0])[:, None], (1, idx1.shape[1])).flatten()
-    knn1v2[x1, idx1.flatten()] = Sim1.flatten()
+    knn1v2[x1.astype('int32'), idx1.flatten().astype('int32')] = Sim1.flatten()
     return knn1v2.tocsr()
 
 
