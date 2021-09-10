@@ -1858,8 +1858,8 @@ def _united_proj(wpca1, wpca2, k=20, metric="cosine", sigma=500, ef=200, M=48):
 
     x1 = np.tile(np.arange(idx1.shape[0])[:, None], (1, idx1.shape[1])).flatten()
     x2 = np.tile(np.arange(idx2.shape[0])[:, None], (1, idx2.shape[1])).flatten()
-    knn1v2[x1, idx1.flatten()] = Sim1.flatten()
-    knn2v1[x2, idx2.flatten()] = Sim2.flatten()
+    knn1v2[x1.astype('int32'), idx1.flatten().astype('int32')] = Sim1.flatten()
+    knn2v1[x2.astype('int32'), idx2.flatten().astype('int32')] = Sim2.flatten()
 
     return knn1v2.tocsr(), knn2v1.tocsr()
 
