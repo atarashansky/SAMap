@@ -1,5 +1,6 @@
 # SAMap -- version 0.3.0
-The SAMap algorithm.
+
+In version *v0.3.0*, SAMap can now map multiple species simultaneously. Parameter inputs are slightly different now, so please refer to `SAMap_vignette.ipynb` for the updated workflow.
 
 # Citation
 Please cite the following paper if using SAMap: https://elifesciences.org/articles/66747
