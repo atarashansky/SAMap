@@ -1652,7 +1652,6 @@ def _united_proj(wpca1, wpca2, k=20, metric="cosine", ef=200, M=48):
     knn1v2[x1.astype('int32'), idx1.flatten().astype('int32')] = Sim1.flatten()
     return knn1v2.tocsr()
 
-
 def _tanh_scale(x,scale=10,center=0.5):
     return center + (1-center) * np.tanh(scale * (x - center))
 
