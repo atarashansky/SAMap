@@ -1,16 +1,11 @@
-# SAMap -- version 0.2.3
-The SAMap algorithm.
+# SAMap -- version 0.3.0
+
+In version *v0.3.0*, SAMap can now map multiple species simultaneously. Parameter inputs are slightly different now, so please refer to `SAMap_vignette.ipynb` for the updated workflow.
 
 # Citation
-Please cite the following paper if using SAMap: https://www.biorxiv.org/content/10.1101/2020.09.28.317784v2
+Please cite the following paper if using SAMap: https://elifesciences.org/articles/66747
 
-Tarashansky, Alexander Joel, et al. "Mapping single-cell atlases throughout Metazoa unravels cell type evolution." bioRxiv (2020).
-
-## Requirements
-SAMap was developed and tested in an Anaconda python environment with the following dependencies:
- - `sam-algorithm`
- - `scanpy`
- - `hnswlib`
+Tarashansky, Alexander J., et al. "Mapping single-cell atlases throughout Metazoa unravels cell type evolution." Elife 10 (2021): e66747.
 
 ## Installation
 
@@ -89,4 +84,4 @@ Depending on the number of cores available on your machine and the size/type of 
 
 ## Running SAMap
 
-To run SAMap, use the `SAMAP` function in `samap/mapping.py`. Please see its function documentation for a description of the inputs and outputs. Take a look at the provided Jupyter notebook to get started (`SAMap_quickstart.ipynb`).
+To run SAMap, use the `SAMAP` function in `samap/mapping.py`. Please see its function documentation for a description of the inputs and outputs. Take a look at the provided Jupyter notebook to get started (`SAMap_vignette.ipynb`).

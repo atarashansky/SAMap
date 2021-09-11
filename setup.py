@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="samap",
-    version="0.2.3",
+    version="0.3.0",
     description="The SAMap algorithm",
     long_description="The Self-Assembling Manifold Mapping algorithm for mapping single-cell datasets across species.",
     long_description_content_type="text/markdown",
@@ -20,6 +20,7 @@ setup(
         "h5py<=2.10",
         "leidenalg",
         "fast-histogram",
+        "holoviews-samap"
     ],
     packages=find_packages(),
     include_package_data=True,
