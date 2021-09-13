@@ -78,7 +78,7 @@ source ~/.bashrc
 
 ## Running BLAST
 
-The BLAST mapping script can be run from the `SAMap_quickstart.ipynb` Jupyter notebook.
+The BLAST mapping script can be run from the `SAMap_vignette.ipynb` Jupyter notebook.
 
 Depending on the number of cores available on your machine and the size/type of the input fasta files, this step may take up to around 4 hours.
 
