@@ -58,7 +58,7 @@ class SAMAP(object):
             Path to the `maps` directory output by `map_genes.sh`.
             By default assumes it is in the local directory.
 
-        names1 & names2 : list of 2D tuples or Nx2 numpy.ndarray, optional, default None
+        names : dict of list of 2D tuples or Nx2 numpy.ndarray, optional, default None
             If BLAST was run on a transcriptome with Fasta headers that do not match
             the gene symbols used in the dataset, you can pass a list of tuples mapping
             the Fasta header name to the Dataset gene symbol:
@@ -67,8 +67,9 @@ class SAMAP(object):
             By default, the Fasta header IDs are assumed to be equivalent to the
             gene symbols used in the dataset.
 
-            names1 corresponds to the mapping for organism 1 and names2 corresponds to
-            the mapping for organism 2.
+            The above mapping should be contained in a dicitonary keyed by the corresponding species.
+            For example, if we have `hu` and `mo` species and the `hu` BLAST results need to be translated,
+            then `names = {'hu' : mapping}, where `mapping = [(Fasta header 1, Gene symbol 1), ... , (Fasta header n, Gene symbol n)]`.
 
         gnnm : tuple(scipy.sparse.csr_matrix,numpy array, numpy array)
             If the homology graph was already computed, you can pass it here in the form of a tuple:
@@ -161,8 +162,8 @@ class SAMAP(object):
                 ids, f_maps=f_maps, reciprocate=True
             )            
             if names is not None:
-                gnnm, gns, gns_dict  = _coarsen_blast_graph(
-                    gnnm, gns_list, gns, ids, names
+                gnnm, gns_dict, gns  = _coarsen_blast_graph(
+                    gnnm, gns, names
                 )
 
             gnnm = _filter_gnnm(gnnm, thr=0.25)
@@ -1062,93 +1063,53 @@ def _calculate_blast_graph(ids, f_maps="maps/", eval_thr=1e-6, reciprocate=False
     
     return gnnm, gns, gns_dict
 
-def _coarsen_blast_graph(gnnm, gns_dict, gns, ids, names):
-    # TODO: Update this for multi-species
-    if namesA is not None:
-        groupsA = {}
-        for i in range(len(namesA)):
-            name = namesA[i][1]
-            L = groupsA.get(name, [])
-            L.append(namesA[i][0])
-            groupsA[name] = L
-    else:
-        groupsA = None
+def _coarsen_blast_graph(gnnm, gns, names):
+    groups = {}
+    sps = np.array([x.split('_')[0] for x in gns])
+    sids = np.unique(sps)
+    ss=[]
+    for sid in sids:
+        n = names.get(sid,None)
+        if n is not None:
+            n = np.array(n)
+            s = pd.Series(index=sid+'_'+n[:,0].astype('object'),data=sid+'_'+n[:,1].astype('object'))
+        else:
+            s = pd.Series(index=gns[sps==sid],data = gns[sps==sid])
+        ss.append(s)
+    ss = pd.concat(ss)
+    
+    x,y = gnnm.nonzero() #get nonzeros
+    s = pd.Series(data=gns,index=np.arange(gns.size)) # convert indices to gene pairs
+    xn,yn = s[x].values,s[y].values 
+    xg,yg = ss[xn].values,ss[yn].values #convert gene pairs to translated
+    zgu,ix,cu = np.unique(np.array([xg,yg]),axis=1,return_counts=True,return_index=True) # find unique pairs
+    xgu,ygu = zgu[:,cu>1] # extract pairs that appear duplicated times
+    
+    da = gnnm.data # get data
 
-    if namesB is not None:
-        groupsB = {}
-        for i in range(len(namesB)):
-            name = namesB[i][1]
-            L = groupsB.get(name, [])
-            L.append(namesB[i][0])
-            groupsB[name] = L
-    else:
-        groupsB = None
+    replz = []
+    for i in range(xgu.size): # get max score across all duplicated pairs
+        replz.append(da[np.logical_and(xg==xgu[i],yg==ygu[i])].max())
+    
+    xgu1,ygu1 = zgu[:,cu==1] # get non-duplicate pairs
+    xg = np.append(xgu,xgu1) # append duplicate pairs
+    yg = np.append(ygu,ygu1)
+    da = np.append(da[ix][cu==1],replz) # append duplicate scores to the non-duplicate scores
+    gn = np.unique(np.append(xg,yg)) # get the unique genes
+    
+    s = pd.Series(data=np.arange(gn.size),index=gn) # create an indexer
+    xn,yn = s[xg].values,s[yg].values # convert gene pairs to indexes
+    gnnm = sp.sparse.coo_matrix((da,(xn,yn)),shape=(gn.size,)*2).tocsr() # create sparse matrix
 
-    for n, groups, ids, g in zip(
-        ["A", "B"], [groupsA, groupsB], [id1, id2], [gn1, gn2]
-    ):
-        if groups is not None:
-            if isinstance(groups, dict):
-                xdim = len(list(groups.keys()))
-                for I in range(2):
-                    print(
-                        "Coarsening gene connectivity graph using labels `{}`, round {}.".format(
-                            ids, I
-                        )
-                    )
-                    X = []
-                    Y = []
-                    D = []
-                    for i, k in enumerate(groups.keys()):
-                        if len(groups[k]) > 1:
-                            f = np.in1d(gn, [ids + "_" + x for x in groups[k]])
-                            if f.sum() > 0:
-                                z = gnnm[f].max(0).A.flatten()
-                            else:
-                                z = np.array([])
-                        else:
-                            f = gn == ids + "_" + groups[k][0]
-                            if np.any(f):
-                                z = gnnm[f].A.flatten()
-                            else:
-                                z = np.array([])
-                        y = z.nonzero()[0]
-                        d = z[y]
-                        x = np.ones(y.size) * i
-                        X.extend(x)
-                        Y.extend(y)
-                        D.extend(d)
-                    if n == "A":
-                        xa, ya = gnnm[gn1.size :].nonzero()
-                        da = gnnm[gn1.size :].data
-                        xa += xdim
-                    else:
-                        xa, ya = gnnm[: gn1.size].nonzero()
-                        da = gnnm[: gn1.size].data
-                        X = list(np.array(X) + gn1.size)
-                    X.extend(xa)
-                    Y.extend(ya)
-                    D.extend(da)
-                    gnnm = sp.sparse.coo_matrix(
-                        (D, (X, Y)),
-                        shape=(xdim + gnnm.shape[0] - g.size, gnnm.shape[1]),
-                    ).T.tocsr()
-                g = np.array([ids + "_" + x for x in list(groups.keys())])
-                if n == "A":
-                    gn1 = g
-                else:
-                    gn2 = g
-                gn = np.append(gn1, gn2)
-            else:
-                raise TypeError(
-                    "Gene groupings ({}) must be in dictionary form.".format(n)
-                )
-    f = gnnm.sum(1).A.flatten() != 0
+    f = gnnm.sum(1).A.flatten() != 0 #eliminate zero rows/columns
     gn = gn[f]
-    gn1 = gn1[np.in1d(gn1, gn)]
-    gn2 = gn2[np.in1d(gn2, gn)]
-    gnnm = gnnm[f, :][:, f]
-    return gnnm, gn1, gn2, gn
+    sps = np.array([x.split('_')[0] for x in gn])
+
+    gns_dict={}
+    for sid in sids:
+        gns_dict[sid] = gn[sps==sid]
+
+    return gnnm, gns_dict, gn
 
 
 def prepare_SAMap_loadings(sam, npcs=300):
