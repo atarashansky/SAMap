@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 
 from . import q, ut, pd, sp, np, warnings, sc
 from .analysis import _compute_csim
-from .utils import prepend_var_prefix, to_vn, substr, sparse_knn
+from .utils import prepend_var_prefix, to_vn, substr, sparse_knn, df_to_dict
 
 from numba.core.errors import NumbaPerformanceWarning, NumbaWarning
 
@@ -1064,7 +1064,6 @@ def _calculate_blast_graph(ids, f_maps="maps/", eval_thr=1e-6, reciprocate=False
     return gnnm, gns, gns_dict
 
 def _coarsen_blast_graph(gnnm, gns, names):
-    groups = {}
     sps = np.array([x.split('_')[0] for x in gns])
     sids = np.unique(sps)
     ss=[]
@@ -1072,31 +1071,47 @@ def _coarsen_blast_graph(gnnm, gns, names):
         n = names.get(sid,None)
         if n is not None:
             n = np.array(n)
-            s = pd.Series(index=sid+'_'+n[:,0].astype('object'),data=sid+'_'+n[:,1].astype('object'))
+            n = (sid+'_'+n.astype('object')).astype('str')
+            s1 = pd.Series(index=n[:,0],data=n[:,1])
+            g = gns[sps==sid]
+            g = g[np.in1d(g,n[:,0],invert=True)]
+            s2 = pd.Series(index=g,data = g)
+            s = pd.concat([s1,s2])
         else:
             s = pd.Series(index=gns[sps==sid],data = gns[sps==sid])
         ss.append(s)
     ss = pd.concat(ss)
-    
+
     x,y = gnnm.nonzero() #get nonzeros
     s = pd.Series(data=gns,index=np.arange(gns.size)) # convert indices to gene pairs
     xn,yn = s[x].values,s[y].values 
     xg,yg = ss[xn].values,ss[yn].values #convert gene pairs to translated
-    zgu,ix,cu = np.unique(np.array([xg,yg]),axis=1,return_counts=True,return_index=True) # find unique pairs
-    xgu,ygu = zgu[:,cu>1] # extract pairs that appear duplicated times
-    
-    da = gnnm.data # get data
 
-    replz = []
-    for i in range(xgu.size): # get max score across all duplicated pairs
-        replz.append(da[np.logical_and(xg==xgu[i],yg==ygu[i])].max())
-    
+    da=gnnm.data
+
+    zgu,ix,ivx,cu = np.unique(np.array([xg,yg]).astype('str'),axis=1,return_counts=True,return_index=True,return_inverse=True) # find unique pairs
+
+    xgu,ygu = zgu[:,cu>1] # extract pairs that appear duplicated times
+    xgyg=xg.astype('object')+';'+yg.astype('object')
+    xguygu=xgu.astype('object')+';'+ygu.astype('object')
+
+    filt = np.in1d(xgyg,xguygu)
+
+    DF=pd.DataFrame(data=xgyg[filt][:,None],columns=['key'])
+    DF['val']=da[filt]
+
+    dic = df_to_dict(DF,key_key='key')
+
+    xgu = q([x.split(';')[0] for x in dic.keys()])
+    ygu = q([x.split(';')[1] for x in dic.keys()])
+    replz = q([max(dic[x]) for x in dic.keys()])
+
     xgu1,ygu1 = zgu[:,cu==1] # get non-duplicate pairs
-    xg = np.append(xgu,xgu1) # append duplicate pairs
-    yg = np.append(ygu,ygu1)
+    xg = np.append(xgu1, xgu) # append duplicate pairs
+    yg = np.append(ygu1, ygu)
     da = np.append(da[ix][cu==1],replz) # append duplicate scores to the non-duplicate scores
     gn = np.unique(np.append(xg,yg)) # get the unique genes
-    
+
     s = pd.Series(data=np.arange(gn.size),index=gn) # create an indexer
     xn,yn = s[xg].values,s[yg].values # convert gene pairs to indexes
     gnnm = sp.sparse.coo_matrix((da,(xn,yn)),shape=(gn.size,)*2).tocsr() # create sparse matrix
