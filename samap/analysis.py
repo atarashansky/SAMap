@@ -605,8 +605,8 @@ class GenePairFinder(object):
         self.sm = sm
         self.sams = sm.sams
         self.s3 = sm.samap
-        self.gns = sm.gns
-        self.gnnm = sm.samap.adata.uns['homology_graph_reweighted']
+        self.gns = q(sm.samap.adata.var_names)
+        self.gnnm = sm.samap.adata.varp['homology_graph_reweighted']
         self.gns_dict = sm.gns_dict
 
         self.ids = sm.ids
@@ -966,14 +966,14 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3)
         
     smp = sm.samap
     
-    gnnm = smp.adata.uns["homology_graph_reweighted"]
-    gn = sm.gns
+    gnnm = smp.adata.varp["homology_graph_reweighted"]
+    gn = q(smp.adata.var_names)
     
     ortholog_pairs = np.sort(ortholog_pairs,axis=1)
 
     ortholog_pairs = ortholog_pairs[np.logical_and(np.in1d(ortholog_pairs[:,0],gn),np.in1d(ortholog_pairs[:,1],gn))]
     if paralog_pairs is None:
-        paralog_pairs = gn[np.vstack(smp.adata.uns["homology_graph"].nonzero()).T]
+        paralog_pairs = gn[np.vstack(smp.adata.varp["homology_graph"].nonzero()).T]
     else:
         paralog_pairs = paralog_pairs[np.logical_and(np.in1d(paralog_pairs[:,0],gn),np.in1d(paralog_pairs[:,1],gn))]
         
@@ -1074,7 +1074,7 @@ def convert_eggnog_to_homologs(sm, EGGs, og_key = 'eggNOG_OGs', taxon=2759):
         Es.append(A)
     
     A = pd.concat(Es, axis=0)
-    gn = q(smp.adata.uns["homology_gene_names"])
+    gn = q(smp.adata.var_names)
     A = A[np.in1d(q(A.index), gn)]
 
     orthology_groups = A[og_key]
@@ -1197,8 +1197,8 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
     pp = to_vo(q(RES['paralog pairs']))
     ops = np.vstack([q([x.split('_')[0] for x in xx]) for xx in op])
     pps = np.vstack([q([x.split('_')[0] for x in xx]) for xx in pp])
-    gnnm = sm.samap.adata.uns["homology_graph_reweighted"]
-    gn = sm.gns
+    gnnm = sm.samap.adata.varp["homology_graph_reweighted"]
+    gn = q(sm.samap.adata.var_names)
     gnsp = q([x.split('_')[0] for x in gn])
 
     import itertools

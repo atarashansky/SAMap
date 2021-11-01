@@ -315,16 +315,35 @@ class SAMAP(object):
             print("Running UMAP on the stitched manifolds.")
             sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random')
         
+        
+        ix = pd.Series(data = np.arange(samap.adata.shape[1]),index = samap.adata.var_names)[gns].values
+        rixer = pd.Series(index =np.arange(gns.size), data = ix)
+        
         try:
             hom_graph = smap.GNNMS_corr[-1]
-            samap.adata.uns["homology_graph_reweighted"] = hom_graph
+            x,y = hom_graph.nonzero()
+            d = hom_graph.data
+            hom_graph = sp.sparse.coo_matrix((d,(rixer[x].values,rixer[y].values)),shape=(samap.adata.shape[1],)*2).tocsr()                    
+            samap.adata.varp["homology_graph_reweighted"] = hom_graph
+            self.gnnm_refined = hom_graph            
         except:
             pass
         
-        samap.adata.uns["homology_graph"] = gnnm
-        samap.adata.uns["homology_gene_names"] = gns
+        x,y = gnnm.nonzero()
+        d = gnnm.data
+        gnnm = sp.sparse.coo_matrix((d,(rixer[x].values,rixer[y].values)),shape=(samap.adata.shape[1],)*2).tocsr()                            
+        samap.adata.varp["homology_graph"] = gnnm
         samap.adata.uns["homology_gene_names_dict"] = gns_dict
-
+        
+        
+        self.gnnm = gnnm
+        self.gns = q(samap.adata.var_names)
+        
+        gns_dict = {}
+        for sid in ids:
+            gns_dict[sid] = self.gns[np.in1d(self.gns,q(self.sams[sid].adata.var_names))]
+        self.gns_dict = gns_dict
+        
         if umap:
             for sid in ids:
                 sams[sid].adata.obsm['X_umap_samap'] = self.samap.adata[sams[sid].adata.obs_names].obsm['X_umap']     
@@ -472,6 +491,78 @@ class SAMAP(object):
         
         return ax    
     
+    def query_gene_pairs(self,gene):
+        """ Get BLAST and correlation scores of all genes connected
+        to the query gene.
+
+        Preferrably, genes are prepended with their species IDs.
+        For example, "hu_SOX2" instead of "SOX2".
+        
+        Returns: Dictionary with "blast" and "correlation" keys with
+        the BLAST and correlation scores respectively for the queried
+        gene.
+        """ 
+               
+        ids = self.ids
+        qgene = None
+        if (gene in self.gns):
+            qgene = gene
+        else:
+            for sid in ids:
+                if sid+'_'+gene in self.gns:
+                    qgene = sid+'_'+gene
+                    break
+        if qgene is None:
+            raise ValueError(f"Query gene {gene} not found in dataset.")
+
+        a = self.gnnm[self.gns===qgene]
+        b = self.gnnm_refined[self.gns==qgene]
+
+        i1 = self.gns[a.nonzero()[1]]
+        i2 = self.gns[b.nonzero()[1]]
+        d1 = a.data
+        d2 = b.data
+        a = pd.Series(index=i1,data=d1)
+        b = pd.Series(index=i2,data=d2)
+        return {"blast":a,"correlation":b}    
+
+    def query_gene_pair(self,gene1,gene2):
+        """ Get BLAST and correlation score for a pair of genes.
+        
+        Preferrably, genes are prepended with their species IDs.
+        For example, "hu_SOX2" instead of "SOX2".
+        
+        Returns: Dictionary with "blast" and "correlation" keys with
+        the BLAST and correlation scores respectively for the queried
+        gene pair.
+        """
+        ids = self.ids
+        qgene1 = None
+        if (gene1 in self.gns):
+            qgene1 = gene1
+        else:
+            for sid in ids:
+                if sid+'_'+gene1 in self.gns:
+                    qgene1 = sid+'_'+gene1
+                    break
+        if qgene1 is None:
+            raise ValueError(f"Query gene {gene1} not found in dataset.")
+
+        qgene2 = None
+        if (gene2 in self.gns):
+            qgene2 = gene2
+        else:
+            for sid in ids:
+                if sid+'_'+gene2 in self.gns:
+                    qgene2 = sid+'_'+gene2
+                    break
+        if qgene2 is None:
+            raise ValueError(f"Query gene {gene2} not found in dataset.")
+
+        a = self.gnnm[self.gns==qgene1].A.flatten()[self.gns==qgene2]
+        b = self.gnnm_refined[self.gns==qgene1].A.flatten()[self.gns==qgene2]
+        return {"blast":a,"correlation":b}  
+
     def scatter(self,axes=None,COLORS=None,ss=None,**kwargs):  
         
         if ss is None:
