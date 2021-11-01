@@ -219,7 +219,7 @@ class SAMAP(object):
         hom_edge_mode: typing.Optional[str] = "pearson",
         scale_edges_by_corr: typing.Optional[bool] = True,
         neigh_from_keys: typing.Optional[dict] = None,
-        
+        pairwise: typing.Optional[bool] = True
     ):
         """Runs the SAMap algorithm.
 
@@ -272,6 +272,20 @@ class SAMAP(object):
         neigh_from_key2 : bool, optional, default False
             If True, species 2 neighborhoods are calculated directly from the chosen clustering (`self.key2`).
             Cells within the same cluster belong to the same neighborhood.
+
+        pairwise: bool, optional, default True
+            If True, compute mutual nearest neighborhoods independently between each pair of species.
+            If False, compute mutual nearest neighborhoods between each species and all other species.
+            This parameter is ignored if there are only two species to be mapped.
+
+           `pairwise=True` would prevent outgroup species from being unmapped.
+            For example, if `pairwise=False`, when mapping three species like human, mouse, and zebrafish, human and mice
+            will preferentially map to each other, leaving zebrafish unmapped.
+
+            Set `pairwise=False` when you'd like to be able to tell which cell types are more or less similar 
+            between different species. Set `pairwise=True` when you'd like to remove the effects of evolutionary
+            distance. This is particularly useful when using multiple reference species to annotate an unlabeled
+            dataset.
             
         Returns
         -------
@@ -305,6 +319,7 @@ class SAMAP(object):
             corr_mode=hom_edge_mode,
             scale_edges_by_corr = scale_edges_by_corr,
             neigh_from_keys=neigh_from_keys,
+            pairwise=pairwise
         )
         samap = smap.final_sam
         self.samap = samap
@@ -661,7 +676,8 @@ class _Samap_Iter(object):
         return gnnmu
 
     def run(self, NUMITERS=3, NHS=None, K=20, corr_mode='pearson', NCLUSTERS=1,
-                  scale_edges_by_corr=True, THR=0, neigh_from_keys=None, ncpus=os.cpu_count()):
+                  scale_edges_by_corr=True, THR=0, neigh_from_keys=None, pairwise=True,
+                  ncpus=os.cpu_count()):
         sams = self.sams
         gnnm = self.gnnm
         gns_dict = self.gns_dict
@@ -703,6 +719,7 @@ class _Samap_Iter(object):
                 keys=keys,
                 scale_edges_by_corr=scale_edges_by_corr,
                 neigh_from_keys=neigh_from_keys,
+                pairwise=pairwise
             )
 
             self.samap = sam4
@@ -778,6 +795,7 @@ def _mapper(
     keys=None,
     scale_edges_by_corr=False,
     neigh_from_keys=None,
+    pairwise=True,
     **kwargs
 ):
     if NHS is None:
@@ -901,10 +919,32 @@ def _mapper(
         # change new max scores to old max scores
         D = D.multiply(ma/ma2).tocsr()
     
-    Dk = sparse_knn(D, k1).tocsr()
+    species_list = []
+    for sid in sams.keys():
+        species_list += [sid]*sams[sid].adata.shape[0]    
+    species_list = np.array(species_list)
 
+    if not pairwise or len(sams.keys())==2:
+        Dk = sparse_knn(D, k1).tocsr()
+        denom = k1
+    else:
+        Dk=[]
+        for sid1 in sams.keys():
+            row=[]
+            for sid2 in sams.keys():
+                if sid1 != sid2:
+                    Dsub = D[species_list==sid1][:,species_list==sid2]
+                    Dsubk = sparse_knn(Dsubk, k1).tocsr()
+                else:
+                    Dsubk = sp.sparse.csr_matrix((sams[sid1].adata.shape[0],)*2)
+                row.append(Dsubk)
+            Dk.append(sp.sparse.hstack(row))
+        Dk = sp.sparse.vstack(Dk).tocsr()
+        denom = (k1 * (len(sams.keys())-1))
+            
     sr = Dk.sum(1).A    
-    x = 1 - sr.flatten() / k1
+    
+    x = 1 - sr.flatten() / denom
     
     sr[sr==0]=1
     st = Dk.sum(0).A.flatten()[None,:]
@@ -932,14 +972,9 @@ def _mapper(
     NNM = omp.multiply(x[:, None])
     NNM = (NNM+Dk).tolil()
     NNM.setdiag(0)
-    # """
-
+   
     print("Concatenating SAM objects...")
     sam3 = _concatenate_sam(sams, NNM)
-    
-    species_list = []
-    for sid in sams.keys():
-        species_list += [sid]*sams[sid].adata.shape[0]
     
     sam3.adata.obs["species"] = pd.Categorical(species_list)
 
