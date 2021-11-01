@@ -1562,7 +1562,7 @@ def get_mapping_scores(sm, keys, n_top = 0):
     skeys = q(samap.adata.obs['species'])[np.sort(ix)]
     
     for sid in skeys:
-        clusters.append(q([sid+'_'+x.astype('str').astype('object') for x in sm.sams[sid].adata.obs[keys[sid]]]))
+        clusters.append(q([sid+'_'+str(x) for x in sm.sams[sid].adata.obs[keys[sid]]]))
     
     cl = np.concatenate(clusters)
     l = "{}_mapping_scores".format(';'.join([keys[sid] for sid in skeys]))
