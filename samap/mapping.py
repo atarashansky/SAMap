@@ -502,7 +502,7 @@ class SAMAP(object):
         the BLAST and correlation scores respectively for the queried
         gene.
         """ 
-               
+
         ids = self.ids
         qgene = None
         if (gene in self.gns):
@@ -515,7 +515,7 @@ class SAMAP(object):
         if qgene is None:
             raise ValueError(f"Query gene {gene} not found in dataset.")
 
-        a = self.gnnm[self.gns===qgene]
+        a = self.gnnm[self.gns==qgene]
         b = self.gnnm_refined[self.gns==qgene]
 
         i1 = self.gns[a.nonzero()[1]]
