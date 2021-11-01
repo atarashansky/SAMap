@@ -1417,14 +1417,16 @@ def _get_pairs(sams, gnnm, gns_dict, NOPs1=0, NOPs2=0):
 
     return B
 
-def _avg_as(s):
+def _avg_as(s,pairwise=True):
     x = q(s.adata.obs['batch'])
     xu = np.unique(x)
     a = []
     for i in range(xu.size):
         a.extend(s.adata.obsp['connectivities'][x==xu[i],:][:,x!=xu[i]].sum(1).A.flatten())
-
-    return  np.array(a) / s.adata.obsp['knn'][0].data.size * (xu.size-1)
+    if pairwise:
+        return  np.array(a) / s.adata.obsp['knn'][0].data.size
+    else:
+        return  np.array(a) / s.adata.obsp['knn'][0].data.size * (xu.size-1)
 
 
 def _parallel_init(iXavg, ipairs, igns_dictO, iT2, iCORR, icorr_mode,icl,ics):
