@@ -559,8 +559,8 @@ class SAMAP(object):
         if qgene2 is None:
             raise ValueError(f"Query gene {gene2} not found in dataset.")
 
-        a = self.gnnm[self.gns==qgene1].A.flatten()[self.gns==qgene2]
-        b = self.gnnm_refined[self.gns==qgene1].A.flatten()[self.gns==qgene2]
+        a = self.gnnm[self.gns==qgene1].A.flatten()[self.gns==qgene2][0]
+        b = self.gnnm_refined[self.gns==qgene1].A.flatten()[self.gns==qgene2][0]
         return {"blast":a,"correlation":b}  
 
     def scatter(self,axes=None,COLORS=None,ss=None,**kwargs):  
