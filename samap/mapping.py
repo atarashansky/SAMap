@@ -101,6 +101,7 @@ class SAMAP(object):
             If True saves the processed SAM objects corresponding to each species to an `.h5ad` file.
             This argument is unused if preloaded SAM objects are passed in to SAMAP.
         """
+
         for key,data in zip(sams.keys(),sams.values()):
             if not (isinstance(data, str) or isinstance(data, SAM)):
                 raise TypeError(f"Input data {key} must be either a path or a SAM object.")
@@ -325,7 +326,7 @@ class SAMAP(object):
         self.samap = samap
         self.ITER_DATA = smap.ITER_DATA
 
-        print("Alignment score ---", _avg_as(samap).mean())
+        print("Alignment score ---", _avg_as(samap, pairwise=pairwise).mean())
         if umap:
             print("Running UMAP on the stitched manifolds.")
             sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random')
@@ -743,7 +744,7 @@ class _Samap_Iter(object):
             print(
                 "ITERATION: " + str(i),
                 "\nAverage alignment score (A.S.): ",
-                _avg_as(sam4).mean(),
+                _avg_as(sam4, pairwise=pairwise).mean(),
                 "\nMax A.S. improvement:",
                 diffmax,
                 "\nMin A.S. improvement:",
@@ -809,7 +810,7 @@ def _mapper(
             neigh_from_keys[sid] = False    
     
     if mdata is None:
-        mdata = _mapping_window(sams, gnnm, gn, K=K)
+        mdata = _mapping_window(sams, gnnm, gn, K=K, pairwise=pairwise)
 
     if k is None:
         k1 = sams[list(sams.keys())[0]].run_args.get("k", 20)
@@ -1758,7 +1759,7 @@ def _united_proj(wpca1, wpca2, k=20, metric="cosine", ef=200, M=48):
 def _tanh_scale(x,scale=10,center=0.5):
     return center + (1-center) * np.tanh(scale * (x - center))
 
-def _mapping_window(sams, gnnm=None, gns=None, K=20):
+def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
     k = K
     output_dict = {}
     if gnnm is not None and gns is not None:
@@ -1773,34 +1774,52 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20):
         Ws={}
         ss={}
         As={}
-        species_indexer = []    
+        species_indexer = []   
+        genes_indexer = [] 
         for sid in sams.keys():
             gs[sid] = gns[np.in1d(gns,q(sams[sid].adata.var_names))]
             adatas[sid] = sams[sid].adata[:,gs[sid]]
             Ws[sid] = adatas[sid].var["weights"].values
             ss[sid] = std.fit_transform(adatas[sid].X).multiply(Ws[sid][None,:]).tocsr()
             species_indexer.append(np.arange(ss[sid].shape[0]))
+            genes_indexer.append(np.arange(gs[sid].size))
 
         for i in range(1,len(species_indexer)):
             species_indexer[i] = species_indexer[i]+species_indexer[i-1].max()+1
+            genes_indexer[i] = genes_indexer[i]+genes_indexer[i-1].max()+1
 
-        su = gnnm.sum(0).A
+        su = gnnm_corr.sum(0).A
         su[su==0]=1
         gnnm_corr = gnnm_corr.multiply(1/su).tocsr()
         
-        
-        ttt=time.time()
-        print('Translating feature spaces.')    
+        X = sp.sparse.block_diag(list(ss.values())).tocsr()
         W = np.concatenate(list(Ws.values())).flatten()
 
-        X = sp.sparse.block_diag(list(ss.values())).tocsr()
-        Xtr = []
-        for i,sid in enumerate(sams.keys()):
-            Xtr.append(X[species_indexer[i]].dot(gnnm_corr))
-            Xtr[-1] = std.fit_transform(Xtr[-1]).multiply(W[None,:])
-        Xtr = sp.sparse.vstack(Xtr)
-        Xc = X + Xtr    
-        
+        ttt=time.time()
+        if pairwise:
+            print('Translating feature spaces pairwise.')
+            Xtr = []
+            for i,sid1 in enumerate(sams.keys()):
+                xtr = []
+                for j,sid2 in enumerate(sams.keys()):
+                    if i != j:
+                        xtr.append(X[species_indexer[i]][:,genes_indexer[i]].dot(gnnm_corr[genes_indexer[i]][:,genes_indexer[j]]))
+                        xtr[-1] = std.fit_transform(xtr[-1]).multiply(W[genes_indexer[j]][None,:])
+                    else:
+                        xtr.append(sp.sparse.csr_matrix((species_indexer[i].size,genes_indexer[i].size)))
+                Xtr.append(sp.sparse.hstack(xtr))
+            Xtr = sp.sparse.vstack(Xtr)
+        else:
+            print('Translating feature spaces all-to-all.')    
+
+            Xtr = []
+            for i,sid in enumerate(sams.keys()):
+                Xtr.append(X[species_indexer[i]].dot(gnnm_corr))
+                Xtr[-1] = std.fit_transform(Xtr[-1]).multiply(W[None,:])
+            Xtr = sp.sparse.vstack(Xtr)
+        Xc = (X + Xtr).tocsr()
+        print(Xc)
+        print(Xc.data.size/np.prod(Xc.shape))
         mus = []        
         for i,sid in enumerate(sams.keys()):
             mus.append(Xc[species_indexer[i]].mean(0).A.flatten())
