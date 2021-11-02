@@ -933,8 +933,7 @@ def _mapper(
             row=[]
             for sid2 in sams.keys():
                 if sid1 != sid2:
-                    Dsub = D[species_list==sid1][:,species_list==sid2]
-                    Dsubk = sparse_knn(Dsubk, k1).tocsr()
+                    Dsubk = sparse_knn(D[species_list==sid1][:,species_list==sid2], k1).tocsr()
                 else:
                     Dsubk = sp.sparse.csr_matrix((sams[sid1].adata.shape[0],)*2)
                 row.append(Dsubk)
