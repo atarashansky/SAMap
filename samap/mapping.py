@@ -1818,8 +1818,7 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
                 Xtr[-1] = std.fit_transform(Xtr[-1]).multiply(W[None,:])
             Xtr = sp.sparse.vstack(Xtr)
         Xc = (X + Xtr).tocsr()
-        print(Xc)
-        print(Xc.data.size/np.prod(Xc.shape))
+
         mus = []        
         for i,sid in enumerate(sams.keys()):
             mus.append(Xc[species_indexer[i]].mean(0).A.flatten())
