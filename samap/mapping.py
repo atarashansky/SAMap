@@ -292,6 +292,8 @@ class SAMAP(object):
         -------
         samap - Species-merged SAM object
         """
+        self.pairwise = pairwise
+
         ids = self.ids
         sams = self.sams
         gnnm = self.gnnm
@@ -372,8 +374,7 @@ class SAMAP(object):
         print("Running UMAP on the stitched manifolds.")
         ids = self.ids
         sams = self.sams
-        
-        sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random')
+        sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random', max_iter = 500 if self.samap.adata.shape[0] <= 10000 else 200)
         for sid in ids:
             sams[sid].adata.obsm['X_umap_samap'] = self.samap.adata[sams[sid].adata.obs_names].obsm['X_umap']               
 
@@ -730,7 +731,7 @@ class _Samap_Iter(object):
             for sid in sams.keys():
                 labels.extend(q(sams[sid].adata.obs[keys[sid]]))
             sam4.adata.obs['tempv1.0.0.0'] = labels
-            CSIMth, _ = _compute_csim(sam4, "tempv1.0.0.0")
+            CSIMth, _ = _compute_csim(sam4, "tempv1.0.0.0", pairwise=pairwise)
             del sam4.adata.obs['tempv1.0.0.0']
 
             self.SCORE_VEC.append(CSIMth.flatten())

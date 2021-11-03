@@ -1415,7 +1415,7 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
     return FINAL
 
 
-def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
+def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0, pairwise=True):
     if n_top ==0:
         n_top = 100000000
     
@@ -1445,7 +1445,12 @@ def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
                     np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top].mean(),
                 )
     CSIM=CSIM+CSIM.T
-    CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * (len(skeys)-1)
+    
+    if pairwise:
+        CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size 
+    else:
+        CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * (len(skeys)-1)
+
     return CSIMth, clu
 
 def transfer_annotations(sm,reference_id=None, keys=[],num_iters=5, inplace = True):
@@ -1568,7 +1573,7 @@ def get_mapping_scores(sm, keys, n_top = 0):
     l = "{}_mapping_scores".format(';'.join([keys[sid] for sid in skeys]))
     samap.adata.obs[l] = pd.Categorical(cl)
     
-    CSIMth, clu = _compute_csim(samap, l, n_top = n_top, prepend = False)
+    CSIMth, clu = _compute_csim(samap, l, n_top = n_top, prepend = False, pairwise = sm.pairwise)
 
     A = pd.DataFrame(data=CSIMth, index=clu, columns=clu)
     i = np.argsort(-A.values.max(0).flatten())
