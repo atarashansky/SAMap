@@ -731,7 +731,7 @@ class _Samap_Iter(object):
             for sid in sams.keys():
                 labels.extend(q(sams[sid].adata.obs[keys[sid]]))
             sam4.adata.obs['tempv1.0.0.0'] = labels
-            CSIMth, _ = _compute_csim(sam4, "tempv1.0.0.0", pairwise=pairwise)
+            CSIMth, _ = _compute_csim(sam4, "tempv1.0.0.0")
             del sam4.adata.obs['tempv1.0.0.0']
 
             self.SCORE_VEC.append(CSIMth.flatten())

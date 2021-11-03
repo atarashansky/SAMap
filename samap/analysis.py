@@ -1415,12 +1415,10 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
     return FINAL
 
 
-def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0, pairwise=True):
-    if n_top ==0:
-        n_top = 100000000
-    
-    skeys = q(sam3.adata.obs['species'])[np.sort(np.unique(sam3.adata.obs["species"],return_index=True)[1])]
-    
+def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
+    splabels = q(sam3.adata.obs['species'])
+    skeys = splabels[np.sort(np.unique(splabels,return_index=True)[1])]
+
     cl = []
     clu = []
     for sid in skeys:
@@ -1429,29 +1427,44 @@ def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0, pairwise=True):
         else:
             cl.append(q(sam3.adata.obs[key])[sam3.adata.obs['species']==sid])            
         clu.append(np.unique(cl[-1]))
-        
+
     clu = np.concatenate(clu)
     cl = np.concatenate(cl)
-    
+
     CSIM = np.zeros((clu.size, clu.size))
     if X is None:
         X = sam3.adata.obsp["connectivities"].copy()
 
-    for i, c1 in enumerate(clu):
-        for j, c2 in enumerate(clu):
-            if c1.split('_')[0] != c2.split('_')[0] and j > i:
-                CSIM[i, j] = max(
-                    np.sort(X[cl == c1, :][:, cl == c2].sum(1).A.flatten())[::-1][:n_top].mean(),
-                    np.sort(X[cl == c2, :][:, cl == c1].sum(1).A.flatten())[::-1][:n_top].mean(),
-                )
-    CSIM=CSIM+CSIM.T
-    
-    if pairwise:
-        CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size 
-    else:
-        CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * (len(skeys)-1)
+    xi,yi = X.nonzero()
+    spxi = splabels[xi]
+    spyi = splabels[yi]
 
-    return CSIMth, clu
+    filt = spxi!=spyi
+    di = X.data[filt]
+    xi = xi[filt]
+    yi = yi[filt]
+
+    px,py = xi,cl[yi]
+    p = px.astype('str').astype('object')+';'+py.astype('object')
+
+    A = pd.DataFrame(data=np.vstack((p, di)).T, columns=["x", "y"])
+    valdict = df_to_dict(A, key_key="x", val_key="y")   
+    cell_scores = [valdict[k].sum() for k in valdict.keys()]
+    ixer = pd.Series(data=np.arange(clu.size),index=clu)
+    xc,yc = substr(list(valdict.keys()),';')
+    xc = xc.astype('int')
+    yc=ixer[yc].values
+    cell_cluster_scores = sp.sparse.coo_matrix((cell_scores,(xc,yc)),shape=(X.shape[0],clu.size)).A
+
+    for i, c in enumerate(clu):
+        if n_top > 0:
+            CSIM[i, :] = np.sort(cell_cluster_scores[cl==c],axis=0)[-n_top:].mean(0)
+        else:
+            CSIM[i, :] = cell_cluster_scores[cl==c].mean(0)
+
+    CSIM = np.stack((CSIM,CSIM.T),axis=2).max(2)
+    CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * (len(skeys)-1)
+    return CSIMth,clu
 
 def transfer_annotations(sm,reference_id=None, keys=[],num_iters=5, inplace = True):
     """ Transfer annotations across species using label propagation along the combined manifold.
@@ -1573,7 +1586,7 @@ def get_mapping_scores(sm, keys, n_top = 0):
     l = "{}_mapping_scores".format(';'.join([keys[sid] for sid in skeys]))
     samap.adata.obs[l] = pd.Categorical(cl)
     
-    CSIMth, clu = _compute_csim(samap, l, n_top = n_top, prepend = False, pairwise = sm.pairwise)
+    CSIMth, clu = _compute_csim(samap, l, n_top = n_top, prepend = False)
 
     A = pd.DataFrame(data=CSIMth, index=clu, columns=clu)
     i = np.argsort(-A.values.max(0).flatten())
