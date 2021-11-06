@@ -1282,26 +1282,26 @@ def prepare_SAMap_loadings(sam, npcs=300):
 
 
 def _concatenate_sam(sams, nnm):
-
     acns = []
-    obsks = []
     exps = []
     agns = []
+    sps = []
     for i,sid in enumerate(sams.keys()):
         acns.append(q(sams[sid].adata.obs_names))
-        obsks.append(np.array(sams[sid].adata.obs_keys()))
+        sps.append([sid]*acns[-1].size)
         exps.append(sams[sid].adata.X)
         agns.append(q(sams[sid].adata.var_names))
-    
-    obsk = np.unique(np.concatenate(obsks))
+
 
     acn = np.concatenate(acns)
     agn = np.concatenate(agns)
+    sps = np.concatenate(sps)
+
     xx = sp.sparse.block_diag(exps,format='csr')
-    
-    
+
+
     sam = SAM(counts=(xx, agn, acn))
-    
+
     sam.adata.uns["neighbors"] = {}
     nnm = nnm.tocsr()
     nnm.eliminate_zeros()
@@ -1312,20 +1312,12 @@ def _concatenate_sam(sams, nnm):
         "use_rep": "X",
         "metric": "euclidean",
     }
-
-    for k in obsk:
-        ann = []
-        for i in sams.keys():
-            if k in sams[i].adata.obs.keys():
-                ann.append(
-                    sams[i].adata.var_names[0].split("_")[0]
-                    + "_"
-                    + sams[i].get_labels(k).astype('str').astype("object")
-                )
-            else:
-                ann.append(q([""] * sams[i].adata.shape[0]))
-
-        sam.adata.obs[k] = pd.Categorical(np.concatenate(ann))
+    for i in sams.keys():
+        for k in sams[i].adata.obs.keys():
+            if sams[i].adata.obs[k].dtype.name == "category":
+                z = np.array(['unassigned']*sam.adata.shape[0],dtype='object')
+                z[sps==i] = q(sams[i].adata.obs[k])
+                sam.adata.obs[i+'_'+k] = pd.Categorical(z)
 
     a = []
     for i,sid in enumerate(sams.keys()):

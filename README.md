@@ -1,4 +1,4 @@
-# SAMap -- version 0.3.3
+# SAMap -- version 0.3.4
 
 In version *v0.3.3*, SAMap now has two options for mapping more than two species: pairwise and allwise. The vignette describes when you'd use one vs the other. Additionally, `get_mapping_scores` has been recoded to scale MUCH better for large datasets with many cell type labels.
 
