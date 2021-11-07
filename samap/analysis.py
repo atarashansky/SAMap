@@ -1392,7 +1392,8 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
         x = FINAL[[f'{A}/{B} corr',f'{A}/{C} corr',f'{B}/{C} corr']].min(1)
         FINAL['min_corr'] = x
         FINAL = FINAL[x>corr_thr]
-        keys = [keys[A],keys[B],keys[C]]
+        if keys is not None:
+            keys = [keys[A],keys[B],keys[C]]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if keys is not None:
