@@ -1,4 +1,4 @@
-from . import np, ut
+from . import np, ut, pd
 
 def save_samap(sm,fn):
     import dill
@@ -45,11 +45,14 @@ def load_samap(fn):
         
 def prepend_var_prefix(s, pre):
     x = [x.split("_")[0] for x in s.adata.var_names]
-    if not (np.unique(x).size == 1 and x[0] == pre):
-        y = list(s.adata.var_names)
-        vn = [pre + "_" + x for x in y]
-        s.adata.var_names = vn
-        s.adata_raw.var_names = vn
+    vn = []
+    for i,g in enumerate(s.adata.var_names):
+        if x[i] != pre:
+            vn.append(pre+"_"+g)
+        else:
+            vn.append(g)
+    s.adata.var_names = pd.Index(vn)
+    s.adata_raw.var_names = pd.Index(vn)
 
 
 def df_to_dict(DF, key_key=None, val_key=[]):

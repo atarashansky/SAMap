@@ -1076,6 +1076,16 @@ def _refine_corr(
             GNNMS[key] = gnnm3
     return GNNMS
 
+def _prepend_blast_prefix(data, pre):
+    x = [str(x).split("_")[0] for x in data]
+    vn = []
+    for i,g in enumerate(data):
+        if x[i] != pre:
+            vn.append(pre+"_"+g)
+        else:
+            vn.append(g)
+    return np.array(vn).astype('str').astype('object')
+
 def _calculate_blast_graph(ids, f_maps="maps/", eval_thr=1e-6, reciprocate=False):
     gns = []
     Xs=[]
@@ -1111,15 +1121,11 @@ def _calculate_blast_graph(ids, f_maps="maps/", eval_thr=1e-6, reciprocate=False
                 B = B[B.index.astype("str") != "nan"]
                 B = B[B.iloc[:, 0].astype("str") != "nan"]
 
-                A.index = id1 + "_" + A.index.astype("str").astype("object")
-                B.iloc[:, 0] = (
-                    id1 + "_" + B.iloc[:, 0].values.flatten().astype("str").astype("object")
-                )
+                A.index = _prepend_blast_prefix(A.index,id1)
+                B.iloc[:, 0] = _prepend_blast_prefix(B.iloc[:, 0].values.flatten(),id1)
 
-                B.index = id2 + "_" + B.index.astype("str").astype("object")
-                A.iloc[:, 0] = (
-                    id2 + "_" + A.iloc[:, 0].values.flatten().astype("str").astype("object")
-                )
+                B.index = _prepend_blast_prefix(B.index,id2)
+                A.iloc[:, 0] = _prepend_blast_prefix(A.iloc[:, 0].values.flatten(),id2)
 
                 i1 = np.where(A.columns == "10")[0][0]
                 i3 = np.where(A.columns == "11")[0][0]
