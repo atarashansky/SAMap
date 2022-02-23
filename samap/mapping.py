@@ -1225,8 +1225,8 @@ def _coarsen_blast_graph(gnnm, gns, names):
     zgu,ix,ivx,cu = np.unique(np.array([xg,yg]).astype('str'),axis=1,return_counts=True,return_index=True,return_inverse=True) # find unique pairs
 
     xgu,ygu = zgu[:,cu>1] # extract pairs that appear duplicated times
-    xgyg=xg.astype('object')+';'+yg.astype('object')
-    xguygu=xgu.astype('object')+';'+ygu.astype('object')
+    xgyg=q(xg.astype('object')+';'+yg.astype('object'))
+    xguygu=q(xgu.astype('object')+';'+ygu.astype('object'))
 
     filt = np.in1d(xgyg,xguygu)
 
