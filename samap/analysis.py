@@ -1031,13 +1031,16 @@ def ParalogSubstitutions(sm, ortholog_pairs, paralog_pairs=None, psub_thr = 0.3)
     RES = RES[RES["corr diff"] > psub_thr]
     orths = RES['ortholog pairs'].values.flatten()
     paras = RES['paralog pairs'].values.flatten()
-    orthssp = np.vstack([np.array([x.split('_')[0] for x in xx]) for xx in to_vo(orths)])
-    parassp = np.vstack([np.array([x.split('_')[0] for x in xx]) for xx in to_vo(paras)])
-    filt=[]
-    for i in range(orthssp.shape[0]):
-        filt.append(np.in1d(orthssp[i],parassp[i]).mean()==1.0)
-    filt=np.array(filt)
-    return RES[filt]
+    if orths.size > 0:
+        orthssp = np.vstack([np.array([x.split('_')[0] for x in xx]) for xx in to_vo(orths)])
+        parassp = np.vstack([np.array([x.split('_')[0] for x in xx]) for xx in to_vo(paras)])
+        filt=[]
+        for i in range(orthssp.shape[0]):
+            filt.append(np.in1d(orthssp[i],parassp[i]).mean()==1.0)
+        filt=np.array(filt)
+        return RES[filt]
+    else:
+        return RES
 
 
 def convert_eggnog_to_homologs(sm, EGGs, og_key = 'eggNOG_OGs', taxon=2759):
@@ -1164,7 +1167,6 @@ def CellTypeTriangles(sm,keys, align_thr=0.1):
     DF = DF[sm.ids]
     return DF
 
-
 def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr = 0.3, pval_thr=1e-10):
     """Outputs a table of gene triangles.
     
@@ -1193,10 +1195,14 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
     orthsp = np.vstack([q([x.split('_')[0] for x in xx]) for xx in orth])
 
     RES = ParalogSubstitutions(sm, orth, psub_thr = psub_thr)
-    op = to_vo(q(RES['ortholog pairs']))
-    pp = to_vo(q(RES['paralog pairs']))
-    ops = np.vstack([q([x.split('_')[0] for x in xx]) for xx in op])
-    pps = np.vstack([q([x.split('_')[0] for x in xx]) for xx in pp])
+    if RES.shape[0] > 0:
+        op = to_vo(q(RES['ortholog pairs']))
+        pp = to_vo(q(RES['paralog pairs']))
+        ops = np.vstack([q([x.split('_')[0] for x in xx]) for xx in op])
+        pps = np.vstack([q([x.split('_')[0] for x in xx]) for xx in pp])
+        doPsubsAll=True
+    else:
+        doPsubsAll=False
     gnnm = sm.samap.adata.varp["homology_graph_reweighted"]
     gn = q(sm.samap.adata.var_names)
     gnsp = q([x.split('_')[0] for x in gn])
@@ -1216,16 +1222,6 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
         B1,B2=A,C
         C1,C2=B,C
 
-        f1 = np.logical_and(((ops[:,0]==A1) * (ops[:,1]==A2) + (ops[:,0]==A2) * (ops[:,1]==A1)) > 0,
-                            ((pps[:,0]==A1) * (pps[:,1]==A2) + (pps[:,0]==A2) * (pps[:,1]==A1)) > 0)
-        f2 = np.logical_and(((ops[:,0]==B1) * (ops[:,1]==B2) + (ops[:,0]==B2) * (ops[:,1]==B1)) > 0,
-                            ((pps[:,0]==B1) * (pps[:,1]==B2) + (pps[:,0]==B2) * (pps[:,1]==B1)) > 0)
-        f3 = np.logical_and(((ops[:,0]==C1) * (ops[:,1]==C2) + (ops[:,0]==C2) * (ops[:,1]==C1)) > 0,
-                            ((pps[:,0]==C1) * (pps[:,1]==C2) + (pps[:,0]==C2) * (pps[:,1]==C1)) > 0)                                                        
-        RES1=RES[f1]
-        RES2=RES[f2]
-        RES3=RES[f3]
-
         f1 = ((orthsp[:,0]==A1) * (orthsp[:,1]==A2) + (orthsp[:,0]==A2) * (orthsp[:,1]==A1)) > 0
         f2 = ((orthsp[:,0]==B1) * (orthsp[:,1]==B2) + (orthsp[:,0]==B2) * (orthsp[:,1]==B1)) > 0
         f3 = ((orthsp[:,0]==C1) * (orthsp[:,1]==C2) + (orthsp[:,0]==C2) * (orthsp[:,1]==C1)) > 0
@@ -1233,12 +1229,6 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
         orth2 = orth[f2]
         orth3 = orth[f3]
 
-        op1 = to_vo(q(RES1["ortholog pairs"]))
-        op2 = to_vo(q(RES2["ortholog pairs"]))
-        op3 = to_vo(q(RES3["ortholog pairs"]))
-        pp1 = to_vo(q(RES1["paralog pairs"]))
-        pp2 = to_vo(q(RES2["paralog pairs"]))
-        pp3 = to_vo(q(RES3["paralog pairs"]))
 
         gnnm1 = sp.sparse.vstack((
                                     sp.sparse.hstack((sp.sparse.csr_matrix(((gnsp==A1).sum(),)*2),gnnm[gnsp==A1,:][:,gnsp==A2])),
@@ -1256,27 +1246,54 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
         gn2 = np.append(gn[gnsp==B1],gn[gnsp==B2])
         gn3 = np.append(gn[gnsp==C1],gn[gnsp==C2])
 
-        # suppress warning
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            T1 = pd.DataFrame(data=np.arange(gn1.size)[None, :], columns=gn1)
-            x, y = T1[op1[:, 0]].values.flatten(), T1[op1[:, 1]].values.flatten()
-            gnnm1[x, y] = gnnm1[x, y]
-            gnnm1[y, x] = gnnm1[y, x]
 
-            T1 = pd.DataFrame(data=np.arange(gn2.size)[None, :], columns=gn2)
-            x, y = T1[op2[:, 0]].values.flatten(), T1[op2[:, 1]].values.flatten()
-            gnnm2[x, y] = gnnm2[x, y]
-            gnnm2[y, x] = gnnm2[y, x]
+        if doPsubsAll:
+            f1 = np.logical_and(((ops[:,0]==A1) * (ops[:,1]==A2) + (ops[:,0]==A2) * (ops[:,1]==A1)) > 0,
+                                ((pps[:,0]==A1) * (pps[:,1]==A2) + (pps[:,0]==A2) * (pps[:,1]==A1)) > 0)
+            f2 = np.logical_and(((ops[:,0]==B1) * (ops[:,1]==B2) + (ops[:,0]==B2) * (ops[:,1]==B1)) > 0,
+                                ((pps[:,0]==B1) * (pps[:,1]==B2) + (pps[:,0]==B2) * (pps[:,1]==B1)) > 0)
+            f3 = np.logical_and(((ops[:,0]==C1) * (ops[:,1]==C2) + (ops[:,0]==C2) * (ops[:,1]==C1)) > 0,
+                                ((pps[:,0]==C1) * (pps[:,1]==C2) + (pps[:,0]==C2) * (pps[:,1]==C1)) > 0)
+            doPsubs = f1.sum() > 0 and f2.sum() > 0 and f3.sum() > 0
+        else:
+            doPsubs = False
 
-            T1 = pd.DataFrame(data=np.arange(gn3.size)[None, :], columns=gn3)
-            x, y = T1[op3[:, 0]].values.flatten(), T1[op3[:, 1]].values.flatten()
-            gnnm3[x, y] = gnnm3[x, y]
-            gnnm3[y, x] = gnnm3[y, x]
+        if doPsubs:
+            RES1=RES[f1]
+            RES2=RES[f2]
+            RES3=RES[f3]
 
-        gnnm1.data[gnnm1.data==0]=1e-4
-        gnnm2.data[gnnm2.data==0]=1e-4
-        gnnm3.data[gnnm3.data==0]=1e-4
+
+            op1 = to_vo(q(RES1["ortholog pairs"]))
+            op2 = to_vo(q(RES2["ortholog pairs"]))
+            op3 = to_vo(q(RES3["ortholog pairs"]))
+            pp1 = to_vo(q(RES1["paralog pairs"]))
+            pp2 = to_vo(q(RES2["paralog pairs"]))
+            pp3 = to_vo(q(RES3["paralog pairs"]))
+
+
+            # suppress warning
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                T1 = pd.DataFrame(data=np.arange(gn1.size)[None, :], columns=gn1)
+                x, y = T1[op1[:, 0]].values.flatten(), T1[op1[:, 1]].values.flatten()
+                gnnm1[x, y] = gnnm1[x, y]
+                gnnm1[y, x] = gnnm1[y, x]
+
+                T1 = pd.DataFrame(data=np.arange(gn2.size)[None, :], columns=gn2)
+                x, y = T1[op2[:, 0]].values.flatten(), T1[op2[:, 1]].values.flatten()
+                gnnm2[x, y] = gnnm2[x, y]
+                gnnm2[y, x] = gnnm2[y, x]
+
+                T1 = pd.DataFrame(data=np.arange(gn3.size)[None, :], columns=gn3)
+                x, y = T1[op3[:, 0]].values.flatten(), T1[op3[:, 1]].values.flatten()
+                gnnm3[x, y] = gnnm3[x, y]
+                gnnm3[y, x] = gnnm3[y, x]
+
+            gnnm1.data[gnnm1.data==0]=1e-4
+            gnnm2.data[gnnm2.data==0]=1e-4
+            gnnm3.data[gnnm3.data==0]=1e-4
+
         pairs1 = gn1[np.vstack(gnnm1.nonzero()).T]
         pairs2 = gn2[np.vstack(gnnm2.nonzero()).T]
         pairs3 = gn3[np.vstack(gnnm3.nonzero()).T]
@@ -1312,22 +1329,26 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
             [B, C]
         ]
 
-        ps1DF = pd.DataFrame(
-            data=np.sort(pp1, axis=1),
-            columns=[x.split("_")[0] for x in np.sort(pp1, axis=1)[0]],
-        )[[A, B]]
-        ps2DF = pd.DataFrame(
-            data=np.sort(pp2, axis=1),
-            columns=[x.split("_")[0] for x in np.sort(pp2, axis=1)[0]],
-        )[[A, C]]
-        ps3DF = pd.DataFrame(
-            data=np.sort(pp3, axis=1),
-            columns=[x.split("_")[0] for x in np.sort(pp3, axis=1)[0]],
-        )[[B, C]]
+        if doPsubs:
+            ps1DF = pd.DataFrame(
+                data=np.sort(pp1, axis=1),
+                columns=[x.split("_")[0] for x in np.sort(pp1, axis=1)[0]],
+            )[[A, B]]
+            ps2DF = pd.DataFrame(
+                data=np.sort(pp2, axis=1),
+                columns=[x.split("_")[0] for x in np.sort(pp2, axis=1)[0]],
+            )[[A, C]]
+            ps3DF = pd.DataFrame(
+                data=np.sort(pp3, axis=1),
+                columns=[x.split("_")[0] for x in np.sort(pp3, axis=1)[0]],
+            )[[B, C]]
 
-        A_AB = pd.DataFrame(data=to_vn(op1)[None, :], columns=to_vn(ps1DF.values))
-        A_AC = pd.DataFrame(data=to_vn(op2)[None, :], columns=to_vn(ps2DF.values))
-        A_BC = pd.DataFrame(data=to_vn(op3)[None, :], columns=to_vn(ps3DF.values))
+            A_AB = pd.DataFrame(data=to_vn(op1)[None, :], columns=to_vn(ps1DF.values))
+            A_AC = pd.DataFrame(data=to_vn(op2)[None, :], columns=to_vn(ps2DF.values))
+            A_BC = pd.DataFrame(data=to_vn(op3)[None, :], columns=to_vn(ps3DF.values))
+        else:
+            ps1DF,ps2DF,ps3DF = None,None,None
+            A_AB,A_AC,A_BC = None,None,None
 
         AB = to_vn(DF[[A, B]].values)
         AC = to_vn(DF[[A, C]].values)
@@ -1346,21 +1367,22 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
         ):
             cat = q(["homolog"] * X.size).astype("object")
             cat[np.in1d(X, to_vn(O.values))] = "ortholog"
-            ff = np.in1d(X, to_vn(P.values))
-            cat[ff] = "substitution"
-            z = Z[X[ff]] #problem line here
-            x = X[ff]
-            av = np.zeros(x.size, dtype="object")
-            for ai in range(x.size):
-                v=pd.DataFrame(z[x[ai]]) #get ortholog pairs - paralog pairs dataframe
-                vd=v.values.flatten() #get ortholog pairs
-                vc=q(';'.join(v.columns).split(';')) # get paralogous genes
-                temp = np.unique(q(';'.join(vd).split(';'))) #get orthologous genes
-                av[ai] = ';'.join(temp[np.in1d(temp,vc,invert=True)]) #get orthologous genes not present in paralogous genes
             AV = np.zeros(X.size, dtype="object")
-            AV[ff] = av
+            if doPsubs:
+                ff = np.in1d(X, to_vn(P.values))
+                cat[ff] = "substitution"
+                
+                z = Z[X[ff]] #problem line here
+                x = X[ff]
+                av = np.zeros(x.size, dtype="object")
+                for ai in range(x.size):
+                    v=pd.DataFrame(z[x[ai]]) #get ortholog pairs - paralog pairs dataframe
+                    vd=v.values.flatten() #get ortholog pairs
+                    vc=q(';'.join(v.columns).split(';')) # get paralogous genes
+                    temp = np.unique(q(';'.join(vd).split(';'))) #get orthologous genes
+                    av[ai] = ';'.join(temp[np.in1d(temp,vc,invert=True)]) #get orthologous genes not present in paralogous genes
+                AV[ff] = av
             corr = R[X].values.flatten()
-
             AVs.append(AV)
             CATs.append(cat)
             CORRs.append(corr)

@@ -29,30 +29,19 @@ class SAMAP(object):
         keys: typing.Optional[dict] = None,
         resolutions: typing.Optional[dict] = None,
         gnnm: typing.Optional[tuple] = None,
-        save_processed: typing.Optional[bool] = True
+        save_processed: typing.Optional[bool] = True,
+        eval_thr: typing.Optional[float] = 1e-6
     ):
 
         """Initializes and preprocess data structures for SAMap algorithm.
 
         Parameters
         ----------
-        data1 : string OR SAM
-            The path to an unprocessed '.h5ad' `AnnData` object for organism 1.
+        sams : dict of string OR SAM
+            Dictionary of (indexed by species IDs):
+            The path to an unprocessed '.h5ad' `AnnData` object for organisms.
             OR
             A processed and already-run SAM object.
-
-        data2 : string OR SAM
-            The path to an unprocessed '.h5ad' `AnnData` object for organism 2.
-            OR
-            A processed and already-run SAM object.
-
-        id1 : string
-            Organism 1 identifier (corresponds to the transcriptome ID provided
-            when using `map_genes.sh`)
-
-        id2 : string
-            Organism 2 identifier (corresponds to the transcriptome ID provided
-            when using `map_genes.sh`)
 
         f_maps : string, optional, default 'maps/'
             Path to the `maps` directory output by `map_genes.sh`.
@@ -70,36 +59,26 @@ class SAMAP(object):
             The above mapping should be contained in a dicitonary keyed by the corresponding species.
             For example, if we have `hu` and `mo` species and the `hu` BLAST results need to be translated,
             then `names = {'hu' : mapping}, where `mapping = [(Fasta header 1, Gene symbol 1), ... , (Fasta header n, Gene symbol n)]`.
+        
+        keys : dict, optional, default None
+            Dictionary of obs keys indexed by species to use for determining maximum
+            neighborhood size of each cell. 
+        
+        resolutions : dict, optional, default None
+            Dictionary of leiden clustering resolutions indexed by species. This parameter is ignored if
+            `keys` is set.
 
         gnnm : tuple(scipy.sparse.csr_matrix,numpy array, numpy array)
             If the homology graph was already computed, you can pass it here in the form of a tuple:
             (sparse adjacency matrix, species 1 genes, species 2 genes).
             This is the tuple returned by `_calculate_blast_graph(...)` or `_coarsen_eggnog_graph(...)`.
 
-        taxa : int, optional, default 33208
-            Specifies the taxonomic level at which genes with overlapping orthology groups will be linked.
-            Only used if EGGNOG is True.
-
-        E : tuple(pd.DataFrame,pd.DataFrame), optional, default None
-            A tuple of EGGNOG orthology group mapping tables corresponding to species 1 and 2,
-            respectively. If not `None` (default) SAMap will construct its homology graph using
-            the EGGNOG mapping tables instead of the BLAST results.
-        
-        reciprocal_blast : bool, optional, default True
-            If True, only keep reciprocal edges in the computed BLAST graph.
-
-        key1 & key2 : str, optional, default 'leiden_clusters'
-            The `sam.adata.obs` key to use for determining maximum neighborhood size of each cell. 
-            If set to 'leiden_clusters', leiden clustering will be performed using the resolution
-            parameter specified by `leiden_res1/2`
-            
-        leiden_res1 & leiden_res2 : float, optional, default 3
-            The resolution parameter for the leiden clustering to be done on the manifold of organisms
-            1/2. Each cell's neighborhood size will be capped to be the size of its leiden cluster.
-            
         save_processed : bool, optional, default False
             If True saves the processed SAM objects corresponding to each species to an `.h5ad` file.
             This argument is unused if preloaded SAM objects are passed in to SAMAP.
+
+        eval_thr : float, optional, default 1e-6
+            E-value threshold above which BLAST results will be filtered out.
         """
 
         for key,data in zip(sams.keys(),sams.values()):
@@ -160,7 +139,7 @@ class SAMAP(object):
 
         if gnnm is None:
             gnnm, gns, gns_dict = _calculate_blast_graph(
-                ids, f_maps=f_maps, reciprocate=True
+                ids, f_maps=f_maps, reciprocate=True, eval_thr=eval_thr
             )            
             if names is not None:
                 gnnm, gns_dict, gns  = _coarsen_blast_graph(
@@ -615,8 +594,20 @@ class SAMAP(object):
         else:
             return self.SamapGui.SamPlot
         
-    def refine_homology_graph(self, THR=0, NCLUSTERS=1, ncpus = os.cpu_count(), corr_mode='pearson', ct_labels = None, wscale = False):
-        return self.smap.refine_homology_graph(NCLUSTERS=NCLUSTERS, ncpus=ncpus, THR=THR, corr_mode=corr_mode, ct_labels=ct_labels, wscale=wscale)
+    def refine_homology_graph(self, THR=0, NCLUSTERS=1, ncpus = os.cpu_count(), corr_mode='pearson', wscale = False):
+        gnnm = self.smap.refine_homology_graph(NCLUSTERS=NCLUSTERS, ncpus=ncpus, THR=THR, corr_mode=corr_mode, wscale=wscale)
+        samap = self.smap.samap
+        gns_dict = self.smap.gns_dict
+        gns = []
+        for sid in q(samap.adata.obs['species'])[np.sort(np.unique(samap.adata.obs['species'],return_index=True)[1])]:
+            gns.extend(gns_dict[sid])
+        gns=q(gns)
+        ix = pd.Series(data = np.arange(samap.adata.shape[1]),index = samap.adata.var_names)[gns].values
+        rixer = pd.Series(index =np.arange(gns.size), data = ix)         
+        x,y = gnnm.nonzero()
+        d = gnnm.data
+        gnnm = sp.sparse.coo_matrix((d,(rixer[x].values,rixer[y].values)),shape=(samap.adata.shape[1],)*2).tocsr()                           
+        return gnnm
         
 class _Samap_Iter(object):
     def __init__(
@@ -647,7 +638,7 @@ class _Samap_Iter(object):
         ]
         self.iter = 0
 
-    def refine_homology_graph(self, NCLUSTERS=1, ncpus=os.cpu_count(), THR=0, corr_mode='pearson', ct_labels=None,wscale=False):
+    def refine_homology_graph(self, NCLUSTERS=1, ncpus=os.cpu_count(), THR=0, corr_mode='pearson', wscale=False):
         if corr_mode=='mutual_info':
             try:
                 from fast_histogram import histogram2d
@@ -668,11 +659,9 @@ class _Samap_Iter(object):
             THR=THR,
             use_seq=False,
             T1=0,
-            T2=0,
             NCLUSTERS=NCLUSTERS,
             ncpus=ncpus,
             corr_mode=corr_mode,
-            ct_labels=ct_labels,
             wscale=wscale
         )
         return gnnmu
@@ -998,10 +987,8 @@ def _refine_corr(
     THR=0,
     use_seq=False,
     T1=0.25,
-    T2=0,
     NCLUSTERS=1,
     ncpus=os.cpu_count(),
-    ct_labels=None,
     wscale=False
 ):
     # import networkx as nx
@@ -1039,42 +1026,34 @@ def _refine_corr(
             THR=THR,
             use_seq=use_seq,
             T1=T1,
-            T2=T2,
             ncpus=ncpus,
-            ct_labels=ct_labels,
             wscale=wscale
         )
         GNNMSUBS.append(gnnm2_sub)
         GNSUBS.append(gnsub)
         gc.collect()
     
-    GNNMS = {}
-    for key in GNNMSUBS[0].keys():
-        I = []
-        P = []
-        for i in range(len(GNNMSUBS)):
-            I.append(
-                np.unique(np.sort(np.vstack((GNNMSUBS[i][key].nonzero())).T, axis=1), axis=0)
-            )
-            P.append(GNSUBS[i][I[-1]])
+    I = []
+    P = []
+    for i in range(len(GNNMSUBS)):
+        I.append(
+            np.unique(np.sort(np.vstack((GNNMSUBS[i].nonzero())).T, axis=1), axis=0)
+        )
+        P.append(GNSUBS[i][I[-1]])
 
-        GNS = pd.DataFrame(data=np.arange(gns.size)[None, :], columns=gns)
-        gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
-        for i in range(len(I)):
-            x, y = GNS[P[i][:, 0]].values.flatten(), GNS[P[i][:, 1]].values.flatten()
-            gnnm3[x, y] = GNNMSUBS[i][key][I[i][:, 0], I[i][:, 1]].A.flatten()
+    GNS = pd.DataFrame(data=np.arange(gns.size)[None, :], columns=gns)
+    gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
+    for i in range(len(I)):
+        x, y = GNS[P[i][:, 0]].values.flatten(), GNS[P[i][:, 1]].values.flatten()
+        gnnm3[x, y] = GNNMSUBS[i][I[i][:, 0], I[i][:, 1]].A.flatten()
 
-        gnnm3 = gnnm3.tocsr()
-        x, y = gnnm3.nonzero()
-        # gnnm3[y,x]=gnnm3.data
-        gnnm3 = gnnm3.tolil()
-        gnnm3[y, x] = gnnm3[x, y].A.flatten()
-        gnnm3 = gnnm3.tocsr()
-        if key == '0.0.0stash':
-            return gnnm3
-        else:
-            GNNMS[key] = gnnm3
-    return GNNMS
+    gnnm3 = gnnm3.tocsr()
+    x, y = gnnm3.nonzero()
+    # gnnm3[y,x]=gnnm3.data
+    gnnm3 = gnnm3.tolil()
+    gnnm3[y, x] = gnnm3[x, y].A.flatten()
+    gnnm3 = gnnm3.tocsr()
+    return gnnm3
 
 def _prepend_blast_prefix(data, pre):
     x = [str(x).split("_")[0] for x in data]
@@ -1428,33 +1407,75 @@ def _avg_as(s,pairwise=True):
         return  np.array(a) / s.adata.obsp['knn'][0].data.size * (xu.size-1)
 
 
-def _parallel_init(iXavg, ipairs, igns_dictO, iT2, iCORR, icorr_mode,icl,ics):
-    global Xavg
-    global p
-    global gnsO
-    global T2
-    global CORR
-    global cs
-    global cl
-    global corr_mode
-    Xavg = iXavg
-    cs = ics
-    cl = icl
-    p = ipairs
-    gnsO = np.concatenate(list(igns_dictO.values()))
-    T2 = iT2
-    CORR = iCORR
-    corr_mode = icorr_mode
+@njit
+def nb_unique1d(ar):
+    """
+    Find the unique elements of an array, ignoring shape.
+    """
+    ar = ar.flatten()
+
+    optional_indices = True
+
+    if optional_indices:
+        perm = ar.argsort(kind='mergesort')
+        aux = ar[perm]
+    else:
+        ar.sort()
+        aux = ar
+    mask = np.empty(aux.shape, dtype=np.bool_)
+    mask[:1] = True
+    if aux.shape[0] > 0 and aux.dtype.kind in "cfmM" and np.isnan(aux[-1]):
+        if aux.dtype.kind == "c":  # for complex all NaNs are considered equivalent
+            aux_firstnan = np.searchsorted(np.isnan(aux), True, side='left')
+        else:
+            aux_firstnan = np.searchsorted(aux, aux[-1], side='left')
+        mask[1:aux_firstnan] = (aux[1:aux_firstnan] != aux[:aux_firstnan - 1])
+        mask[aux_firstnan] = True
+        mask[aux_firstnan + 1:] = False
+    else:
+        mask[1:] = aux[1:] != aux[:-1]
+
+
+    imask = np.cumsum(mask) - 1
+    inv_idx = np.empty(mask.shape, dtype=np.intp)
+    inv_idx[perm] = imask
+    idx = np.append(np.nonzero(mask)[0],mask.size)
+
+                     #idx      #inverse   #counts
+    return aux[mask],perm[mask],inv_idx,np.diff(idx)
+
+@njit
+def _xicorr(X,Y):
+    '''xi correlation coefficient'''
+    n = X.size
+    xi = np.argsort(X,kind='quicksort')
+    Y = Y[xi]
+    _,_,b,c = nb_unique1d(Y)
+    r = np.cumsum(c)[b]
+    _,_,b,c = nb_unique1d(-Y)
+    l = np.cumsum(c)[b]
+    denominator = (2*(l*(n-l)).sum())
+    if denominator > 0:
+        return 1 - n*np.abs(np.diff(r)).sum() / denominator
+    else:
+        return 0
 
 @njit(parallel=True)
-def _refine_corr_kernel(filt, p,indptr,indices,data,n, T2):
+def _refine_corr_kernel(p, ps, sids, sixs, indptr,indices,data, n, corr_mode):
     p1 = p[:,0]
     p2 = p[:,1]
-    res = np.zeros(p1.size)
+
+    ps1 = ps[:,0]
+    ps2 = ps[:,1]
+
+    d = {}
+    for i in range(len(sids)):
+        d[sids[i]] = sixs[i]
     
+    res = np.zeros(p1.size)
+
     for j in prange(len(p1)):
         j1, j2 = p1[j], p2[j]
-
         pl1d = data[indptr[j1] : indptr[j1 + 1]]
         pl1i = indices[indptr[j1] : indptr[j1 + 1]]
 
@@ -1465,31 +1486,22 @@ def _refine_corr_kernel(filt, p,indptr,indices,data,n, T2):
         x[pl1i] = pl1d
         y = np.zeros(n)
         y[sc1i] = sc1d
-        iz = np.logical_or(x>T2,y>T2)
-        izf = np.logical_and(x>T2,y>T2)
 
-        if izf.sum()>0:
-            x=x[iz]
-            y=y[iz]
-            res[j] = ((x-x.mean())*(y-y.mean()) / x.std() / y.std())[filt[iz]].sum() / x.size
+        a1, a2 = ps1[j], ps2[j]
+        ix1 = d[a1]
+        ix2 = d[a2]
+        
+
+        xa,xb,ya,yb = x[ix1],x[ix2],y[ix1],y[ix2]
+        xx=np.append(xa,xb)
+        yy=np.append(ya,yb)
+        
+        if corr_mode == "pearson":
+            c = ((xx-xx.mean())*(yy-yy.mean()) / xx.std() / yy.std()).sum() / xx.size
         else:
-            res[j] = 0
-            
-    return res
-            
-def _xicorr(X,Y):
-    n = X.size
-    xi = np.argsort(X,kind='quicksort')
-    Y = Y[xi]
-    _,b,c = np.unique(Y,return_counts=True,return_inverse=True)
-    r = np.cumsum(c)[b]
-    _,b,c = np.unique(-Y,return_counts=True,return_inverse=True)
-    l = np.cumsum(c)[b]
-    denominator = (2*(l*(n-l)).sum())
-    if denominator > 0:
-        return 1 - n*np.abs(np.diff(r)).sum() / denominator
-    else:
-        return 0        
+            c = _xicorr(xx,yy)
+        res[j] = c
+    return res  
 
 def _refine_corr_parallel(
     sams,
@@ -1500,16 +1512,14 @@ def _refine_corr_parallel(
     THR=0,
     use_seq=False,
     T1=0.0,
-    T2=0.0,
     ncpus=os.cpu_count(),
-    ct_labels=None,
     wscale=False
 ):
 
     import scipy as sp
 
     gn = np.concatenate(list(gns_dict.values()))
-    
+
     Ws = []
     ix = []
     for sid in sams.keys():
@@ -1520,17 +1530,21 @@ def _refine_corr_parallel(
 
     w[w > T1] = 1
     w[w < 1] = 0
-    
+
     gnO = gn[w > 0]
     ix = ix[w > 0]
     gns_dictO = {}
     for sid in gns_dict.keys():
         gns_dictO[sid] = gnO[ix==sid]
-    
+
     gnnmO = gnnm[w > 0, :][:, w > 0]
     x, y = gnnmO.nonzero()
+
     pairs = np.unique(np.sort(np.vstack((x, y)).T, axis=1), axis=0)
-    
+
+    xs, ys = q([i.split('_')[0] for i in gnO[pairs[:,0]]]), q([i.split('_')[0] for i in gnO[pairs[:,1]]])    
+    pairs_species = np.vstack((xs,ys)).T
+
     nnm = st.adata.obsp["connectivities"]
     xs = []
     nnms = []
@@ -1540,121 +1554,58 @@ def _refine_corr_parallel(
         s1[s1 < 1e-3] = 1
         s1 = s1.flatten()[:, None]  
         nnms[-1] = nnms[-1].multiply(1 / s1)
-        
+
         xs.append(sams[sid].adata[:,gns_dictO[sid]].X.astype("float16"))
-    
+
     Xs = sp.sparse.block_diag(xs).tocsc()
     nnms = sp.sparse.hstack(nnms).tocsr()
     Xavg = nnms.dot(Xs).tocsc()
 
+
     p = pairs
-    
+    ps = pairs_species
+
     gnnm2 = gnnm.multiply(w[:, None]).multiply(w[None, :]).tocsr()
     x, y = gnnm2.nonzero()
     pairs = np.unique(np.sort(np.vstack((x, y)).T, axis=1), axis=0)
-    
-    from multiprocessing import Pool, Manager
-    pc_chunksize = Xavg.shape[1] // ncpus + 1
-    
-    CORRS = {}    
-    if ct_labels is not None and corr_mode == 'pearson':
-        try:
-            cl,cs = ct_labels
-            cs = list(cs)
-        except:
-            cl = ct_labels
-            cs = list(np.unique(cl))
-        if not (isinstance(cs,np.ndarray) or isinstance(cs,list) or isinstance(cs,tuple) or cs is None):
-            cs = [cs]  
 
-        if np.in1d(cl,cs).sum()==0:
-            raise ValueError('None of the cell types are present in the provided list.')  
-            
-        for ct in cs:
-            filt = cl==ct
-            if filt.sum()>0:
-                print(ct)                
-                vals = _refine_corr_kernel(filt, p,Xavg.indptr,Xavg.indices,Xavg.data,Xavg.shape[0],T2)
-                CORR = dict(zip(to_vn(np.vstack((gnO[p[:,0]],gnO[p[:,1]])).T),vals))
-                for k in CORR.keys():
-                    CORR[k] = 0 if CORR[k] < THR else CORR[k]
-                    if wscale:
-                        id1,id2 = [x.split('_')[0] for x in k.split(';')]
-                        weight1 = sams[id1].adata.var["weights"][k.split(';')[0]]
-                        weight2 = sams[id2].adata.var["weights"][k.split(';')[1]]
-                        CORR[k] = np.sqrt(CORR[k] * np.sqrt(weight1 * weight2))  
+    species = q(st.adata.obs['species'])
+    sixs = []
+    sidss = np.unique(species)
+    for sid in sidss:
+        sixs.append(np.where(species==sid)[0])
+    
+    vals = _refine_corr_kernel(p,ps,sidss,sixs,Xavg.indptr,Xavg.indices,Xavg.data,Xavg.shape[0], corr_mode)
+    vals[np.isnan(vals)]=0
 
-                CORR = np.array([CORR[x] for x in to_vn(gn[pairs])])        
-                CORRS[ct] = CORR
-            
-        
+    CORR = dict(zip(to_vn(np.vstack((gnO[p[:,0]],gnO[p[:,1]])).T),vals))
+
+    for k in CORR.keys():
+        CORR[k] = 0 if CORR[k] < THR else CORR[k]
+        if wscale:
+            id1,id2 = [x.split('_')[0] for x in k.split(';')]
+            weight1 = sams[id1].adata.var["weights"][k.split(';')[0]]
+            weight2 = sams[id2].adata.var["weights"][k.split(';')[1]]
+            CORR[k] = np.sqrt(CORR[k] * np.sqrt(weight1 * weight2))   
+
+    CORR = np.array([CORR[x] for x in to_vn(gn[pairs])])    
+
+    gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
+
+    if use_seq:
+        gnnm3[pairs[:, 0], pairs[:, 1]] = (
+            CORR * gnnm2[pairs[:, 0], pairs[:, 1]].A.flatten()
+        )
+        gnnm3[pairs[:, 1], pairs[:, 0]] = (
+            CORR * gnnm2[pairs[:, 1], pairs[:, 0]].A.flatten()
+        )
     else:
-        cl=cs=None
-        if corr_mode == 'mutual_info' or corr_mode == "xicorr":
-            CORR = Manager().dict()
-            pool = Pool(
-                ncpus, _parallel_init, [Xavg, p, gns_dictO, T2, CORR, corr_mode, cl, cs]
-            )
-            try:
-                pool.map(_parallel_wrapper, range(p.shape[0]), chunksize=pc_chunksize)
-            finally:
-                pool.close()
-                pool.join()
-            CORR = CORR._getvalue()
-        else:    
-            filt = np.array([True]*Xavg.shape[0])
-            vals = _refine_corr_kernel(filt, p,Xavg.indptr,Xavg.indices,Xavg.data,Xavg.shape[0], T2)
-            CORR = dict(zip(to_vn(np.vstack((gnO[p[:,0]],gnO[p[:,1]])).T),vals))
-        for k in CORR.keys():
-            CORR[k] = 0 if CORR[k] < THR else CORR[k]
-            if wscale:
-                id1,id2 = [x.split('_')[0] for x in k.split(';')]
-                weight1 = sams[id1].adata.var["weights"][k.split(';')[0]]
-                weight2 = sams[id2].adata.var["weights"][k.split(';')[1]]
-                CORR[k] = np.sqrt(CORR[k] * np.sqrt(weight1 * weight2))   
-        CORR = np.array([CORR[x] for x in to_vn(gn[pairs])])    
-        CORRS = None
-    
+        gnnm3[pairs[:, 0], pairs[:, 1]] = CORR  # *gnnm2[x,y].A.flatten()
+        gnnm3[pairs[:, 1], pairs[:, 0]] = CORR  # *gnnm2[x,y].A.flatten()
 
-
-    GNNMS={}
-    if CORRS is not None:
-        for ct in CORRS.keys():
-            CORR=CORRS[ct]
-            gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
-
-            if use_seq:
-                gnnm3[pairs[:, 0], pairs[:, 1]] = (
-                    CORR * gnnm2[pairs[:, 0], pairs[:, 1]].A.flatten()
-                )
-                gnnm3[pairs[:, 1], pairs[:, 0]] = (
-                    CORR * gnnm2[pairs[:, 1], pairs[:, 0]].A.flatten()
-                )
-            else:
-                gnnm3[pairs[:, 0], pairs[:, 1]] = CORR  # *gnnm2[x,y].A.flatten()
-                gnnm3[pairs[:, 1], pairs[:, 0]] = CORR  # *gnnm2[x,y].A.flatten()
-
-            gnnm3 = gnnm3.tocsr()
-            gnnm3.eliminate_zeros()
-            GNNMS[ct]=gnnm3
-    else:
-        gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
-
-        if use_seq:
-            gnnm3[pairs[:, 0], pairs[:, 1]] = (
-                CORR * gnnm2[pairs[:, 0], pairs[:, 1]].A.flatten()
-            )
-            gnnm3[pairs[:, 1], pairs[:, 0]] = (
-                CORR * gnnm2[pairs[:, 1], pairs[:, 0]].A.flatten()
-            )
-        else:
-            gnnm3[pairs[:, 0], pairs[:, 1]] = CORR  # *gnnm2[x,y].A.flatten()
-            gnnm3[pairs[:, 1], pairs[:, 0]] = CORR  # *gnnm2[x,y].A.flatten()
-
-        gnnm3 = gnnm3.tocsr()
-        gnnm3.eliminate_zeros()
-        GNNMS['0.0.0stash']=gnnm3        
-    return GNNMS
+    gnnm3 = gnnm3.tocsr()
+    gnnm3.eliminate_zeros()
+    return gnnm3 
 
 try:
     from fast_histogram import histogram2d
