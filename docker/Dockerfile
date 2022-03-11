@@ -21,7 +21,8 @@ RUN wget -O /tmp/miniconda.sh \
     && conda clean -afy
 
 COPY . /tmp/SAMap
-RUN /root/miniconda/bin/pip install -r /tmp/SAMap/docker/reqlist.txt
+RUN /root/miniconda/bin/pip install "setuptools==58.0.0"
+RUN /root/miniconda/bin/pip install -r /tmp/SAMap/docker/reqlist.txt --use-deprecated=legacy-resolver
 RUN pip install /tmp/SAMap/. --no-dependencies
 RUN conda install nodejs -y
 RUN pip install jupyterlab
