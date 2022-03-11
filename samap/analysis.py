@@ -1156,8 +1156,7 @@ def CellTypeTriangles(sm,keys, align_thr=0.1):
     gps=ctu[np.vstack(nnm.nonzero()).T]
     G.add_edges_from(gps)
     alignment = pd.Series(index=to_vn(gps),data=nnm.data)
-    all_cliques = nx.enumerate_all_cliques(G)
-    all_triangles = [x for x in all_cliques if len(x) == 3]
+    all_triangles = [c for c in nx.cycle_basis(G) if len(c)==3]
     Z = np.sort(np.vstack(all_triangles), axis=1)
     DF = pd.DataFrame(data=Z, columns=[x.split("_")[0] for x in Z[0]])
     for i,sid1 in enumerate(sm.ids):
@@ -1313,8 +1312,7 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
         import networkx as nx
 
         G = nx.from_scipy_sparse_matrix(GNNM, create_using=nx.Graph)
-        all_cliques = nx.enumerate_all_cliques(G)
-        all_triangles = [x for x in all_cliques if len(x) == 3]
+        all_triangles = [c for c in nx.cycle_basis(G) if len(c)==3]
         Z = all_genes[np.sort(np.vstack(all_triangles), axis=1)]
         DF = pd.DataFrame(data=Z, columns=[x.split("_")[0] for x in Z[0]])
         DF = DF[[A, B, C]]
