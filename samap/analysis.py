@@ -3,7 +3,7 @@ from . import q, ut, pd, sp, np, warnings, sc
 from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
 from samalg import SAM
 from scipy.stats import rankdata
-
+import networkx as nx
 
 def _log_factorial(n):
     return np.log(np.arange(1,n+1)).sum()
@@ -1156,7 +1156,7 @@ def CellTypeTriangles(sm,keys, align_thr=0.1):
     gps=ctu[np.vstack(nnm.nonzero()).T]
     G.add_edges_from(gps)
     alignment = pd.Series(index=to_vn(gps),data=nnm.data)
-    all_triangles = [c for c in nx.cycle_basis(G) if len(c)==3]
+    all_triangles = [c for c in nx.enumerate_all_cliques(G) if len(c)==3]
     Z = np.sort(np.vstack(all_triangles), axis=1)
     DF = pd.DataFrame(data=Z, columns=[x.split("_")[0] for x in Z[0]])
     for i,sid1 in enumerate(sm.ids):
@@ -1308,12 +1308,14 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
         x, y = Z[pairs[:, 0]].values.flatten(), Z[pairs[:, 1]].values.flatten()
         GNNM = sp.sparse.lil_matrix((all_genes.size,) * 2)
         GNNM[x, y] = data
-
-        import networkx as nx
+        GNNM=GNNM.tocsr()
+        GNNM.data[GNNM.data<corr_thr]=0
+        GNNM.eliminate_zeros()
 
         G = nx.from_scipy_sparse_matrix(GNNM, create_using=nx.Graph)
-        all_triangles = [c for c in nx.cycle_basis(G) if len(c)==3]
-        Z = all_genes[np.sort(np.vstack(all_triangles), axis=1)]
+        all_triangles = [c for c in nx.enumerate_all_cliques(G) if len(c)==3]
+        Z = all_genes[np.sort(np.vstack(all_triangles), axis=1)] 
+        
         DF = pd.DataFrame(data=Z, columns=[x.split("_")[0] for x in Z[0]])
         DF = DF[[A, B, C]]
 
@@ -1369,7 +1371,7 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
             if doPsubs:
                 ff = np.in1d(X, to_vn(P.values))
                 cat[ff] = "substitution"
-                
+
                 z = Z[X[ff]] #problem line here
                 x = X[ff]
                 av = np.zeros(x.size, dtype="object")
@@ -1434,7 +1436,6 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
         FINALS.append(FINAL)
     FINAL = pd.concat(FINALS,axis=0)
     return FINAL
-
 
 def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
     splabels = q(sam3.adata.obs['species'])
