@@ -1531,8 +1531,8 @@ def transfer_annotations(sm,reference_id=None, keys=[],num_iters=5, inplace = Tr
         samref = sm.sams[reference_id]
         ANN = stitched.adata.obs
         ANNr = samref.adata.obs
-        cl = ANN[key].values.astype('object').astype('str')
-        clr = reference_id+'_'+ANNr[key].values.astype('object')
+        cl = ANN[reference_id+'_'+key].values.astype('object').astype('str')
+        clr = ANNr[key].values.astype('object')
         cl[np.invert(np.in1d(cl,clr))]=''
         clu,clui = np.unique(cl,return_inverse=True)
         P = np.zeros((NNM.shape[0],clu.size))
