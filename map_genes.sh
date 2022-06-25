@@ -69,6 +69,12 @@ while :; do
                 die 'ERROR: "--t2" requires a non-empty option argument.'
             fi
             ;;
+        --threads)       # Takes an option argument; ensure it has been specified.
+            if [ "$2" ]; then
+                n_threads=$2
+                shift
+            fi
+            ;;
         --)              # End of all options.
             shift
             break
@@ -83,7 +89,9 @@ while :; do
     shift
 done
 
-
+if [ -z ${n_threads+x} ]; then
+        n_threads=8
+fi
 
 #read -e -p 'Transcriptome 1: ' tr1
 #read -e -p 'Transcriptome type: ' t1
@@ -111,27 +119,27 @@ fi
 if [[ "$t1" == "nucl" && "$t2" == "nucl" ]]
 then
 echo "Running tblastx in both directions"
-tblastx -query $tr1 -db $tr2 -outfmt 6 -out "maps/${n1}${n2}/${n1}_to_${n2}.txt" -num_threads 8 -max_hsps 1 -evalue 1e-6
-tblastx -query $tr2 -db $tr1 -outfmt 6 -out "maps/${n1}${n2}/${n2}_to_${n1}.txt" -num_threads 8 -max_hsps 1 -evalue 1e-6
+tblastx -query $tr1 -db $tr2 -outfmt 6 -out "maps/${n1}${n2}/${n1}_to_${n2}.txt" -num_threads ${n_threads} -max_hsps 1 -evalue 1e-6
+tblastx -query $tr2 -db $tr1 -outfmt 6 -out "maps/${n1}${n2}/${n2}_to_${n1}.txt" -num_threads ${n_threads} -max_hsps 1 -evalue 1e-6
 fi
 
 if [[ "$t1" == "nucl" && "$t2" == "prot" ]]
 then
 echo "Running blastx from 1 to 2 and tblastn from 2 to 1"
-blastx -query $tr1 -db $tr2 -outfmt 6 -out "maps/${n1}${n2}/${n1}_to_${n2}.txt" -num_threads 8 -max_hsps 1 -evalue 1e-6
-tblastn -query $tr2 -db $tr1 -outfmt 6 -out "maps/${n1}${n2}/${n2}_to_${n1}.txt" -num_threads 8 -max_hsps 1 -evalue 1e-6
+blastx -query $tr1 -db $tr2 -outfmt 6 -out "maps/${n1}${n2}/${n1}_to_${n2}.txt" -num_threads ${n_threads} -max_hsps 1 -evalue 1e-6
+tblastn -query $tr2 -db $tr1 -outfmt 6 -out "maps/${n1}${n2}/${n2}_to_${n1}.txt" -num_threads ${n_threads} -max_hsps 1 -evalue 1e-6
 fi
 
 if [[ "$t1" == "prot" && "$t2" == "nucl" ]]
 then
 echo "Running tblastn from 1 to 2 and blastx from 2 to 1"
-tblastn -query $tr1 -db $tr2 -outfmt 6 -out "maps/${n1}${n2}/${n1}_to_${n2}.txt" -num_threads 8 -max_hsps 1 -evalue 1e-6
-blastx -query $tr2 -db $tr1 -outfmt 6 -out "maps/${n1}${n2}/${n2}_to_${n1}.txt" -num_threads 8 -max_hsps 1 -evalue 1e-6
+tblastn -query $tr1 -db $tr2 -outfmt 6 -out "maps/${n1}${n2}/${n1}_to_${n2}.txt" -num_threads ${n_threads} -max_hsps 1 -evalue 1e-6
+blastx -query $tr2 -db $tr1 -outfmt 6 -out "maps/${n1}${n2}/${n2}_to_${n1}.txt" -num_threads ${n_threads} -max_hsps 1 -evalue 1e-6
 fi
 
 if [[ "$t1" == "prot" && "$t2" == "prot" ]]
 then
 echo "Running blastp in both directions"
-blastp -query $tr1 -db $tr2 -outfmt 6 -out "maps/${n1}${n2}/${n1}_to_${n2}.txt" -num_threads 8 -max_hsps 1 -evalue 1e-6
-blastp -query $tr2 -db $tr1 -outfmt 6 -out "maps/${n1}${n2}/${n2}_to_${n1}.txt" -num_threads 8 -max_hsps 1 -evalue 1e-6
+blastp -query $tr1 -db $tr2 -outfmt 6 -out "maps/${n1}${n2}/${n1}_to_${n2}.txt" -num_threads ${n_threads} -max_hsps 1 -evalue 1e-6
+blastp -query $tr2 -db $tr1 -outfmt 6 -out "maps/${n1}${n2}/${n2}_to_${n1}.txt" -num_threads ${n_threads} -max_hsps 1 -evalue 1e-6
 fi
