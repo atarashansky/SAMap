@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 
 from . import q, ut, pd, sp, np, warnings, sc
 from .analysis import _compute_csim
-from .utils import prepend_var_prefix, to_vn, substr, sparse_knn, df_to_dict
+from .utils import prepend_var_prefix, to_vn, substr, sparse_knn, df_to_dict, _CONCAT_STR
 
 from numba.core.errors import NumbaPerformanceWarning, NumbaWarning
 
@@ -643,7 +643,7 @@ class _Samap_Iter(object):
             try:
                 from fast_histogram import histogram2d
             except:
-                raise ImportError("Package `fast_histogram` must be installed for `corr_mode='mutual_info'`.");
+                raise ImportError("Package `fast_histogram` must be installed for `corr_mode='mutual_info'`.")
         sams = self.sams
         gnnm = self.gnnm
         gns_dict = self.gns_dict
@@ -1204,8 +1204,8 @@ def _coarsen_blast_graph(gnnm, gns, names):
     zgu,ix,ivx,cu = np.unique(np.array([xg,yg]).astype('str'),axis=1,return_counts=True,return_index=True,return_inverse=True) # find unique pairs
 
     xgu,ygu = zgu[:,cu>1] # extract pairs that appear duplicated times
-    xgyg=q(xg.astype('object')+';'+yg.astype('object'))
-    xguygu=q(xgu.astype('object')+';'+ygu.astype('object'))
+    xgyg=q(xg.astype('object')+_CONCAT_STR+yg.astype('object'))
+    xguygu=q(xgu.astype('object')+_CONCAT_STR+ygu.astype('object'))
 
     filt = np.in1d(xgyg,xguygu)
 
@@ -1214,8 +1214,8 @@ def _coarsen_blast_graph(gnnm, gns, names):
 
     dic = df_to_dict(DF,key_key='key')
 
-    xgu = q([x.split(';')[0] for x in dic.keys()])
-    ygu = q([x.split(';')[1] for x in dic.keys()])
+    xgu = q([x.split(_CONCAT_STR)[0] for x in dic.keys()])
+    ygu = q([x.split(_CONCAT_STR)[1] for x in dic.keys()])
     replz = q([max(dic[x]) for x in dic.keys()])
 
     xgu1,ygu1 = zgu[:,cu==1] # get non-duplicate pairs
@@ -1583,9 +1583,9 @@ def _refine_corr_parallel(
     for k in CORR.keys():
         CORR[k] = 0 if CORR[k] < THR else CORR[k]
         if wscale:
-            id1,id2 = [x.split('_')[0] for x in k.split(';')]
-            weight1 = sams[id1].adata.var["weights"][k.split(';')[0]]
-            weight2 = sams[id2].adata.var["weights"][k.split(';')[1]]
+            id1,id2 = [x.split('_')[0] for x in k.split(_CONCAT_STR)]
+            weight1 = sams[id1].adata.var["weights"][k.split(_CONCAT_STR)[0]]
+            weight2 = sams[id2].adata.var["weights"][k.split(_CONCAT_STR)[1]]
             CORR[k] = np.sqrt(CORR[k] * np.sqrt(weight1 * weight2))   
 
     CORR = np.array([CORR[x] for x in to_vn(gn[pairs])])    
@@ -1610,7 +1610,7 @@ def _refine_corr_parallel(
 try:
     from fast_histogram import histogram2d
 except:
-    pass;
+    pass
 
 def hist2d(X,Y,bins=100,domain=None):
     if domain is None:
@@ -1666,7 +1666,7 @@ def _parallel_wrapper(j):
     y = np.zeros(Xavg.shape[0])
     y[sc1i] = sc1d
 
-    ha = gnsO[j1] + ";" + gnsO[j2]
+    ha = gnsO[j1] + _CONCAT_STR + gnsO[j2]
 
     try:
         if corr_mode == 'xicorr':
@@ -1779,7 +1779,7 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
         C = sp.linalg.block_diag(*[adatas[sid].varm["PCs_SAMap"] for sid in sams.keys()])
         M = np.vstack(mus).dot(C)    
         ttt=time.time()    
-        it = 0;
+        it = 0
         PCAs=[]
         for sid in sams.keys():
             PCAs.append(Xc[:,it : it + gs[sid].size].dot(adatas[sid].varm["PCs_SAMap"]))

@@ -1,6 +1,6 @@
 import sklearn.utils.sparsefuncs as sf
 from . import q, ut, pd, sp, np, warnings, sc
-from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
+from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix, _CONCAT_STR
 from samalg import SAM
 from scipy.stats import rankdata
 import networkx as nx
@@ -86,7 +86,7 @@ def GOEA(target_genes,GENE_SETS,df_key='GO',goterms=None,fdr_thresh=0.25,p_thres
     # for each go term,
     for goterm in goterms:
         if counter%1000==0:
-            pass; #print(counter)
+            pass #print(counter)
         counter+=1
         
         # identify genes associated with this go term
@@ -112,7 +112,7 @@ def GOEA(target_genes,GENE_SETS,df_key='GO',goterms=None,fdr_thresh=0.25,p_thres
         probs_genes.append(gene_set_in_target)
         
     probs = np.array(probs)    
-    probs_genes = np.array([';'.join(x) for x in probs_genes])
+    probs_genes = np.array([_CONCAT_STR.join(x) for x in probs_genes])
     
     # adjust p value to correct for multiple testing
     fdr_q_probs = probs.size*probs / rankdata(probs,method='ordinal')
@@ -261,7 +261,7 @@ class FunctionalEnrichment(object):
                 self.DICT[c] = x[ff]
 
         if limit_reference:
-            all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())),';')))
+            all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())),_CONCAT_STR)))
         else:
             all_genes = np.unique(np.array(list(A.index)))
         
@@ -297,7 +297,7 @@ class FunctionalEnrichment(object):
         CAT_NAMES = self.CAT_NAMES
         GENE_SETS = self.GENE_SETS
         pairs = np.array(list(DICT.keys()))
-        all_nodes = np.unique(np.concatenate(substr(pairs,';')))
+        all_nodes = np.unique(np.concatenate(substr(pairs,_CONCAT_STR)))
 
         CCG={}
         P=[]
@@ -305,9 +305,9 @@ class FunctionalEnrichment(object):
             genes=[]
             nodes = all_nodes[ik]
             for j in range(len(pairs)):
-                n1,n2 = pairs[j].split(';')
+                n1,n2 = pairs[j].split(_CONCAT_STR)
                 if n1 == nodes or n2 == nodes:
-                    g1,g2 = substr(DICT[pairs[j]],';')
+                    g1,g2 = substr(DICT[pairs[j]],_CONCAT_STR)
                     genes.append(np.append(g1,g2))
             if len(genes) > 0:
                 genes = np.concatenate(genes)
@@ -333,14 +333,14 @@ class FunctionalEnrichment(object):
                 goterms = goterms[goterms!='S']  
                 result = GOEA(gi,GENE_SETS,goterms=goterms,fdr_thresh=100,p_thresh=100)
 
-                lens = np.array([len(np.unique(x.split(';'))) for x in result['genes'].values])
+                lens = np.array([len(np.unique(x.split(_CONCAT_STR))) for x in result['genes'].values])
                 F = -np.log10(result['p_value'])
                 gt,vals = F.index,F.values
                 Z = pd.DataFrame(data=np.arange(CAT_NAMES.size)[None,:],columns=CAT_NAMES)
                 if gt.size>0:
                     HM[Z[gt].values.flatten(),ii] = vals
                     HMe[Z[gt].values.flatten(),ii] = lens
-                    HMg[Z[gt].values.flatten(),ii] = [';'.join(np.unique(x.split(';'))) for x in result['genes'].values]
+                    HMg[Z[gt].values.flatten(),ii] = [_CONCAT_STR.join(np.unique(x.split(_CONCAT_STR))) for x in result['genes'].values]
 
         #CAT_NAMES = [_KOG_TABLE[x] for x in CAT_NAMES]
         SC = pd.DataFrame(data = HM,index=CAT_NAMES,columns=all_nodes).T
@@ -418,8 +418,8 @@ class FunctionalEnrichment(object):
             idn = SCg.index[i].split('_')[0]
 
             for j in range(SCgx.shape[1]):
-                genes = np.array(SCgx[i,j].split(';'))    
-                SCgx[i,j] = ';'.join(genes[np.array([x.split('_')[0] for x in genes]) == idn])
+                genes = np.array(SCgx[i,j].split(_CONCAT_STR))    
+                SCgx[i,j] = _CONCAT_STR.join(genes[np.array([x.split('_')[0] for x in genes]) == idn])
 
 
         x,y=np.tile(np.arange(SC.shape[0]),SC.shape[1]),np.repeat(np.arange(SC.shape[1]),SC.shape[0])    
@@ -430,11 +430,11 @@ class FunctionalEnrichment(object):
         ms = ms*msize
         ms[np.logical_and(ms<0.15,ms>0)]=0.15
 
-        fig,ax = plt.subplots();
+        fig,ax = plt.subplots()
         fig.set_size_inches((7*SC.shape[0]/SC.shape[1],7)) 
 
         scat=ax.scatter(x,y,c=co,s=ms,cmap='seismic',edgecolor='k',linewidth=0.5,vmin=3)
-        cax = fig.colorbar(scat,pad=0.02);
+        cax = fig.colorbar(scat,pad=0.02)
         ax.set_yticks(np.arange(SC.shape[1]))
         ax.set_yticklabels(SC.columns,ha='right',rotation=0)
         ax.set_xticks(np.arange(SC.shape[0]))
@@ -684,8 +684,8 @@ class GenePairFinder(object):
         for i in range(ct1.size):
             a = '_'.join(ct1[i].split('_')[1:])
             b = '_'.join(ct2[i].split('_')[1:])
-            print('Calculating gene pairs for the mapping: {};{} to {};{}'.format(ct1[i].split('_')[0],a,ct2[i].split('_')[0],b))
-            res['{};{}'.format(ct1[i],ct2[i])] = self.find_genes(ct1[i],ct2[i],**kwargs)
+            print('Calculating gene pairs for the mapping: {},{} to {},{}'.format(ct1[i].split('_')[0],a,ct2[i].split('_')[0],b))
+            res['{},{}'.format(ct1[i],ct2[i])] = self.find_genes(ct1[i],ct2[i],**kwargs)
             
         res = pd.DataFrame([res[k][0] for k in res.keys()],index=res.keys()).fillna(np.nan).T            
         return res
@@ -736,8 +736,8 @@ class GenePairFinder(object):
         self.gene_pair_scores = pd.Series(index=gpairs, data=m)
 
         G = q(gpairs[np.argsort(-m)[:n_genes]])
-        G1 = substr(G, ";", 0)
-        G2 = substr(G, ";", 1)
+        G1 = substr(G, _CONCAT_STR, 0)
+        G2 = substr(G, _CONCAT_STR, 1)
         G = q(
             G[
                 np.logical_and(
@@ -746,8 +746,8 @@ class GenePairFinder(object):
                 )
             ]
         )
-        G1 = substr(G, ";", 0)
-        G2 = substr(G, ";", 1)
+        G1 = substr(G, _CONCAT_STR, 0)
+        G2 = substr(G, _CONCAT_STR, 1)
         _, ix1 = np.unique(G1, return_index=True)
         _, ix2 = np.unique(G2, return_index=True)
         G1 = G1[np.sort(ix1)]
@@ -1142,7 +1142,7 @@ def CellTypeTriangles(sm,keys, align_thr=0.1):
     alignment = alignment[alignment > align_thr]
     all_pairs = to_vn(np.sort(all_pairs, axis=1))
 
-    x, y = substr(all_pairs, ";")
+    x, y = substr(all_pairs, _CONCAT_STR)
     ctu = np.unique(np.concatenate((x, y)))
     Z = pd.DataFrame(data=np.arange(ctu.size)[None, :], columns=ctu)
     nnm = sp.sparse.lil_matrix((ctu.size,) * 2)
@@ -1162,7 +1162,7 @@ def CellTypeTriangles(sm,keys, align_thr=0.1):
     for i,sid1 in enumerate(sm.ids):
         for sid2 in sm.ids[i:]:
             if sid1!=sid2:
-                DF[sid1+';'+sid2] = [alignment[x] for x in DF[sid1].values.astype('str').astype('object')+';'+DF[sid2].values.astype('str').astype('object')]
+                DF[sid1+_CONCAT_STR+sid2] = [alignment[x] for x in DF[sid1].values.astype('str').astype('object')+_CONCAT_STR+DF[sid2].values.astype('str').astype('object')]
     DF = DF[sm.ids]
     return DF
 
@@ -1378,9 +1378,9 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
                 for ai in range(x.size):
                     v=pd.DataFrame(z[x[ai]]) #get ortholog pairs - paralog pairs dataframe
                     vd=v.values.flatten() #get ortholog pairs
-                    vc=q(';'.join(v.columns).split(';')) # get paralogous genes
-                    temp = np.unique(q(';'.join(vd).split(';'))) #get orthologous genes
-                    av[ai] = ';'.join(temp[np.in1d(temp,vc,invert=True)]) #get orthologous genes not present in paralogous genes
+                    vc=q(_CONCAT_STR.join(v.columns).split(_CONCAT_STR)) # get paralogous genes
+                    temp = np.unique(q(_CONCAT_STR.join(vd).split(_CONCAT_STR))) #get orthologous genes
+                    av[ai] = _CONCAT_STR.join(temp[np.in1d(temp,vc,invert=True)]) #get orthologous genes not present in paralogous genes
                 AV[ff] = av
             corr = R[X].values.flatten()
             AVs.append(AV)
@@ -1430,7 +1430,7 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
                     f = a.columns[a.values.argmax(1)]
                     res=[]
                     for i in range(p.shape[0]):
-                        res.append(';'.join(np.unique(np.append(f[i],a.columns[p[i,:]==1]))))            
+                        res.append(_CONCAT_STR.join(np.unique(np.append(f[i],a.columns[p[i,:]==1]))))            
                     FINAL[n+' cell type'] = res
         FINAL = FINAL.sort_values('min_corr',ascending=False)
         FINALS.append(FINAL)
@@ -1467,13 +1467,13 @@ def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
     yi = yi[filt]
 
     px,py = xi,cl[yi]
-    p = px.astype('str').astype('object')+';'+py.astype('object')
+    p = px.astype('str').astype('object')+_CONCAT_STR+py.astype('object')
 
     A = pd.DataFrame(data=np.vstack((p, di)).T, columns=["x", "y"])
     valdict = df_to_dict(A, key_key="x", val_key="y")   
     cell_scores = [valdict[k].sum() for k in valdict.keys()]
     ixer = pd.Series(data=np.arange(clu.size),index=clu)
-    xc,yc = substr(list(valdict.keys()),';')
+    xc,yc = substr(list(valdict.keys()),_CONCAT_STR)
     xc = xc.astype('int')
     yc=ixer[yc].values
     cell_cluster_scores = sp.sparse.coo_matrix((cell_scores,(xc,yc)),shape=(X.shape[0],clu.size)).A
@@ -1605,7 +1605,7 @@ def get_mapping_scores(sm, keys, n_top = 0):
         clusters.append(q([sid+'_'+str(x) for x in sm.sams[sid].adata.obs[keys[sid]]]))
     
     cl = np.concatenate(clusters)
-    l = "{}_mapping_scores".format(';'.join([keys[sid] for sid in skeys]))
+    l = "{}_mapping_scores".format(_CONCAT_STR.join([keys[sid] for sid in skeys]))
     samap.adata.obs[l] = pd.Categorical(cl)
     
     CSIMth, clu = _compute_csim(samap, l, n_top = n_top, prepend = False)
@@ -1657,8 +1657,8 @@ def _sparse_sub_standardize(X, mu, var, rows=False):
     return Xs
 
 def _get_mu_std(sam3, sam1, sam2, knn=False):
-    g1, g2 = ut.extract_annotation(sam3.adata.uns['gene_pairs'], 0, ";"), ut.extract_annotation(
-        sam3.adata.uns['gene_pairs'], 1, ";"
+    g1, g2 = ut.extract_annotation(sam3.adata.uns['gene_pairs'], 0, _CONCAT_STR), ut.extract_annotation(
+        sam3.adata.uns['gene_pairs'], 1, _CONCAT_STR
     )
     if knn:
         mu1, var1 = sf.mean_variance_axis(sam1.adata[:, g1].layers["X_knn_avg"], axis=0)

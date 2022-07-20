@@ -1,4 +1,5 @@
 from . import np, ut, pd
+_CONCAT_STR = "@"
 
 def save_samap(sm,fn):
     import dill
@@ -26,11 +27,11 @@ def save_samap(sm,fn):
     try:
         del sm.sam1.umap_obj
     except:
-        pass;
+        pass
     try:
         del sm.sam2.umap_obj
     except:
-        pass;
+        pass
     
     with open(fn,'wb') as f:
         dill.dump(sm,f)
@@ -86,11 +87,11 @@ def df_to_dict(DF, key_key=None, val_key=[]):
 
 
 def to_vn(op):
-    return np.array(list(op[:, 0].astype("object") + ";" + op[:, 1].astype("object")))
+    return np.array(list(op[:, 0].astype("object") + _CONCAT_STR + op[:, 1].astype("object")))
 
 
 def to_vo(op):
-    return np.vstack((ut.extract_annotation(op, None, ";"))).T
+    return np.vstack((ut.extract_annotation(op, None, _CONCAT_STR))).T
 
 
 def substr(x, s="_", ix=None, obj=False):
