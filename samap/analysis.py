@@ -330,17 +330,18 @@ class FunctionalEnrichment(object):
                 ix = np.where(np.in1d(q(RES.index),gi))[0]
                 res = RES.iloc[ix]
                 goterms = np.unique(q(res['GO']))
-                goterms = goterms[goterms!='S']  
-                result = GOEA(gi,GENE_SETS,goterms=goterms,fdr_thresh=100,p_thresh=100)
+                goterms = goterms[goterms!='S'].flatten()
+                if goterms.size > 0:
+                    result = GOEA(gi,GENE_SETS,goterms=goterms,fdr_thresh=100,p_thresh=100)
 
-                lens = np.array([len(np.unique(x.split(';'))) for x in result['genes'].values])
-                F = -np.log10(result['p_value'])
-                gt,vals = F.index,F.values
-                Z = pd.DataFrame(data=np.arange(CAT_NAMES.size)[None,:],columns=CAT_NAMES)
-                if gt.size>0:
-                    HM[Z[gt].values.flatten(),ii] = vals
-                    HMe[Z[gt].values.flatten(),ii] = lens
-                    HMg[Z[gt].values.flatten(),ii] = [';'.join(np.unique(x.split(';'))) for x in result['genes'].values]
+                    lens = np.array([len(np.unique(x.split(';'))) for x in result['genes'].values])
+                    F = -np.log10(result['p_value'])
+                    gt,vals = F.index,F.values
+                    Z = pd.DataFrame(data=np.arange(CAT_NAMES.size)[None,:],columns=CAT_NAMES)
+                    if gt.size>0:
+                        HM[Z[gt].values.flatten(),ii] = vals
+                        HMe[Z[gt].values.flatten(),ii] = lens
+                        HMg[Z[gt].values.flatten(),ii] = [';'.join(np.unique(x.split(';'))) for x in result['genes'].values]
 
         #CAT_NAMES = [_KOG_TABLE[x] for x in CAT_NAMES]
         SC = pd.DataFrame(data = HM,index=CAT_NAMES,columns=all_nodes).T
