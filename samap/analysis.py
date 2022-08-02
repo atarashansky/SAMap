@@ -129,7 +129,7 @@ def GOEA(target_genes,GENE_SETS,df_key='GO',goterms=None,fdr_thresh=0.25,p_thres
     print("DEBUGGING_LINE")
     print(enriched_goterms)
     print(fdr_q_probs)
-    enriched_goterms = pd.DataFra(data=fdr_q_probs,index=enriched_goterms,columns=['fdr_q_value'])
+    enriched_goterms = pd.DataFrame(data=fdr_q_probs,index=enriched_goterms,columns=['fdr_q_value'])
     enriched_goterms['p_value'] = p_values
     enriched_goterms['genes'] = gns
     
