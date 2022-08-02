@@ -71,6 +71,7 @@ def GOEA(target_genes,GENE_SETS,df_key='GO',goterms=None,fdr_thresh=0.25,p_thres
         goterms = np.unique(list(GENE_SETS.keys()))
     else:
         goterms = goterms[np.in1d(goterms,np.unique(list(GENE_SETS.keys())))]
+        print(goterms.size)
     
     # ensure that target genes are all present in `all_genes`
     _,ix = np.unique(target_genes,return_index=True)
@@ -235,7 +236,6 @@ class FunctionalEnrichment(object):
             index.extend([RES.index[i]]*len(l))
         
         RES = pd.DataFrame(index = index,data = data,columns = ['GO'])
-        print(RES)
         genes = np.array(list(RES.index))
         agt = np.array(list(RES['GO'].values))
         idx = np.argsort(agt)
@@ -335,6 +335,8 @@ class FunctionalEnrichment(object):
                 goterms = np.unique(q(res['GO']))
                 goterms = goterms[goterms!='S'].flatten()
                 if goterms.size > 0:
+                    print(goterms)
+                    print(goterms.size)
                     result = GOEA(gi,GENE_SETS,goterms=goterms,fdr_thresh=100,p_thresh=100)
 
                     lens = np.array([len(np.unique(x.split(';'))) for x in result['genes'].values])
