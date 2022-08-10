@@ -71,7 +71,6 @@ def GOEA(target_genes,GENE_SETS,df_key='GO',goterms=None,fdr_thresh=0.25,p_thres
         goterms = np.unique(list(GENE_SETS.keys()))
     else:
         goterms = goterms[np.in1d(goterms,np.unique(list(GENE_SETS.keys())))]
-        print(goterms.size)
     
     # ensure that target genes are all present in `all_genes`
     _,ix = np.unique(target_genes,return_index=True)
@@ -127,9 +126,6 @@ def GOEA(target_genes,GENE_SETS,df_key='GO',goterms=None,fdr_thresh=0.25,p_thres
     
     # construct the Pandas DataFrame
     gns = probs_genes
-    print("DEBUGGING_LINE")
-    print(enriched_goterms)
-    print(fdr_q_probs)
     enriched_goterms = pd.DataFrame(data=fdr_q_probs,index=enriched_goterms,columns=['fdr_q_value'])
     enriched_goterms['p_value'] = p_values
     enriched_goterms['genes'] = gns
@@ -335,8 +331,6 @@ class FunctionalEnrichment(object):
                 goterms = np.unique(q(res['GO']))
                 goterms = goterms[goterms!='S'].flatten()
                 if goterms.size > 0:
-                    print(goterms)
-                    print(goterms.size)
                     result = GOEA(gi,GENE_SETS,goterms=goterms,fdr_thresh=100,p_thresh=100)
 
                     lens = np.array([len(np.unique(x.split(';'))) for x in result['genes'].values])
@@ -692,8 +686,17 @@ class GenePairFinder(object):
             b = '_'.join(ct2[i].split('_')[1:])
             print('Calculating gene pairs for the mapping: {};{} to {};{}'.format(ct1[i].split('_')[0],a,ct2[i].split('_')[0],b))
             res['{};{}'.format(ct1[i],ct2[i])] = self.find_genes(ct1[i],ct2[i],**kwargs)
-            
-        res = pd.DataFrame([res[k][0] for k in res.keys()],index=res.keys()).fillna(np.nan).T            
+        
+        cols = []
+        col_names = []
+        for k in res:
+            col_names.append(k)
+            col_names.append(k+"_pval1")
+            col_names.append(k+"_pval2")
+            cols.append(res[k][0])
+            cols.append(res[k][-2])
+            cols.append(res[k][-1])
+        res = pd.DataFrame(cols,index=col_names).fillna(np.nan).T            
         return res
         
     def find_genes(
@@ -727,6 +730,8 @@ class GenePairFinder(object):
         G - Enriched gene pairs
         G1 - Genes from species 1 involved in enriched gene pairs
         G2 - Genes from species 2 involved in enriched gene pairs
+        pvals1 - pvalues for genes from species 1 involved in enriched gene pairs
+        pvals2 - pvalues for genes from species 2 involved in enriched gene pairs
         """
         n1 = str(n1)
         n2 = str(n2)
@@ -744,13 +749,11 @@ class GenePairFinder(object):
         G = q(gpairs[np.argsort(-m)[:n_genes]])
         G1 = substr(G, ";", 0)
         G2 = substr(G, ";", 1)
+        pvals1 = q(sam1.adata.varm[self.keys[id1] + "_pvals"][n1][G1])
+        pvals2 = q(sam2.adata.varm[self.keys[id2] + "_pvals"][n2][G2])
+        filt = np.logical_and(pvals1 < thr,pvals2 < thr)
         G = q(
-            G[
-                np.logical_and(
-                    q(sam1.adata.varm[self.keys[id1] + "_pvals"][n1][G1] < thr),
-                    q(sam2.adata.varm[self.keys[id2] + "_pvals"][n2][G2] < thr),
-                )
-            ]
+            G[filt]
         )
         G1 = substr(G, ";", 0)
         G2 = substr(G, ";", 1)
@@ -758,7 +761,7 @@ class GenePairFinder(object):
         _, ix2 = np.unique(G2, return_index=True)
         G1 = G1[np.sort(ix1)]
         G2 = G2[np.sort(ix2)]
-        return G, G1, G2
+        return G, G1, G2, pvals1[filt], pvals2[filt]
 
     def _find_link_genes_avg(self, c1, c2, id1, id2, w1t=0.35, w2t=0.35, expr_thr=0.05):
         mus = self.mus
