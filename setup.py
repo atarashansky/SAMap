@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="samap",
-    version="1.0.5",
+    version="1.0.6",
     description="The SAMap algorithm",
     long_description="The Self-Assembling Manifold Mapping algorithm for mapping single-cell datasets across species.",
     long_description_content_type="text/markdown",
@@ -17,7 +17,7 @@ setup(
         "hnswlib",
         "dill",
         "numba==0.52.0",
-        "h5py<=2.10",
+        "h5py",
         "leidenalg",
         "fast-histogram",
         "holoviews-samap"
