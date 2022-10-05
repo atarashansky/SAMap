@@ -179,6 +179,10 @@ class SAMAP(object):
                 )
             )
 
+        for sid in sams:
+            if not sp.sparse.issparse(sams[sid].adata.X):
+                sams[sid].adata.X = sp.sparse.csr_matrix(sams[sid].adata.X)
+                
         smap = _Samap_Iter(sams, gnnm, gns_dict, keys=keys)
         self.sams = sams
         self.gnnm = gnnm
