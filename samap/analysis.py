@@ -1482,21 +1482,25 @@ def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
     valdict = df_to_dict(A, key_key="x", val_key="y")   
     cell_scores = [valdict[k].sum() for k in valdict.keys()]
     ixer = pd.Series(data=np.arange(clu.size),index=clu)
-    xc,yc = substr(list(valdict.keys()),';')
-    xc = xc.astype('int')
-    yc=ixer[yc].values
-    cell_cluster_scores = sp.sparse.coo_matrix((cell_scores,(xc,yc)),shape=(X.shape[0],clu.size)).A
+    if len(valdict.keys())>0:
+        xc,yc = substr(list(valdict.keys()),';')
+        xc = xc.astype('int')
+        yc=ixer[yc].values
+        cell_cluster_scores = sp.sparse.coo_matrix((cell_scores,(xc,yc)),shape=(X.shape[0],clu.size)).A
 
-    for i, c in enumerate(clu):
-        if n_top > 0:
-            CSIM[i, :] = np.sort(cell_cluster_scores[cl==c],axis=0)[-n_top:].mean(0)
-        else:
-            CSIM[i, :] = cell_cluster_scores[cl==c].mean(0)
+        for i, c in enumerate(clu):
+            if n_top > 0:
+                CSIM[i, :] = np.sort(cell_cluster_scores[cl==c],axis=0)[-n_top:].mean(0)
+            else:
+                CSIM[i, :] = cell_cluster_scores[cl==c].mean(0)
 
-    CSIM = np.stack((CSIM,CSIM.T),axis=2).max(2)
-    CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * (len(skeys)-1)
-    return CSIMth,clu
+        CSIM = np.stack((CSIM,CSIM.T),axis=2).max(2)
+        CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * (len(skeys)-1)
+        return CSIMth,clu
+    else:
+        return np.zeros((clu.size, clu.size)), clu
 
+# TODO: Deprecate for now and fix this later
 def transfer_annotations(sm,reference_id=None, keys=[],num_iters=5, inplace = True):
     """ Transfer annotations across species using label propagation along the combined manifold.
     
