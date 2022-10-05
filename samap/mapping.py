@@ -182,7 +182,7 @@ class SAMAP(object):
         for sid in sams:
             if not sp.sparse.issparse(sams[sid].adata.X):
                 sams[sid].adata.X = sp.sparse.csr_matrix(sams[sid].adata.X)
-                
+
         smap = _Samap_Iter(sams, gnnm, gns_dict, keys=keys)
         self.sams = sams
         self.gnnm = gnnm
@@ -1105,10 +1105,10 @@ def _calculate_blast_graph(ids, f_maps="maps/", eval_thr=1e-6, reciprocate=False
                 B = B[B.iloc[:, 0].astype("str") != "nan"]
 
                 A.index = _prepend_blast_prefix(A.index,id1)
-                B.iloc[:, 0] = _prepend_blast_prefix(B.iloc[:, 0].values.flatten(),id1)
+                B[B.columns[0]] = _prepend_blast_prefix(B.iloc[:, 0].values.flatten(),id1)
 
                 B.index = _prepend_blast_prefix(B.index,id2)
-                A.iloc[:, 0] = _prepend_blast_prefix(A.iloc[:, 0].values.flatten(),id2)
+                A[A.columns[0]] = _prepend_blast_prefix(A.iloc[:, 0].values.flatten(),id2)
 
                 i1 = np.where(A.columns == "10")[0][0]
                 i3 = np.where(A.columns == "11")[0][0]
@@ -1125,8 +1125,8 @@ def _calculate_blast_graph(ids, f_maps="maps/", eval_thr=1e-6, reciprocate=False
 
                 A.index = pd.Index(gnind[A.index].values.flatten())
                 B.index = pd.Index(gnind[B.index].values.flatten())
-                A.iloc[:, 0] = gnind[A.iloc[:, 0].values.flatten()].values.flatten()
-                B.iloc[:, 0] = gnind[B.iloc[:, 0].values.flatten()].values.flatten()
+                A[A.columns[0]] = gnind[A.iloc[:, 0].values.flatten()].values.flatten()
+                B[B.columns[0]] = gnind[B.iloc[:, 0].values.flatten()].values.flatten()
 
                 Arows = np.vstack((A.index, A.iloc[:, 0], A.iloc[:, i3])).T
                 Arows = Arows[A.iloc[:, i1].values.flatten() <= eval_thr, :]
