@@ -7,13 +7,6 @@ Tarashansky, Alexander J., et al. "Mapping single-cell atlases throughout Metazo
 
 ## Installation
 
-### Docker - Easiest
-Assumes Docker is installed on your computer.
-
-Run `bash run_image.sh` to run the Docker image. The script will ask you for the container name (e.g. `samap`), volume mount path (e.g. `~/`; this folder should contain your data to be analyzed as it will be mounted onto the Docker image filesystem), and Jupyter server port (e.g. `8888`). If this is your first time running the image, it will be downloaded from the Docker repository.
-
-Running the Docker image will spawn a jupyter notebook server on your specified port.
-
 ### pip
 
 `pip install samap`
