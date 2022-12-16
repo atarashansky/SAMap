@@ -1314,6 +1314,10 @@ def _concatenate_sam(sams, nnm):
     sam.adata.obs["batch"] = pd.Categorical(np.array(a))
     sam.adata.obs.columns = sam.adata.obs.columns.astype("str")
     sam.adata.var.columns = sam.adata.var.columns.astype("str")
+
+    for i in sam.adata.obs:
+        sam.adata.obs[i] = sam.adata.obs[i].astype("str")
+        
     return sam
 
 def _map_features_un(A, B, sam1, sam2, thr=1e-6):
