@@ -1495,7 +1495,7 @@ def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
                 CSIM[i, :] = cell_cluster_scores[cl==c].mean(0)
 
         CSIM = np.stack((CSIM,CSIM.T),axis=2).max(2)
-        CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * (len(skeys)-1)
+        CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size# * (len(skeys)-1)
         return CSIMth,clu
     else:
         return np.zeros((clu.size, clu.size)), clu
