@@ -20,7 +20,8 @@ setup(
         "h5py",
         "leidenalg",
         "fast-histogram",
-        "holoviews-samap"
+        "holoviews-samap",
+        "harmonypy"
     ],
     packages=find_packages(),
     include_package_data=True,

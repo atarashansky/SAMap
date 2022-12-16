@@ -9,7 +9,7 @@ import gc
 from samalg import SAM
 import time
 from sklearn.preprocessing import StandardScaler
-
+import harmonypy
 from . import q, ut, pd, sp, np, warnings, sc
 from .analysis import _compute_csim
 from .utils import prepend_var_prefix, to_vn, substr, sparse_knn, df_to_dict
@@ -314,7 +314,7 @@ class SAMAP(object):
         print("Alignment score ---", _avg_as(samap, pairwise=pairwise).mean())
         if umap:
             print("Running UMAP on the stitched manifolds.")
-            sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random',maxiter = 500 if self.samap.adata.shape[0] <= 10000 else 200)
+            self.samap.run_umap(metric='cosine',seed=0)
         
         
         ix = pd.Series(data = np.arange(samap.adata.shape[1]),index = samap.adata.var_names)[gns].values
@@ -793,194 +793,26 @@ def _mapper(
     pairwise=True,
     **kwargs
 ):
-    if NHS is None:
-        NHS={}
-        for sid in sams.keys():
-            NHS[sid] = 3         
-    
-    if neigh_from_keys is None:
-        neigh_from_keys={}
-        for sid in sams.keys():
-            neigh_from_keys[sid] = False    
-    
-    if mdata is None:
-        mdata = _mapping_window(sams, gnnm, gn, K=K, pairwise=pairwise)
-
-    if k is None:
-        k1 = sams[list(sams.keys())[0]].run_args.get("k", 20)
-    else:
-        k1 = k
-
-    if keys is None:
-        keys = {}
-        for sid in sams.keys():
-            keys[sid] = 'leiden_clusters'
-
-    nnms_in={}
-    nnms_in0={}
-    flag=False
-    species_indexer=[]
-    for sid in sams.keys():
-        print(f"Expanding neighbourhoods of species {sid}...")
-        cl = sams[sid].get_labels(keys[sid])
-        _, ix, cluc = np.unique(cl, return_counts=True, return_inverse=True)
-        K = cluc[ix]
-        nnms_in0[sid] = sams[sid].adata.obsp["connectivities"].copy()
-        species_indexer.append(np.arange(sams[sid].adata.shape[0]))
-        if not neigh_from_keys[sid]:
-            nnm_in = _smart_expand(nnms_in0[sid], K, NH=NHS[sid])
-            nnm_in.data[:] = 1
-            nnms_in[sid]=nnm_in
-        else:
-            nnms_in[sid]=_generate_coclustering_matrix(cl)
-            flag=True
-    
-    for i in range(1,len(species_indexer)):
-        species_indexer[i] += species_indexer[i-1].max()+1
-    
-    if not flag:
-        nnm_internal = sp.sparse.block_diag(list(nnms_in.values())).tocsr()
-    nnm_internal0 = sp.sparse.block_diag(list(nnms_in0.values())).tocsr()    
-    
-    ovt = mdata["knn"]    
-    ovt0 = ovt.copy()
-    ovt0.data[:]=1
-
-    B = ovt
-    # already sum-normalized per species
-    #s = B.sum(1).A
-    #s[s == 0] = 1
-    #B = B.multiply(1 / s).tocsr()
-
-    print("Indegree coarsening")
-    
-    numiter = nnm_internal0.shape[0] // chunksize + 1
-
-    D = sp.sparse.csr_matrix((0, nnm_internal0.shape[0]))
-    if flag:
-        Cs=[]
-        for it,sid in enumerate(sams.keys()):
-            nfk = neigh_from_keys[sid]
-            if nfk:
-                Cs.append(nnms_in[sid].dot(nnms_in[sid].T.dot(B.T[species_indexer[it]])))
-            else:
-                Cs.append(nnms_in[sid].dot(B.T[species_indexer[it]]))
-        D = sp.sparse.vstack(Cs).T
-        del Cs
-        gc.collect()
-    else:
-        for bl in range(numiter):
-            print(str(bl) + "/" + str(numiter), D.shape)
-            C = B[bl * chunksize : (bl + 1) * chunksize].dot(nnm_internal.T)
-            C.data[C.data < 0.1] = 0
-            C.eliminate_zeros()
-
-            D = sp.sparse.vstack((D, C))        
-            del C
-            gc.collect()
-
-    D = D.multiply(D.T).tocsr()
-    D.data[:] = D.data**0.5
-    mdata["xsim"] = D    
-    
-    if scale_edges_by_corr:
-        print('Rescaling edge weights by expression correlations.')                
-        x,y = D.nonzero()
-        vals = _replace(mdata["wPCA"],x,y)
-        vals[vals<1e-3]=1e-3
-        
-        # make a copy and write correlations
-        F = D.copy()
-        F.data[:] = vals
-        
-        # normalize by maximum and rescale with tanh
-        ma = F.max(1).A
-        ma[ma==0]=1
-        F = F.multiply(1/ma).tocsr()
-        F.data[:] = _tanh_scale(F.data,center=0.7,scale=10)
-        
-        # get max aligment score from before
-        ma = D.max(1).A
-        ma[ma==0]=1
-        
-        # geometric mean expression correlation scores by alignment scores
-        D = F.multiply(D).tocsr()
-        D.data[:] = np.sqrt(D.data)
-        
-        # get new max scores
-        ma2 = D.max(1).A
-        ma2[ma2==0]=1
-        
-        # change new max scores to old max scores
-        D = D.multiply(ma/ma2).tocsr()
-    
+    print("Concatenating SAM objects...")
+    samap = _concatenate_sam(sams)
     species_list = []
     for sid in sams.keys():
         species_list += [sid]*sams[sid].adata.shape[0]    
     species_list = np.array(species_list)
+    samap.adata.obs["species"] = pd.Categorical(species_list)
 
-    if not pairwise or len(sams.keys())==2:
-        Dk = sparse_knn(D, k1).tocsr()
-        denom = k1
-    else:
-        Dk=[]
-        for sid1 in sams.keys():
-            row=[]
-            for sid2 in sams.keys():
-                if sid1 != sid2:
-                    Dsubk = sparse_knn(D[species_list==sid1][:,species_list==sid2], k1).tocsr()
-                else:
-                    Dsubk = sp.sparse.csr_matrix((sams[sid1].adata.shape[0],)*2)
-                row.append(Dsubk)
-            Dk.append(sp.sparse.hstack(row))
-        Dk = sp.sparse.vstack(Dk).tocsr()
-        denom = (k1 * (len(sams.keys())-1))
-            
-    sr = Dk.sum(1).A    
-    
-    x = 1 - sr.flatten() / denom
-    
-    sr[sr==0]=1
-    st = Dk.sum(0).A.flatten()[None,:]
-    st[st==0]=1
-    proj = Dk.multiply(1 / sr).dot(Dk.multiply(1 / st)).tocsr()
-    z = proj.copy()
-    z.data[:] = 1
-    idx = np.where(z.sum(1).A.flatten() >= k1)[0]
-    
-    omp = nnm_internal0
-    omp.data[:]=1
-    s = proj.max(1).A
-    s[s == 0] = 1
-    proj = proj.multiply(1 / s).tocsr()    
-    X, Y = omp.nonzero()
-    X2 = X[np.in1d(X, idx)]
-    Y2 = Y[np.in1d(X, idx)]
-
-    omp = omp.tolil()
-    omp[X2, Y2] = np.vstack((proj[X2, Y2].A.flatten(), np.ones(X2.size) * 0.3)).max(
-        0
-    )
-
-    omp = nnm_internal0.tocsr()
-    NNM = omp.multiply(x[:, None])
-    NNM = (NNM+Dk).tolil()
-    NNM.setdiag(0)
-   
-    print("Concatenating SAM objects...")
-    sam3 = _concatenate_sam(sams, NNM)
-    
-    sam3.adata.obs["species"] = pd.Categorical(species_list)
-
-    sam3.adata.uns["gnnm_corr"] = mdata.get("gnnm_corr",None)
-    sam3.adata.obsp["xsim"] = D
-    sam3.adata.obsm["wPCA"] = mdata["wPCA"]
-    sam3.adata.obsp["knn"] = mdata["knn"]
+    wpca = _mapping_window(sams, gnnm, gn, K=K, pairwise=pairwise)
+    pca = harmonypy.run_harmony(wpca, samap.adata.obs, 'species', verbose=False).Z_corr.T
+    nnm = _pairwise_knn(pca, sams, k=K)
+    nnm = nnm.tocsr()
+    nnm.eliminate_zeros()
+    samap.adata.obsp["connectivities"] = nnm
+    samap.adata.obsm["X_pca"] = pca
 
     if umap:
         print("Computing UMAP projection...")
-        sc.tl.umap(sam3.adata, min_dist=0.1, maxiter = 500 if sam3.adata.shape[0] <= 10000 else 200)
-    return sam3
+        samap.run_umap(metric='cosine',seed=0)
+    return samap
 
 def _refine_corr(
     sams,
@@ -1270,7 +1102,7 @@ def prepare_SAMap_loadings(sam, npcs=300):
     sam.adata.varm["PCs_SAMap"] = A
 
 
-def _concatenate_sam(sams, nnm):
+def _concatenate_sam(sams):
     acns = []
     exps = []
     agns = []
@@ -1291,16 +1123,6 @@ def _concatenate_sam(sams, nnm):
 
     sam = SAM(counts=(xx, agn, acn))
 
-    sam.adata.uns["neighbors"] = {}
-    nnm = nnm.tocsr()
-    nnm.eliminate_zeros()
-    sam.adata.obsp["connectivities"] = nnm
-    sam.adata.uns["neighbors"]["params"] = {
-        "n_neighbors": 15,
-        "method": "umap",
-        "use_rep": "X",
-        "metric": "euclidean",
-    }
     for i in sams.keys():
         for k in sams[i].adata.obs.keys():
             if sams[i].adata.obs[k].dtype.name == "category":
@@ -1410,9 +1232,9 @@ def _avg_as(s,pairwise=True):
     for i in range(xu.size):
         a.extend(s.adata.obsp['connectivities'][x==xu[i],:][:,x!=xu[i]].sum(1).A.flatten())
     if pairwise:
-        return  np.array(a) / s.adata.obsp['knn'][0].data.size
+        return  np.array(a) / (s.adata.obsp['connectivities'][0].data.size // xu.size * (xu.size-1))
     else:
-        return  np.array(a) / s.adata.obsp['knn'][0].data.size * (xu.size-1)
+        return  np.array(a) / s.adata.obsp['connectivities'][0].data.size * (xu.size-1)
 
 
 @njit
@@ -1825,11 +1647,7 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
             ixq = species_indexer[i]
             wpca[ixq] -= M[i]            
         
-
-
-    output_dict["knn"] = _pairwise_knn(wpca, sams, k=k)
-    output_dict["wPCA"] = wpca
-    return output_dict
+    return wpca
 
 def _pairwise_knn(wpca, sams,k=20):
     species_indexer = []    
@@ -1847,25 +1665,24 @@ def _pairwise_knn(wpca, sams,k=20):
         query = wpca[ixq]          
         
         for j,_ in enumerate(sams.keys()):
-            if i!=j:
-                ixr = species_indexer[j]
-                reference = wpca[ixr]
+            ixr = species_indexer[j]
+            reference = wpca[ixr]
 
-                b = _united_proj(query, reference, k=k)
-                
-                # sum-normalize each species individually.
-                su = b.sum(1).A
-                su[su==0]=1
-                b = b.multiply(1/su).tocsr()
+            b = _united_proj(query, reference, k=k)
+            
+            # sum-normalize each species individually.
+            # su = b.sum(1).A
+            # su[su==0]=1
+            # b = b.multiply(1/su).tocsr()
 
-                A = pd.Series(index = np.arange(b.shape[0]), data = ixq)        
-                B = pd.Series(index = np.arange(b.shape[1]), data = ixr)
+            A = pd.Series(index = np.arange(b.shape[0]), data = ixq)        
+            B = pd.Series(index = np.arange(b.shape[1]), data = ixr)
 
-                x,y = b.nonzero()
-                x,y = A[x].values,B[y].values
-                Xs.extend(x)
-                Ys.extend(y)
-                Vs.extend(b.data)
+            x,y = b.nonzero()
+            x,y = A[x].values,B[y].values
+            Xs.extend(x)
+            Ys.extend(y)
+            Vs.extend(b.data)
             
     knn = sp.sparse.coo_matrix((Vs,(Xs,Ys)),shape=(ixg.size,ixg.size)) 
     return knn.tocsr()
