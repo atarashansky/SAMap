@@ -1827,11 +1827,11 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
         
 
 
-    output_dict["knn"] = _pairwise_knn(wpca, sams)
+    output_dict["knn"] = _pairwise_knn(wpca, sams, k=k)
     output_dict["wPCA"] = wpca
     return output_dict
 
-def _pairwise_knn(wpca, sams):
+def _pairwise_knn(wpca, sams,k=20):
     species_indexer = []    
     for sid in sams.keys():
         species_indexer.append(np.arange(sams[sid].adata.shape[0]))   
