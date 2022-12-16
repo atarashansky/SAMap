@@ -1317,7 +1317,7 @@ def _concatenate_sam(sams, nnm):
 
     for i in sam.adata.obs:
         sam.adata.obs[i] = sam.adata.obs[i].astype("str")
-        
+
     return sam
 
 def _map_features_un(A, B, sam1, sam2, thr=1e-6):
@@ -1825,6 +1825,19 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
             ixq = species_indexer[i]
             wpca[ixq] -= M[i]            
         
+
+
+    output_dict["knn"] = _pairwise_knn(wpca, sams)
+    output_dict["wPCA"] = wpca
+    return output_dict
+
+def _pairwise_knn(wpca, sams):
+    species_indexer = []    
+    for sid in sams.keys():
+        species_indexer.append(np.arange(sams[sid].adata.shape[0]))   
+    for i in range(1,len(species_indexer)):
+        species_indexer[i] = species_indexer[i]+species_indexer[i-1].max()+1             
+    
     ixg = np.arange(wpca.shape[0])
     Xs = []
     Ys = []
@@ -1833,7 +1846,7 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
         ixq = species_indexer[i]
         query = wpca[ixq]          
         
-        for j,sid2 in enumerate(sams.keys()):
+        for j,_ in enumerate(sams.keys()):
             if i!=j:
                 ixr = species_indexer[j]
                 reference = wpca[ixr]
@@ -1854,12 +1867,8 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
                 Ys.extend(y)
                 Vs.extend(b.data)
             
-    knn = sp.sparse.coo_matrix((Vs,(Xs,Ys)),shape=(ixg.size,ixg.size))
-
-    output_dict["knn"] = knn.tocsr()
-    output_dict["wPCA"] = wpca
-    return output_dict
-
+    knn = sp.sparse.coo_matrix((Vs,(Xs,Ys)),shape=(ixg.size,ixg.size)) 
+    return knn.tocsr()
 
 def _sparse_knn_ks(D, ks):
     D1 = D.tocoo()
