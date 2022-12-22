@@ -1,6 +1,6 @@
 import sklearn.utils.sparsefuncs as sf
 from . import q, ut, pd, sp, np, warnings, sc
-from .utils import to_vo, to_vn, substr, df_to_dict, sparse_knn, prepend_var_prefix
+from .utils import to_vo, to_vn, substr, df_to_dict
 from samalg import SAM
 from scipy.stats import rankdata
 import networkx as nx
@@ -374,13 +374,9 @@ class FunctionalEnrichment(object):
         fig - matplotlib.pyplot.Figure
         ax - matplotlib.pyplot.Axes
         """
-        import colorsys
-        import seaborn as sns
         import matplotlib
         matplotlib.rcParams['pdf.fonttype'] = 42
         matplotlib.rcParams['ps.fonttype'] = 42
-        from matplotlib.collections import PatchCollection
-        from matplotlib.patches import Rectangle
         from matplotlib import cm,colors
         import matplotlib.pyplot as plt
         from scipy.cluster.hierarchy import linkage, dendrogram
@@ -395,7 +391,6 @@ class FunctionalEnrichment(object):
             SCg = SCg.T[cell_types].T
 
         CAT_NAMES = self.CAT_NAMES
-        gc_names = np.array(CAT_NAMES)
 
         SC.values[SC.values<pval_thr]=0
         SCe.values[SC.values<pval_thr]=0
@@ -430,11 +425,11 @@ class FunctionalEnrichment(object):
         ms = ms*msize
         ms[np.logical_and(ms<0.15,ms>0)]=0.15
 
-        fig,ax = plt.subplots();
+        fig,ax = plt.subplots()
         fig.set_size_inches((7*SC.shape[0]/SC.shape[1],7)) 
 
         scat=ax.scatter(x,y,c=co,s=ms,cmap='seismic',edgecolor='k',linewidth=0.5,vmin=3)
-        cax = fig.colorbar(scat,pad=0.02);
+        fig.colorbar(scat,pad=0.02)
         ax.set_yticks(np.arange(SC.shape[1]))
         ax.set_yticklabels(SC.columns,ha='right',rotation=0)
         ax.set_xticks(np.arange(SC.shape[0]))
@@ -506,8 +501,6 @@ def sankey_plot(M,species_order=None,align_thr=0.1,**params):
         depth_map=None
     
     try:
-        from holoviews import dim
-        #from bokeh.models import Label
         import holoviews as hv
         hv.extension('bokeh',logo=False)
         hv.output(size=100)        
