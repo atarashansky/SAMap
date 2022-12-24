@@ -718,8 +718,8 @@ class _Samap_Iter(object):
             self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
 
             print("Iteration " + str(i+1) + " complete.")
-            print("Alignment score:")
-            print(_avg_as(sam4, pairwise=pairwise))
+            print("Alignment scores:")
+            print(_avg_as(sam4))
 
             self.iter += 1
             if i < NUMITERS - 1:
@@ -735,18 +735,15 @@ class _Samap_Iter(object):
         self.final_sam = sam4
 
 
-def _avg_as(s,pairwise=True):
+def _avg_as(s):
     x = q(s.adata.obs['species'])
     xu = np.unique(x)
-    a = []
+    a = np.zeros((xu.size,xu.size))
     for i in range(xu.size):
-        a.append(s.adata.obsp['connectivities'][x==xu[i],:][:,x!=xu[i]].sum(1).A.flatten())
-    if pairwise:
-        scores = [np.array(i).mean() / (s.adata.uns['mapping_K']*(xu.size-1)) for i in a]
-        return dict(zip(xu,scores))
-    else:
-        scores = [np.array(i).mean() / s.adata.uns['mapping_K'] for i in a]
-        return dict(zip(xu,scores))
+        for j in range(xu.size):
+            if i!=j:
+                a[i,j] = s.adata.obsp['connectivities'][x==xu[i],:][:,x==xu[j]].sum(1).A.flatten().mean() / s.adata.uns['mapping_K']
+    return pd.DataFrame(data=a,index=xu,columns=xu)
         
 @njit(parallel=True)        
 def _replace(X,xi,yi):

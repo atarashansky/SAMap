@@ -1,4 +1,4 @@
-# SAMap -- version 1.0.11
+# SAMap -- version 1.0.12
 
 # Citation
 Please cite the following paper if using SAMap: https://elifesciences.org/articles/66747
