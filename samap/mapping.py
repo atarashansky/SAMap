@@ -1372,10 +1372,10 @@ def _pairwise_knn(wpca, sams,k=20, pairwise=True):
     for i in range(1,len(species_indexer)):
         species_indexer[i] = species_indexer[i]+species_indexer[i-1].max()+1             
     
-    if pairwise:
-        Xs = []
-        Ys = []
-        Vs = []        
+    Xs = []
+    Ys = []
+    Vs = []           
+    if pairwise: 
         for i,sid in enumerate(sams.keys()):
             ixq = species_indexer[i]
             query = wpca[ixq]          
@@ -1394,9 +1394,23 @@ def _pairwise_knn(wpca, sams,k=20, pairwise=True):
                 Xs.extend(x)
                 Ys.extend(y)
                 Vs.extend(b.data)
-                
-        knn = sp.sparse.coo_matrix((Vs,(Xs,Ys)),shape=(wpca.shape[0],wpca.shape[0])) 
     else:
-        knn = _united_proj(wpca, wpca, k=k)
+        for i,sid in enumerate(sams.keys()):
+            ixq = species_indexer[i]
+            inverse_species_indexer = np.arange(wpca.shape[0])
+            inverse_species_indexer = inverse_species_indexer[np.in1d(inverse_species_indexer,ixq,invert=True)]
 
+            for ixr in [inverse_species_indexer,ixq]:
+                query = wpca[ixq]          
+                reference = wpca[ixr]
+                b = _united_proj(query, reference, k=k)
+                A = pd.Series(index = np.arange(b.shape[0]), data = ixq)        
+                B = pd.Series(index = np.arange(b.shape[1]), data = ixr)
+                x,y = b.nonzero()
+                x,y = A[x].values,B[y].values
+                Xs.extend(x)
+                Ys.extend(y)
+                Vs.extend(b.data)
+
+    knn = sp.sparse.coo_matrix((Vs,(Xs,Ys)),shape=(wpca.shape[0],wpca.shape[0])) 
     return knn.tocsr()
