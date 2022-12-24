@@ -112,7 +112,7 @@ class SAMAP(object):
                     gnnm, gns, names
                 )
 
-            gnnm = _filter_gnnm(gnnm, thr=0.25)
+            gnnm = _filter_gnnm(gnnm, thr=0.0)
         else:
             gnnm, gns, gns_dict = gnnm
 
@@ -643,7 +643,6 @@ def _mapper(
     K=20,
     pairwise=True,
 ):
-    print("Concatenating SAM objects...")
     samap = _concatenate_sam(sams)
     species_list = []
     for sid in sams.keys():
@@ -651,7 +650,7 @@ def _mapper(
     species_list = np.array(species_list)
     samap.adata.obs["species"] = pd.Categorical(species_list)
 
-    wpca = _mapping_window(sams, gnnm, gn, K=K, pairwise=pairwise)
+    wpca = _mapping_window(sams, gnnm, gn, pairwise=pairwise)
     pca = harmonypy.run_harmony(wpca, samap.adata.obs, 'species', verbose=False).Z_corr.T
     nnm = _pairwise_knn(pca, sams, k=K, pairwise=pairwise)
     nnm = nnm.tocsr()
@@ -1243,7 +1242,7 @@ def _united_proj(wpca1, wpca2, k=20, metric="cosine", ef=200, M=48):
 def _tanh_scale(x,scale=10,center=0.5):
     return center + (1-center) * np.tanh(scale * (x - center))
 
-def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
+def _mapping_window(sams, gnnm=None, gns=None, pairwise=True):
     output_dict = {}
     if gnnm is not None and gns is not None:
         print('Prepping datasets for translation.')        
@@ -1285,7 +1284,11 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
                 xtr = []
                 for j,_ in enumerate(sams.keys()):
                     if i != j:
-                        xtr.append(X[species_indexer[i]][:,genes_indexer[i]].dot(gnnm_corr[genes_indexer[i]][:,genes_indexer[j]]))
+                        gnnm_corr_sub = gnnm_corr[genes_indexer[i]][:,genes_indexer[j]]
+                        su = gnnm_corr_sub.sum(0).A
+                        su[su==0]=1
+                        gnnm_corr_sub = gnnm_corr_sub.multiply(1/su).tocsr()
+                        xtr.append(X[species_indexer[i]][:,genes_indexer[i]].dot(gnnm_corr_sub))
                         xtr[-1] = std.fit_transform(xtr[-1]).multiply(W[genes_indexer[j]][None,:])
                     else:
                         xtr.append(sp.sparse.csr_matrix((species_indexer[i].size,genes_indexer[i].size)))
