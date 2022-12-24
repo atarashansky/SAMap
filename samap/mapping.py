@@ -616,13 +616,14 @@ class _Samap_Iter(object):
                 pairwise=pairwise
             )
 
-            self.samap = sam4
-            self.samap.adata.uns['mapping_k'] = K
+            sam4.adata.uns['mapping_k'] = K
             self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
 
             print("Iteration " + str(i+1) + " complete.")
             print("Alignment scores:")
             print(_avg_as(sam4))
+
+            self.samap = sam4
 
             self.iter += 1
             if i < NUMITERS - 1:
@@ -646,7 +647,7 @@ def _avg_as(s):
             if i!=j:
                 a[i,j] = s.adata.obsp['connectivities'][x==xu[i],:][:,x==xu[j]].sum(1).A.flatten().mean() / s.adata.uns['mapping_K']
     return pd.DataFrame(data=a,index=xu,columns=xu)
-        
+
 def _mapper(
     sams,
     gnnm=None,
