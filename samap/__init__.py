@@ -4,7 +4,7 @@ import numpy as np
 import samalg.utilities as ut
 import warnings
 import scanpy as sc
-__version__ = "1.0.8"
+__version__ = "1.0.10"
 
 
 def q(x):
