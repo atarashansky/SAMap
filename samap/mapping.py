@@ -311,7 +311,6 @@ class SAMAP(object):
         self.samap = samap
         self.ITER_DATA = smap.ITER_DATA
 
-        print("Alignment score ---", _avg_as(samap, pairwise=pairwise).mean())
         if umap:
             print("Running UMAP on the stitched manifolds.")
             sc.tl.umap(self.samap.adata,min_dist=0.1,init_pos='random',maxiter = 500 if self.samap.adata.shape[0] <= 10000 else 200)
@@ -629,7 +628,6 @@ class _Samap_Iter(object):
         
         self.keys = keys
         
-        self.SCORE_VEC = []
         self.GNNMS_corr = []
         self.GNNMS_pruned = []
         self.GNNMS_nnm = []
@@ -638,7 +636,6 @@ class _Samap_Iter(object):
             self.GNNMS_nnm,
             self.GNNMS_corr,
             self.GNNMS_pruned,
-            self.SCORE_VEC,
         ]
         self.iter = 0
 
@@ -685,7 +682,7 @@ class _Samap_Iter(object):
                 NHS[sid] = 2
         if neigh_from_keys is None:
             neigh_from_keys={}
-            for sid in ids:
+            for sid in sams:
                 neigh_from_keys[sid] = False        
         gns = np.concatenate(list(gns_dict.values()))        
 
@@ -716,34 +713,14 @@ class _Samap_Iter(object):
                 neigh_from_keys=neigh_from_keys,
                 pairwise=pairwise
             )
-
+            sam4.adata.uns['mapping_K'] = K
             self.samap = sam4
             self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
 
-            labels=[]
-            for sid in sams.keys():
-                labels.extend(q(sams[sid].adata.obs[keys[sid]]))
-            sam4.adata.obs['tempv1.0.0.0'] = labels
-            CSIMth, _ = _compute_csim(sam4, "tempv1.0.0.0")
-            del sam4.adata.obs['tempv1.0.0.0']
+            print("Iteration " + str(i+1) + " complete.")
+            print("Alignment score:")
+            print(_avg_as(sam4, pairwise=pairwise))
 
-            self.SCORE_VEC.append(CSIMth.flatten())
-            if len(self.SCORE_VEC) > 1:
-                diff = self.SCORE_VEC[-1] - self.SCORE_VEC[-2]
-            elif len(self.SCORE_VEC) > 0:
-                diff = self.SCORE_VEC[-1] - np.zeros(self.SCORE_VEC[-1].size)
-
-            diffmax = diff.max()
-            diffmin = diff.min()
-            print(
-                "ITERATION: " + str(i),
-                "\nAverage alignment score (A.S.): ",
-                _avg_as(sam4, pairwise=pairwise).mean(),
-                "\nMax A.S. improvement:",
-                diffmax,
-                "\nMin A.S. improvement:",
-                diffmin,
-            )
             self.iter += 1
             if i < NUMITERS - 1:
                 print("Calculating gene-gene correlations in the homology graph...")
@@ -756,6 +733,20 @@ class _Samap_Iter(object):
             gc.collect()
 
         self.final_sam = sam4
+
+
+def _avg_as(s,pairwise=True):
+    x = q(s.adata.obs['species'])
+    xu = np.unique(x)
+    a = []
+    for i in range(xu.size):
+        a.append(s.adata.obsp['connectivities'][x==xu[i],:][:,x!=xu[i]].sum(1).A.flatten())
+    if pairwise:
+        scores = [np.array(i).mean() / (s.adata.uns['mapping_K']*(xu.size-1)) for i in a]
+        return dict(zip(xu,scores))
+    else:
+        scores = [np.array(i).mean() / s.adata.uns['mapping_K'] for i in a]
+        return dict(zip(xu,scores))
         
 @njit(parallel=True)        
 def _replace(X,xi,yi):
@@ -806,10 +797,7 @@ def _mapper(
     if mdata is None:
         mdata = _mapping_window(sams, gnnm, gn, K=K, pairwise=pairwise)
 
-    if k is None:
-        k1 = sams[list(sams.keys())[0]].run_args.get("k", 20)
-    else:
-        k1 = k
+    k1 = K
 
     if keys is None:
         keys = {}
@@ -1403,18 +1391,6 @@ def _get_pairs(sams, gnnm, gns_dict, NOPs1=0, NOPs2=0):
 
     return B
 
-def _avg_as(s,pairwise=True):
-    x = q(s.adata.obs['batch'])
-    xu = np.unique(x)
-    a = []
-    for i in range(xu.size):
-        a.extend(s.adata.obsp['connectivities'][x==xu[i],:][:,x!=xu[i]].sum(1).A.flatten())
-    if pairwise:
-        return  np.array(a) / s.adata.obsp['knn'][0].data.size
-    else:
-        return  np.array(a) / s.adata.obsp['knn'][0].data.size * (xu.size-1)
-
-
 @njit
 def nb_unique1d(ar):
     """
@@ -1761,7 +1737,11 @@ def _mapping_window(sams, gnnm=None, gns=None, K=20, pairwise=True):
                 xtr = []
                 for j,sid2 in enumerate(sams.keys()):
                     if i != j:
-                        xtr.append(X[species_indexer[i]][:,genes_indexer[i]].dot(gnnm_corr[genes_indexer[i]][:,genes_indexer[j]]))
+                        gnnm_corr_sub = gnnm_corr[genes_indexer[i]][:,genes_indexer[j]]
+                        su = gnnm_corr_sub.sum(0).A
+                        su[su==0]=1
+                        gnnm_corr_sub = gnnm_corr_sub.multiply(1/su).tocsr()                        
+                        xtr.append(X[species_indexer[i]][:,genes_indexer[i]].dot(gnnm_corr_sub))
                         xtr[-1] = std.fit_transform(xtr[-1]).multiply(W[genes_indexer[j]][None,:])
                     else:
                         xtr.append(sp.sparse.csr_matrix((species_indexer[i].size,genes_indexer[i].size)))

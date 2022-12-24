@@ -1447,17 +1447,17 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
     FINAL = pd.concat(FINALS,axis=0)
     return FINAL
 
-def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
-    splabels = q(sam3.adata.obs['species'])
+def _compute_csim(samap, key, X=None, prepend=True, n_top = 0):
+    splabels = q(samap.adata.obs['species'])
     skeys = splabels[np.sort(np.unique(splabels,return_index=True)[1])]
 
     cl = []
     clu = []
     for sid in skeys:
         if prepend:
-            cl.append(sid+'_'+q(sam3.adata.obs[key])[sam3.adata.obs['species']==sid].astype('str').astype('object'))
+            cl.append(sid+'_'+q(samap.adata.obs[key])[samap.adata.obs['species']==sid].astype('str').astype('object'))
         else:
-            cl.append(q(sam3.adata.obs[key])[sam3.adata.obs['species']==sid])            
+            cl.append(q(samap.adata.obs[key])[samap.adata.obs['species']==sid])            
         clu.append(np.unique(cl[-1]))
 
     clu = np.concatenate(clu)
@@ -1465,7 +1465,7 @@ def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
 
     CSIM = np.zeros((clu.size, clu.size))
     if X is None:
-        X = sam3.adata.obsp["connectivities"].copy()
+        X = samap.adata.obsp["connectivities"].copy()
 
     xi,yi = X.nonzero()
     spxi = splabels[xi]
@@ -1496,7 +1496,7 @@ def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
                 CSIM[i, :] = cell_cluster_scores[cl==c].mean(0)
 
         CSIM = np.stack((CSIM,CSIM.T),axis=2).max(2)
-        CSIMth = CSIM / sam3.adata.obsp['knn'][0].data.size * (len(skeys)-1)
+        CSIMth = CSIM / samap.adata.uns['mapping_K']
         return CSIMth,clu
     else:
         return np.zeros((clu.size, clu.size)), clu
