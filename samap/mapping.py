@@ -616,7 +616,7 @@ class _Samap_Iter(object):
                 pairwise=pairwise
             )
 
-            sam4.adata.uns['mapping_k'] = K
+            sam4.adata.uns['mapping_K'] = K
             self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
 
             print("Iteration " + str(i+1) + " complete.")
