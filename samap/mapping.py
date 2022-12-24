@@ -620,9 +620,10 @@ class _Samap_Iter(object):
             self.samap.adata.uns['mapping_k'] = K
             self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
 
-            print(
-                "ITERATION: " + str(i)
-            )
+            print("Iteration " + str(i+1) + " complete.")
+            print("Alignment scores:")
+            print(_avg_as(sam4))
+
             self.iter += 1
             if i < NUMITERS - 1:
                 print("Calculating gene-gene correlations in the homology graph...")
@@ -636,7 +637,16 @@ class _Samap_Iter(object):
 
         self.final_sam = sam4
 
-    
+def _avg_as(s):
+    x = q(s.adata.obs['species'])
+    xu = np.unique(x)
+    a = np.zeros((xu.size,xu.size))
+    for i in range(xu.size):
+        for j in range(xu.size):
+            if i!=j:
+                a[i,j] = s.adata.obsp['connectivities'][x==xu[i],:][:,x==xu[j]].sum(1).A.flatten().mean() / s.adata.uns['mapping_K']
+    return pd.DataFrame(data=a,index=xu,columns=xu)
+        
 def _mapper(
     sams,
     gnnm=None,
