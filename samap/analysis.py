@@ -254,10 +254,11 @@ class FunctionalEnrichment(object):
         
         self.DICT = {}
         for c in gene_pairs.columns:
-            x = q(gene_pairs[c].values.flatten()).astype('str')
-            ff = x!='nan'
-            if ff.sum()>0:
-                self.DICT[c] = x[ff]
+            if "_pval1" not in c and "_pval2" not in c:
+                x = q(gene_pairs[c].values.flatten()).astype('str')
+                ff = x!='nan'
+                if ff.sum()>0:
+                    self.DICT[c] = x[ff]
 
         if limit_reference:
             all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())),';')))
@@ -1499,90 +1500,6 @@ def _compute_csim(sam3, key, X=None, prepend=True, n_top = 0):
         return CSIMth,clu
     else:
         return np.zeros((clu.size, clu.size)), clu
-
-# TODO: Deprecate for now and fix this later
-def transfer_annotations(sm,reference_id=None, keys=[],num_iters=5, inplace = True):
-    """ Transfer annotations across species using label propagation along the combined manifold.
-    
-    Parameters
-    ----------
-    sm - SAMAP object
-    
-    reference_id - str, optional, default None
-        The species ID of the reference species from which the annotations will be transferred.
-        
-    keys - str or list, optional, default []
-        The `obs` key or list of keys corresponding to the labels to be propagated.
-        If passed an empty list, all keys in the reference species' `obs` dataframe
-        will be propagated.
-        
-    num_iters - int, optional, default 5
-        The number of steps to run the diffusion propagation.
-        
-    inplace - bool, optional, default True
-        If True, deposit propagated labels in the target species (`sm.sams['hu']`) `obs`
-        DataFrame. Otherwise, just return the soft-membership DataFrame.
-        
-    Returns
-    -------
-    A Pandas DataFrame with soft membership scores for each cluster in each cell.
-    
-    """
-    stitched = sm.samap
-    NNM = stitched.adata.obsp['connectivities'].copy()
-    NNM = NNM.multiply(1/NNM.sum(1).A).tocsr()
-
-    if type(keys) is str:
-        keys = [keys]
-    elif len(keys) == 0:
-        try:
-            keys = list(sm.sams[reference_id].adata.obs.keys())
-        except KeyError:
-            raise ValueError(f'`reference` must be one of {sm.ids}.')
-
-    for key in keys:
-        samref = sm.sams[reference_id]
-        ANN = stitched.adata.obs
-        ANNr = samref.adata.obs
-        cl = ANN[reference_id+'_'+key].values.astype('object').astype('str')
-        clr = ANNr[key].values.astype('object')
-        cl[np.invert(np.in1d(cl,clr))]=''
-        clu,clui = np.unique(cl,return_inverse=True)
-        P = np.zeros((NNM.shape[0],clu.size))
-        Pmask = np.ones((NNM.shape[0],clu.size))
-        P[np.arange(clui.size),clui]=1.0
-        Pmask[stitched.adata.obs['species']==reference_id]=0
-
-        Pmask=Pmask[:,1:]
-        P=P[:,1:]
-        Pinit = P.copy()
-
-        for j in range(num_iters):
-            P_new = NNM.dot(P)
-            if np.max(np.abs(P_new - P)) < 5e-3:
-                P = P_new
-                s=P.sum(1)[:,None]
-                s[s==0]=1
-                P = P/s
-                break
-            else:
-                P = P_new
-                s=P.sum(1)[:,None]
-                s[s==0]=1
-                P = P/s
-            P = P * Pmask + Pinit
-
-        uncertainty = 1-P.max(1)
-        labels = clu[1:][np.argmax(P,axis=1)]
-        labels[uncertainty==1.0]='NAN'
-        uncertainty[uncertainty>=uncertainty.max()*0.99] = 1
-        if inplace:
-            stitched.adata.obs[key+'_transfer'] = pd.Series(labels,index = stitched.adata.obs_names)
-            stitched.adata.obs[key+'_uncertainty'] = pd.Series(uncertainty,index=stitched.adata.obs_names)
-
-        res = pd.DataFrame(data=P,index=stitched.adata.obs_names,columns=clu[1:])
-        res['labels'] = labels
-        return res
 
 def get_mapping_scores(sm, keys, n_top = 0):
     """Calculate mapping scores
