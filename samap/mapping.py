@@ -617,6 +617,7 @@ class _Samap_Iter(object):
             )
 
             self.samap = sam4
+            self.samap.adata.uns['mapping_k'] = K
             self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
 
             print(
@@ -1385,6 +1386,6 @@ def _pairwise_knn(wpca, sams,k=20, pairwise=True):
                 
         knn = sp.sparse.coo_matrix((Vs,(Xs,Ys)),shape=(wpca.shape[0],wpca.shape[0])) 
     else:
-        knn = _united_proj(wpca, wpca, k=k*len(sams))
+        knn = _united_proj(wpca, wpca, k=k)
 
     return knn.tocsr()
