@@ -1165,6 +1165,10 @@ def _calculate_blast_graph(ids, f_maps="maps/", eval_thr=1e-6, reciprocate=False
     return gnnm, gns, gns_dict
 
 def _coarsen_blast_graph(gnnm, gns, names):
+    # eliminate zero entries in gnnm
+    gnnm=gnnm.tocsr()
+    gnnm.eliminate_zeros()
+
     sps = np.array([x.split('_')[0] for x in gns])
     sids = np.unique(sps)
     ss=[]
@@ -1182,7 +1186,7 @@ def _coarsen_blast_graph(gnnm, gns, names):
             s = pd.Series(index=gns[sps==sid],data = gns[sps==sid])
         ss.append(s)
     ss = pd.concat(ss)
-
+    
     x,y = gnnm.nonzero() #get nonzeros
     s = pd.Series(data=gns,index=np.arange(gns.size)) # convert indices to gene pairs
     xn,yn = s[x].values,s[y].values 
