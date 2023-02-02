@@ -1186,7 +1186,7 @@ def _coarsen_blast_graph(gnnm, gns, names):
             s = pd.Series(index=gns[sps==sid],data = gns[sps==sid])
         ss.append(s)
     ss = pd.concat(ss)
-    
+    ss = ss[np.unique(q(ss.index),return_index=True)[1]]
     x,y = gnnm.nonzero() #get nonzeros
     s = pd.Series(data=gns,index=np.arange(gns.size)) # convert indices to gene pairs
     xn,yn = s[x].values,s[y].values 
