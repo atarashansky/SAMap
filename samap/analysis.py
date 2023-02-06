@@ -507,9 +507,9 @@ def sankey_plot(M,species_order=None,align_thr=0.1,**params):
         depth_map=None
     
     try:
-        from holoviews_samap import dim
+        from holoviews import dim
         #from bokeh.models import Label
-        import holoviews_samap as hv
+        import holoviews as hv
         hv.extension('bokeh',logo=False)
         hv.output(size=100)        
     except:
@@ -558,8 +558,8 @@ def chord_plot(A,align_thr=0.1):
         The alignment score threshold below which to remove cell type mappings.
     """        
     try:
-        from holoviews_samap import dim, opts
-        import holoviews_samap as hv
+        from holoviews import dim, opts
+        import holoviews as hv
         hv.extension('bokeh',logo=False)
         hv.output(size=300)        
     except:
