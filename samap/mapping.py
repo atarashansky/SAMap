@@ -958,9 +958,6 @@ def _mapper(
     sam3.adata.obs["species"] = pd.Categorical(species_list)
 
     sam3.adata.uns["gnnm_corr"] = mdata.get("gnnm_corr",None)
-    sam3.adata.obsp["xsim"] = D
-    sam3.adata.obsm["wPCA"] = mdata["wPCA"]
-    sam3.adata.obsp["knn"] = mdata["knn"]
 
     if umap:
         print("Computing UMAP projection...")
