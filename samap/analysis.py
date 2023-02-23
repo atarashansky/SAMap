@@ -1322,7 +1322,7 @@ def GeneTriangles(sm,orth,keys=None,compute_markers=True,corr_thr=0.3, psub_thr 
         GNNM.data[GNNM.data<corr_thr]=0
         GNNM.eliminate_zeros()
 
-        G = nx.from_scipy_sparse_matrix(GNNM, create_using=nx.Graph)
+        G = nx.from_scipy_sparse_array(GNNM, create_using=nx.Graph)
         all_triangles = [c for c in nx.enumerate_all_cliques(G) if len(c)==3]
         Z = all_genes[np.sort(np.vstack(all_triangles), axis=1)] 
         
