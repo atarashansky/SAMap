@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="samap",
-    version="1.0.14",
+    version="1.0.15",
     description="The SAMap algorithm",
     long_description="The Self-Assembling Manifold Mapping algorithm for mapping single-cell datasets across species.",
     long_description_content_type="text/markdown",
@@ -12,12 +12,13 @@ setup(
     keywords="scrnaseq analysis manifold reconstruction cross-species mapping",
     python_requires=">=3.7",
     install_requires=[
-        "sam-algorithm",
-        "scanpy",
-        "hnswlib",
+        "sam-algorithm==1.0.2",
+        "numpy==1.23.5",
+        "scanpy==1.9.3",
+        "hnswlib==0.7.0",
         "dill",
-        "numba",
-        "h5py",
+        "numba==0.56.3",
+        "h5py==3.8.0",
         "leidenalg",
         "fast-histogram",
         "holoviews-samap"
