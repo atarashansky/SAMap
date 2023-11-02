@@ -540,7 +540,7 @@ def sankey_plot(M,species_order=None,align_thr=0.1,**params):
 
 
     sankey1.opts(cmap=cmap,label_position=label_position, edge_line_width=edge_line_width, show_values=show_values,
-                 node_padding=node_padding,depth_map=depth_map, node_alpha=node_alpha, node_width=node_width,
+                 node_padding=node_padding,node_cmap=depth_map, node_alpha=node_alpha, node_width=node_width,
                  node_sort=node_sort,frame_height=frame_height,frame_width=frame_width,bgcolor=bgcolor,
                  apply_ranges=apply_ranges,hooks=[f])
 
