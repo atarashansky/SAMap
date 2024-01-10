@@ -1861,7 +1861,7 @@ def _sparse_knn_ks(D, ks):
     return D1
 
 
-def _smart_expand(nnm, cl, NH=3):
+def _smart_expand(nnm, K, NH=3):
     stage0 = nnm.copy()
     S = [stage0]
     running = stage0
@@ -1873,9 +1873,6 @@ def _smart_expand(nnm, cl, NH=3):
             stage[S[j].nonzero()] = 0
         stage = stage.tocsr()
         S.append(stage)
-
-    a, ix, c = np.unique(cl, return_counts=True, return_inverse=True)
-    K = c[ix]
 
     for i in range(len(S)):
         s = _sparse_knn_ks(S[i], K).tocsr()
