@@ -68,9 +68,11 @@ class SAMAP(object):
             Dictionary of leiden clustering resolutions indexed by species. This parameter is ignored if
             `keys` is set.
 
-        gnnm : tuple(scipy.sparse.csr_matrix,numpy array, numpy array)
+        gnnm : tuple(scipy.sparse.csr_matrix,numpy array, dict[numpy array])
             If the homology graph was already computed, you can pass it here in the form of a tuple:
-            (sparse adjacency matrix, species 1 genes, species 2 genes).
+            (sparse adjacency matrix, numpy array of genes, dictionary of species-specific genes).
+            Note that all genes must be prefixed with their species IDs, e.g. `hu_SOX2` instead of `SOX2`.
+            
             This is the tuple returned by `_calculate_blast_graph(...)` or `_coarsen_eggnog_graph(...)`.
 
         save_processed : bool, optional, default False
@@ -212,13 +214,12 @@ class SAMAP(object):
         NUMITERS : int, optional, default 3
             Runs SAMap for `NUMITERS` iterations.        
             
-        NH1 : int, optional, default 3
-            Cells up to `NH1` hops away from a particular cell in organism 1
+        NHS : dict, optional, default None
+            Dictionary of maximum neighborhood sizes indexed by species.
+            Cells up to `NHS[species_id]` hops away from a particular cell in `species_id`
             will be included in its neighborhood.
-
-        NH2 : int, optional, default 3
-            Cells up to `NH2` hops away from a particular cell in organism 2
-            will be included in its neighborhood.
+            
+            If None, defaults to 3 for all species.
 
         crossK : int, optional, default 20
             The number of cross-species edges to identify per cell.
@@ -249,14 +250,11 @@ class SAMAP(object):
             If True, rescale cell-cell cross-species edges by their expression similarities
             (correlations).
             
-        neigh_from_key1 : bool, optional, default False
-            If True, species 1 neighborhoods are calculated directly from the chosen clustering (`self.key1`).
+        neigh_from_keys : dict[bool], optional, default None
+            Dictionary of booleans indexed by species IDs. If True, species neighborhoods
+            are calculated directly from the chosen clustering (the `keys` parameter in `SAMAP(...)`).
             Cells within the same cluster belong to the same neighborhood.
             
-        neigh_from_key2 : bool, optional, default False
-            If True, species 2 neighborhoods are calculated directly from the chosen clustering (`self.key2`).
-            Cells within the same cluster belong to the same neighborhood.
-
         pairwise: bool, optional, default True
             If True, compute mutual nearest neighborhoods independently between each pair of species.
             If False, compute mutual nearest neighborhoods between each species and all other species.
