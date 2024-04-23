@@ -13,6 +13,7 @@ setup(
     python_requires=">=3.7",
     install_requires=[
         "sam-algorithm==1.0.2",
+        "scipy<1.13.0",
         "numpy==1.23.5",
         "scanpy==1.9.3",
         "hnswlib==0.7.0",
