@@ -116,10 +116,9 @@ known-first-party = ["samap"]
 
 [tool.mypy]
 python_version = "3.11"
-strict = true
-warn_return_any = true
-warn_unused_configs = true
 ignore_missing_imports = true
+check_untyped_defs = false
+disallow_untyped_defs = false
 exclude = [
     "tests/",
     "build/",

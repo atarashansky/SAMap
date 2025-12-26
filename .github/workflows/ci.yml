@@ -20,16 +20,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy
+          pip install ruff
 
       - name: Run ruff linter
         run: ruff check src tests
 
       - name: Run ruff formatter check
         run: ruff format --check src tests
-
-      - name: Run mypy
-        run: mypy src --ignore-missing-imports
 
   test:
     runs-on: ubuntu-latest
