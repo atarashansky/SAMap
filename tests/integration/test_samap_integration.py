@@ -140,5 +140,9 @@ class TestSAMAPMapping:
         assert Gp is not None
         assert G1 is not None
         assert G2 is not None
-        assert len(G1) == len(G2)  # Gene pairs should match
-        assert len(pvals1) == len(G1)
+        # Gp contains gene pairs, G1/G2 are individual gene lists
+        assert len(Gp) > 0
+        assert len(G1) > 0
+        assert len(G2) > 0
+        assert len(pvals1) == len(Gp)
+        assert len(pvals2) == len(Gp)
