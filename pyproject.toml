@@ -1,0 +1,163 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sc-samap"
+version = "2.0.2"
+description = "The SAMap algorithm"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Alexander J. Tarashansky", email = "tarashan@stanford.edu" },
+]
+keywords = [
+    "scrnaseq",
+    "analysis",
+    "manifold",
+    "reconstruction",
+    "cross-species",
+    "mapping",
+    "single-cell",
+    "bioinformatics",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "sc-sam>=2.0.0",
+    "numpy>=1.26.0",
+    "scipy>=1.11.0",
+    "scanpy>=1.10.0",
+    "numba>=0.59.0",
+    "h5py>=3.10.0",
+    "hnswlib>=0.8.0",
+    "leidenalg>=0.10.0",
+    "pandas>=2.0.0",
+    "networkx>=3.0",
+    "dill>=0.3.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.2",
+    "mypy>=1.8",
+    "pre-commit>=3.6",
+]
+viz = [
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "plotly>=5.18",
+]
+all = ["samap[dev,viz]"]
+
+[project.urls]
+Homepage = "https://github.com/atarashansky/SAMap"
+Documentation = "https://github.com/atarashansky/SAMap"
+Repository = "https://github.com/atarashansky/SAMap"
+Issues = "https://github.com/atarashansky/SAMap/issues"
+
+[tool.hatch.build]
+exclude = [
+    "example_data/",
+    "*.h5ad",
+    "*.h5",
+    "*.hdf5",
+    "tests/",
+    "docs/",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/samap"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+    "RUF",    # Ruff-specific rules
+    "NPY",    # NumPy-specific rules
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B007",   # loop control variable not used
+    "B008",   # do not perform function calls in argument defaults
+    "B905",   # zip without explicit strict
+    "NPY002", # legacy numpy random (not critical)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["samap"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",   # assert statements are fine in tests
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+exclude = [
+    "tests/",
+    "build/",
+    "dist/",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "e2e: marks tests as end-to-end tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["src/samap"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+fail_under = 10
