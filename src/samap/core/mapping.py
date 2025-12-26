@@ -866,7 +866,7 @@ def _generate_coclustering_matrix(cl: NDArray[Any]) -> sp.sparse.csr_matrix:
     import samalg.utilities as ut
 
     cl_arr = ut.convert_annotations(np.array(list(cl)))
-    clu, cluc = np.unique(cl_arr, return_counts=True)
+    clu, _cluc = np.unique(cl_arr, return_counts=True)
     v = np.zeros((cl_arr.size, clu.size))
     v[np.arange(v.shape[0]), cl_arr] = 1
     return sp.sparse.csr_matrix(v)
@@ -1059,7 +1059,7 @@ def _coarsen_blast_graph(
 
     da = gnnm.data
 
-    zgu, ix, ivx, cu = np.unique(
+    zgu, ix, _ivx, cu = np.unique(
         np.array([xg, yg]).astype("str"),
         axis=1,
         return_counts=True,

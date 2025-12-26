@@ -106,7 +106,7 @@ class TestSAMAPMapping:
 
         # Get mapping scores
         keys = {"pl": "cluster", "hy": "Cluster", "sc": "tissue"}
-        D, MappingTable = get_mapping_scores(samap_instance, keys, n_top=0)
+        _, MappingTable = get_mapping_scores(samap_instance, keys, n_top=0)
 
         # Generate sankey plot
         fig = sankey_plot(MappingTable, species_order=["pl", "sc", "hy"], align_thr=0.1)

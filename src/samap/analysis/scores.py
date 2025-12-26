@@ -401,7 +401,7 @@ def CellTypeTriangles(
     pd.DataFrame
         Table of cell type triangles.
     """
-    D, A = get_mapping_scores(sm, keys=keys)
+    _, A = get_mapping_scores(sm, keys=keys)
     x, y = A.values.nonzero()
     all_pairsf = np.array([A.index[x], A.columns[y]]).T.astype("str")
     alignmentf = A.values[x, y].flatten()
