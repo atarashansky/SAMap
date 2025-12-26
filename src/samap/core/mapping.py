@@ -506,6 +506,121 @@ class SAMAP:
 
         return axes
 
+    def plot_expression_overlap(
+        self,
+        gs: dict[str, str],
+        axes: Any = None,
+        color0: str = "gray",
+        colors: dict[str, str] | None = None,
+        colorc: str = "#00ceb5",
+        s0: int = 1,
+        ss: dict[str, int] | None = None,
+        sc: int = 10,
+        thr: float = 0.1,
+        **kwargs: Any,
+    ) -> Any:
+        """Display expression overlap of genes on the combined manifold.
+
+        Parameters
+        ----------
+        gs : dict
+            Dictionary of genes to display, keyed by species IDs.
+            For example: {'hu': 'TOP2A', 'ms': 'Top2a'}
+        axes : matplotlib.axes.Axes, optional
+            Axes to plot on. If None, creates new figure.
+        color0 : str, optional
+            Color for cells not expressing genes. Default 'gray'.
+        colors : dict, optional
+            Colors per species. If None, randomly generated.
+        colorc : str, optional
+            Color for overlapping expression. Default '#00ceb5'.
+        s0 : int, optional
+            Marker size for non-expressing cells. Default 1.
+        ss : dict, optional
+            Marker sizes per species. Default 3 for all.
+        sc : int, optional
+            Marker size for overlap. Default 10.
+        thr : float, optional
+            Threshold for imputed expression. Default 0.1.
+        **kwargs
+            Additional arguments for scatter.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+        """
+        if len(list(gs.keys())) < len(list(self.sams.keys())):
+            samap = SAM(
+                counts=self.samap.adata[np.in1d(self.samap.adata.obs["species"], list(gs.keys()))]
+            )
+        else:
+            samap = self.samap
+
+        if ss is None:
+            ss = {sid: 3 for sid in self.ids}
+
+        if colors is None:
+            colors = {}
+            for sid in self.ids:
+                s = "".join(hex(np.random.randint(16))[-1].upper() for _ in range(6))
+                colors[sid] = "#" + s
+
+        def hex_to_rgb(value: str) -> list[float]:
+            value = value.lstrip("#")
+            lv = len(value)
+            rgb = [int(value[i : i + lv // 3], 16) for i in range(0, lv, lv // 3)]
+            return [x / 255 for x in rgb]
+
+        nnm = samap.adata.obsp["connectivities"]
+        su = np.asarray(nnm.sum(1)).flatten()[:, None]
+        su[su == 0] = 1
+
+        nnm = nnm.multiply(1 / su).tocsr()
+        AS: dict[str, NDArray[Any]] = {}
+        for sid in gs.keys():
+            g = gs[sid]
+            try:
+                AS[sid] = self.sams[sid].adata[:, g].X.toarray().flatten()
+            except KeyError:
+                try:
+                    AS[sid] = self.sams[sid].adata[:, sid + "_" + g].X.toarray().flatten()
+                except KeyError:
+                    raise KeyError(f"Gene not found in species {sid}") from None
+
+        davgs: dict[str, NDArray[Any]] = {}
+        for sid in gs.keys():
+            d = np.zeros(samap.adata.shape[0])
+            d[samap.adata.obs["species"] == sid] = AS[sid]
+            davg = np.asarray(nnm.dot(d)).flatten()
+            davg[davg < thr] = 0
+            davgs[sid] = davg
+        davg = np.vstack(list(davgs.values())).min(0)
+        for sid in gs.keys():
+            if davgs[sid].max() > 0:
+                davgs[sid] = davgs[sid] / davgs[sid].max()
+        if davg.max() > 0:
+            davg = davg / davg.max()
+
+        cs: dict[str, NDArray[Any]] = {}
+        for sid in gs.keys():
+            c = hex_to_rgb(colors[sid]) + [0.0]
+            cs[sid] = np.vstack([c] * davg.size)
+            cs[sid][:, -1] = davgs[sid]
+        cc = hex_to_rgb(colorc) + [0.0]
+        cc = np.vstack([cc] * davg.size)
+        cc[:, -1] = davg
+
+        ax = samap.scatter(projection="X_umap", colorspec=color0, axes=axes, s=s0)
+
+        for sid in gs.keys():
+            samap.scatter(
+                projection="X_umap", c=cs[sid], axes=ax, s=ss[sid], colorbar=False, **kwargs
+            )
+
+        samap.scatter(projection="X_umap", c=cc, axes=ax, s=sc, colorbar=False, **kwargs)
+
+        return ax
+
     def gui(self) -> Any:
         """Launch a SAMGUI instance containing the SAM objects."""
         if "SamapGui" not in self.__dict__:
@@ -725,9 +840,10 @@ def _avg_as(s: SAM) -> pd.DataFrame:
         for j in range(xu.size):
             if i != j:
                 a[i, j] = (
-                    s.adata.obsp["connectivities"][x == xu[i], :][:, x == xu[j]]
-                    .sum(1)
-                    .toarray()
+                    np.asarray(
+                        s.adata.obsp["connectivities"][x == xu[i], :][:, x == xu[j]]
+                        .sum(1)
+                    )
                     .flatten()
                     .mean()
                     / s.adata.uns["mapping_K"]
@@ -988,7 +1104,9 @@ def _filter_gnnm(gnnm: sp.sparse.csr_matrix, thr: float = 0.25) -> sp.sparse.csr
     x, y = gnnm.nonzero()
     mas = np.asarray(gnnm.max(1).todense()).flatten()
     gnnm4 = gnnm.copy()
-    gnnm4.data[gnnm4[x, y].toarray().flatten() < mas[x] * thr] = 0
+    # Use np.asarray to handle both sparse matrix and numpy.matrix returns
+    edge_values = np.asarray(gnnm4[x, y]).flatten()
+    gnnm4.data[edge_values < mas[x] * thr] = 0
     gnnm4.eliminate_zeros()
     x, y = gnnm4.nonzero()
     z = gnnm4.data
@@ -1184,12 +1302,12 @@ def _refine_corr(
     gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
     for i in range(len(indices_list)):
         x, y = GNS[pairs_list[i][:, 0]].values.flatten(), GNS[pairs_list[i][:, 1]].values.flatten()
-        gnnm3[x, y] = GNNMSUBS[i][indices_list[i][:, 0], indices_list[i][:, 1]].toarray().flatten()
+        gnnm3[x, y] = np.asarray(GNNMSUBS[i][indices_list[i][:, 0], indices_list[i][:, 1]]).flatten()
 
     gnnm3 = gnnm3.tocsr()
     x, y = gnnm3.nonzero()
     gnnm3 = gnnm3.tolil()
-    gnnm3[y, x] = gnnm3[x, y].toarray().flatten()
+    gnnm3[y, x] = np.asarray(gnnm3[x, y].tocsr().todense()).flatten()
     return gnnm3.tocsr()
 
 
@@ -1241,13 +1359,14 @@ def _refine_corr_parallel(
     xs_list = []
     nnms = []
     for i, sid in enumerate(sams.keys()):
-        nnms.append(nnm[:, st.adata.obs["batch"] == f"batch{i + 1}"])
+        batch_mask = (st.adata.obs["batch"] == f"batch{i + 1}").values
+        nnms.append(nnm[:, batch_mask])
         s1 = np.asarray(nnms[-1].sum(1))
         s1[s1 < 1e-3] = 1
         s1 = s1.flatten()[:, None]
         nnms[-1] = nnms[-1].multiply(1 / s1)
 
-        xs_list.append(sams[sid].adata[:, gns_dictO[sid]].X.astype("float16"))
+        xs_list.append(sams[sid].adata[:, gns_dictO[sid]].X.astype("float32"))
 
     Xs = sp.sparse.block_diag(xs_list).tocsc()
     nnms = sp.sparse.hstack(nnms).tocsr()
@@ -1286,8 +1405,8 @@ def _refine_corr_parallel(
     gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
 
     if use_seq:
-        gnnm3[pairs[:, 0], pairs[:, 1]] = CORR_arr * gnnm2[pairs[:, 0], pairs[:, 1]].toarray().flatten()
-        gnnm3[pairs[:, 1], pairs[:, 0]] = CORR_arr * gnnm2[pairs[:, 1], pairs[:, 0]].toarray().flatten()
+        gnnm3[pairs[:, 0], pairs[:, 1]] = CORR_arr * np.asarray(gnnm2[pairs[:, 0], pairs[:, 1]]).flatten()
+        gnnm3[pairs[:, 1], pairs[:, 0]] = CORR_arr * np.asarray(gnnm2[pairs[:, 1], pairs[:, 0]]).flatten()
     else:
         gnnm3[pairs[:, 0], pairs[:, 1]] = CORR_arr
         gnnm3[pairs[:, 1], pairs[:, 0]] = CORR_arr
@@ -1496,7 +1615,7 @@ def _mapper(
     Y2 = Y[np.in1d(X, idx)]
 
     omp = omp.tolil()
-    omp[X2, Y2] = np.vstack((proj[X2, Y2].toarray().flatten(), np.ones(X2.size) * 0.3)).max(0)
+    omp[X2, Y2] = np.vstack((np.asarray(proj[X2, Y2]).flatten(), np.ones(X2.size) * 0.3)).max(0)
 
     omp = nnm_internal0.tocsr()
     NNM = omp.multiply(x[:, None])

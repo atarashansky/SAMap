@@ -273,8 +273,8 @@ def ParalogSubstitutions(
 
     orths = to_vn(gn[np.vstack((np.array(Xo), np.array(Yo))).T])
     paras = to_vn(gn[np.vstack((np.array(Xp), np.array(Yp))).T])
-    orth_corrs = gnnm[Xo, Yo].toarray().flatten()
-    par_corrs = gnnm[Xp, Yp].toarray().flatten()
+    orth_corrs = np.asarray(gnnm[Xo, Yo]).flatten()
+    par_corrs = np.asarray(gnnm[Xp, Yp]).flatten()
     diff_corrs = par_corrs - orth_corrs
 
     RES = pd.DataFrame(

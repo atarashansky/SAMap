@@ -236,11 +236,13 @@ class GenePairFinder:
 
         X1 = _sparse_sub_standardize(sam1.adata[:, g1].X[x1 == c1, :], mu1, std1)
         X2 = _sparse_sub_standardize(sam2.adata[:, g2].X[x2 == c2, :], mu2, std2)
-        a, b = sam3.adata.obsp["connectivities"][sam3.adata.obs["species"] == id1, :][
-            :, sam3.adata.obs["species"] == id2
+        species_mask1 = (sam3.adata.obs["species"] == id1).values
+        species_mask2 = (sam3.adata.obs["species"] == id2).values
+        a, b = sam3.adata.obsp["connectivities"][species_mask1, :][
+            :, species_mask2
         ][x1 == c1, :][:, x2 == c2].nonzero()
-        c, d = sam3.adata.obsp["connectivities"][sam3.adata.obs["species"] == id2, :][
-            :, sam3.adata.obs["species"] == id1
+        c, d = sam3.adata.obsp["connectivities"][species_mask2, :][
+            :, species_mask1
         ][x2 == c2, :][:, x1 == c1].nonzero()
 
         pairs = np.unique(np.vstack((np.vstack((a, b)).T, np.vstack((d, c)).T)), axis=0)
