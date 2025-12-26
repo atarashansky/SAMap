@@ -15,13 +15,13 @@ from samap.analysis.scores import (
 
 __all__ = [
     "GOEA",
+    "CellTypeTriangles",
     "FunctionalEnrichment",
     "GenePairFinder",
-    "find_cluster_markers",
-    "sankey_plot",
-    "get_mapping_scores",
+    "GeneTriangles",
     "ParalogSubstitutions",
     "convert_eggnog_to_homologs",
-    "CellTypeTriangles",
-    "GeneTriangles",
+    "find_cluster_markers",
+    "get_mapping_scores",
+    "sankey_plot",
 ]

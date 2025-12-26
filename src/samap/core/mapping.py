@@ -117,16 +117,16 @@ class SAMAP:
         eval_thr: float = DEFAULT_EVAL_THRESHOLD,
     ) -> None:
         for key, data in sams.items():
-            if not (isinstance(data, str) or isinstance(data, SAM)):
+            if not (isinstance(data, str | SAM)):
                 raise TypeError(f"Input data {key} must be either a path or a SAM object.")
 
         ids = list(sams.keys())
 
         if keys is None:
-            keys = {sid: "leiden_clusters" for sid in ids}
+            keys = dict.fromkeys(ids, "leiden_clusters")
 
         if resolutions is None:
-            resolutions = {sid: DEFAULT_LEIDEN_RESOLUTION for sid in ids}
+            resolutions = dict.fromkeys(ids, DEFAULT_LEIDEN_RESOLUTION)
 
         for sid in ids:
             data = sams[sid]
@@ -158,7 +158,7 @@ class SAMAP:
             if key == "leiden_clusters":
                 sam.leiden_clustering(res=res)
 
-            if "PCs_SAMap" not in sam.adata.varm.keys():
+            if "PCs_SAMap" not in sam.adata.varm:
                 prepare_SAMap_loadings(sam)
 
             if save_processed and isinstance(data, str):
@@ -183,22 +183,22 @@ class SAMAP:
             prepend_var_prefix(sams[sid], sid)
             ge = _q(sams[sid].adata.var_names)
             gn = gns_dict[sid]
-            gns_list.append(gn[np.in1d(gn, ge)])
+            gns_list.append(gn[np.isin(gn, ge)])
             ges_list.append(ge)
 
-        f = np.in1d(gns, np.concatenate(gns_list))
+        f = np.isin(gns, np.concatenate(gns_list))
         gns = gns[f]
         gnnm_matrix = gnnm_matrix[f][:, f]
         A = pd.DataFrame(data=np.arange(gns.size)[None, :], columns=gns)
         ges = np.concatenate(ges_list)
-        ges = ges[np.in1d(ges, gns)]
+        ges = ges[np.isin(ges, gns)]
         ix = A[ges].values.flatten()
         gnnm_matrix = gnnm_matrix[ix][:, ix]
         gns = ges
 
         gns_dict = {}
         for i, sid in enumerate(ids):
-            gns_dict[sid] = ges[np.in1d(ges, gns_list[i])]
+            gns_dict[sid] = ges[np.isin(ges, gns_list[i])]
             logger.info(
                 "%d '%s' gene symbols match between the datasets and the BLAST graph.",
                 gns_dict[sid].size,
@@ -311,9 +311,9 @@ class SAMAP:
         smap = self.smap
 
         if neighborhood_sizes is None:
-            neighborhood_sizes = {sid: DEFAULT_NEIGHBORHOOD_SIZE for sid in ids}
+            neighborhood_sizes = dict.fromkeys(ids, DEFAULT_NEIGHBORHOOD_SIZE)
         if neigh_from_keys is None:
-            neigh_from_keys = {sid: False for sid in ids}
+            neigh_from_keys = dict.fromkeys(ids, False)
 
         start_time = time.time()
 
@@ -342,7 +342,9 @@ class SAMAP:
             )
             sc.tl.umap(self.samap.adata, min_dist=UMAP_MIN_DIST, init_pos="random", maxiter=maxiter)
 
-        ix = pd.Series(data=np.arange(samap.adata.shape[1]), index=samap.adata.var_names)[gns].values
+        ix = pd.Series(data=np.arange(samap.adata.shape[1]), index=samap.adata.var_names)[
+            gns
+        ].values
         rixer = pd.Series(index=np.arange(gns.size), data=ix)
 
         if smap.GNNMS_corr:
@@ -368,7 +370,7 @@ class SAMAP:
 
         gns_dict = {}
         for sid in ids:
-            gns_dict[sid] = self.gns[np.in1d(self.gns, _q(self.sams[sid].adata.var_names))]
+            gns_dict[sid] = self.gns[np.isin(self.gns, _q(self.sams[sid].adata.var_names))]
         self.gns_dict = gns_dict
 
         if umap:
@@ -391,13 +393,11 @@ class SAMAP:
             if self.samap.adata.shape[0] <= UMAP_SIZE_THRESHOLD
             else UMAP_MAXITER_LARGE
         )
-        sc.tl.umap(
-            self.samap.adata, min_dist=UMAP_MIN_DIST, init_pos="random", maxiter=maxiter
-        )
+        sc.tl.umap(self.samap.adata, min_dist=UMAP_MIN_DIST, init_pos="random", maxiter=maxiter)
         for sid in ids:
-            sams[sid].adata.obsm["X_umap_samap"] = self.samap.adata[
-                sams[sid].adata.obs_names
-            ].obsm["X_umap"]
+            sams[sid].adata.obsm["X_umap_samap"] = self.samap.adata[sams[sid].adata.obs_names].obsm[
+                "X_umap"
+            ]
 
     def query_gene_pairs(self, gene: str) -> dict[str, pd.Series]:
         """Get BLAST and correlation scores for all genes connected to query gene.
@@ -486,7 +486,7 @@ class SAMAP:
         matplotlib.axes.Axes
         """
         if sizes is None:
-            sizes = {sid: 3 for sid in self.ids}
+            sizes = dict.fromkeys(self.ids, 3)
 
         if colors is None:
             colors = {}
@@ -551,13 +551,13 @@ class SAMAP:
         """
         if len(list(gs.keys())) < len(list(self.sams.keys())):
             samap = SAM(
-                counts=self.samap.adata[np.in1d(self.samap.adata.obs["species"], list(gs.keys()))]
+                counts=self.samap.adata[np.isin(self.samap.adata.obs["species"], list(gs.keys()))]
             )
         else:
             samap = self.samap
 
         if ss is None:
-            ss = {sid: 3 for sid in self.ids}
+            ss = dict.fromkeys(self.ids, 3)
 
         if colors is None:
             colors = {}
@@ -577,7 +577,7 @@ class SAMAP:
 
         nnm = nnm.multiply(1 / su).tocsr()
         AS: dict[str, NDArray[Any]] = {}
-        for sid in gs.keys():
+        for sid in gs:
             g = gs[sid]
             try:
                 AS[sid] = self.sams[sid].adata[:, g].X.toarray().flatten()
@@ -588,31 +588,31 @@ class SAMAP:
                     raise KeyError(f"Gene not found in species {sid}") from None
 
         davgs: dict[str, NDArray[Any]] = {}
-        for sid in gs.keys():
+        for sid in gs:
             d = np.zeros(samap.adata.shape[0])
             d[samap.adata.obs["species"] == sid] = AS[sid]
             davg = np.asarray(nnm.dot(d)).flatten()
             davg[davg < thr] = 0
             davgs[sid] = davg
         davg = np.vstack(list(davgs.values())).min(0)
-        for sid in gs.keys():
+        for sid in gs:
             if davgs[sid].max() > 0:
                 davgs[sid] = davgs[sid] / davgs[sid].max()
         if davg.max() > 0:
             davg = davg / davg.max()
 
         cs: dict[str, NDArray[Any]] = {}
-        for sid in gs.keys():
-            c = hex_to_rgb(colors[sid]) + [0.0]
+        for sid in gs:
+            c = [*hex_to_rgb(colors[sid]), 0.0]
             cs[sid] = np.vstack([c] * davg.size)
             cs[sid][:, -1] = davgs[sid]
-        cc = hex_to_rgb(colorc) + [0.0]
+        cc = [*hex_to_rgb(colorc), 0.0]
         cc = np.vstack([cc] * davg.size)
         cc[:, -1] = davg
 
         ax = samap.scatter(projection="X_umap", colorspec=color0, axes=axes, s=s0)
 
-        for sid in gs.keys():
+        for sid in gs:
             samap.scatter(
                 projection="X_umap", c=cs[sid], axes=ax, s=ss[sid], colorbar=False, **kwargs
             )
@@ -683,7 +683,9 @@ class SAMAP:
         ]:
             gns.extend(gns_dict[sid])
         gns = _q(gns)
-        ix = pd.Series(data=np.arange(samap.adata.shape[1]), index=samap.adata.var_names)[gns].values
+        ix = pd.Series(data=np.arange(samap.adata.shape[1]), index=samap.adata.var_names)[
+            gns
+        ].values
         rixer = pd.Series(index=np.arange(gns.size), data=ix)
         x, y = gnnm.nonzero()
         d = gnnm.data
@@ -709,7 +711,7 @@ class _Samap_Iter:
         self.gns_dict = gns_dict
 
         if keys is None:
-            keys = {sid: "leiden_clusters" for sid in sams.keys()}
+            keys = dict.fromkeys(sams.keys(), "leiden_clusters")
 
         self.keys = keys
 
@@ -774,9 +776,9 @@ class _Samap_Iter:
         keys = self.keys
 
         if NHS is None:
-            NHS = {sid: 2 for sid in sams.keys()}
+            NHS = dict.fromkeys(sams.keys(), 2)
         if neigh_from_keys is None:
-            neigh_from_keys = {sid: False for sid in sams}
+            neigh_from_keys = dict.fromkeys(sams, False)
         gns = np.concatenate(list(gns_dict.values()))
 
         if self.iter > 0:
@@ -840,10 +842,7 @@ def _avg_as(s: SAM) -> pd.DataFrame:
         for j in range(xu.size):
             if i != j:
                 a[i, j] = (
-                    np.asarray(
-                        s.adata.obsp["connectivities"][x == xu[i], :][:, x == xu[j]]
-                        .sum(1)
-                    )
+                    np.asarray(s.adata.obsp["connectivities"][x == xu[i], :][:, x == xu[j]].sum(1))
                     .flatten()
                     .mean()
                     / s.adata.uns["mapping_K"]
@@ -900,6 +899,7 @@ def prepare_SAMap_loadings(sam: SAM, npcs: int = 300) -> None:
 
 # Include remaining internal functions from original mapping.py
 # These are simplified versions with proper type hints and error handling
+
 
 def _calculate_blast_graph(
     ids: list[str],
@@ -982,8 +982,8 @@ def _calculate_blast_graph(
                     gnnms = gnnms.multiply(gnnm).multiply(gnnm.T).tocsr()
                 gnnm = gnnms
 
-                f1 = np.where(np.in1d(gn, gn1))[0]
-                f2 = np.where(np.in1d(gn, gn2))[0]
+                f1 = np.where(np.isin(gn, gn1))[0]
+                f2 = np.where(np.isin(gn, gn2))[0]
                 f = np.append(f1, f2)
                 gn = gn[f]
                 gnnm = gnnm[f, :][:, f]
@@ -1038,13 +1038,13 @@ def _coarsen_blast_graph(
     sids = np.unique(sps)
     ss = []
     for sid in sids:
-        n = names.get(sid, None)
+        n = names.get(sid)
         if n is not None:
             n = np.array(n)
             n = (sid + "_" + n.astype("object")).astype("str")
             s1 = pd.Series(index=n[:, 0], data=n[:, 1])
             g = gns[sps == sid]
-            g = g[np.in1d(g, n[:, 0], invert=True)]
+            g = g[np.isin(g, n[:, 0], invert=True)]
             s2 = pd.Series(index=g, data=g)
             s = pd.concat([s1, s2])
         else:
@@ -1060,23 +1060,27 @@ def _coarsen_blast_graph(
     da = gnnm.data
 
     zgu, ix, ivx, cu = np.unique(
-        np.array([xg, yg]).astype("str"), axis=1, return_counts=True, return_index=True, return_inverse=True
+        np.array([xg, yg]).astype("str"),
+        axis=1,
+        return_counts=True,
+        return_index=True,
+        return_inverse=True,
     )
 
     xgu, ygu = zgu[:, cu > 1]
     xgyg = _q(xg.astype("object") + ";" + yg.astype("object"))
     xguygu = _q(xgu.astype("object") + ";" + ygu.astype("object"))
 
-    filt = np.in1d(xgyg, xguygu)
+    filt = np.isin(xgyg, xguygu)
 
     DF = pd.DataFrame(data=xgyg[filt][:, None], columns=["key"])
     DF["val"] = da[filt]
 
     dic = df_to_dict(DF, key_key="key")
 
-    xgu = _q([x.split(";")[0] for x in dic.keys()])
-    ygu = _q([x.split(";")[1] for x in dic.keys()])
-    replz = _q([max(dic[x]) for x in dic.keys()])
+    xgu = _q([x.split(";")[0] for x in dic])
+    ygu = _q([x.split(";")[1] for x in dic])
+    replz = _q([max(dic[x]) for x in dic])
 
     xgu1, ygu1 = zgu[:, cu == 1]
     xg = np.append(xgu1, xgu)
@@ -1127,7 +1131,7 @@ def _get_pairs(
     su[su == 0] = 1
     gnnm = gnnm.multiply(1 / su).tocsr()
     Ws = {}
-    for sid in sams.keys():
+    for sid in sams:
         Ws[sid] = sams[sid].adata.var["weights"][gns_dict[sid]].values
 
     W = np.concatenate(list(Ws.values()))
@@ -1254,7 +1258,7 @@ def _refine_corr(
     gns = np.concatenate(list(gns_dict.values()))
 
     x, y = gnnm.nonzero()
-    sam = list(sams.values())[0]
+    sam = next(iter(sams.values()))
     cl = sam.leiden_clustering(gnnm, res=0.5)
     ix = np.argsort(cl)
     NGPC = gns.size // NCLUSTERS + 1
@@ -1272,9 +1276,9 @@ def _refine_corr(
         gnnm_sub = gnnm[ixs[i], :][:, ixs[i]]
         gnsub = gns[ixs[i]]
         gns_dict_sub = {}
-        for sid in gns_dict.keys():
+        for sid in gns_dict:
             gn = gns_dict[sid]
-            gns_dict_sub[sid] = gn[np.in1d(gn, gnsub)]
+            gns_dict_sub[sid] = gn[np.isin(gn, gnsub)]
 
         gnnm2_sub = _refine_corr_parallel(
             sams,
@@ -1295,14 +1299,16 @@ def _refine_corr(
     indices_list = []
     pairs_list = []
     for i in range(len(GNNMSUBS)):
-        indices_list.append(np.unique(np.sort(np.vstack((GNNMSUBS[i].nonzero())).T, axis=1), axis=0))
+        indices_list.append(np.unique(np.sort(np.vstack(GNNMSUBS[i].nonzero()).T, axis=1), axis=0))
         pairs_list.append(GNSUBS[i][indices_list[-1]])
 
     GNS = pd.DataFrame(data=np.arange(gns.size)[None, :], columns=gns)
     gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
     for i in range(len(indices_list)):
         x, y = GNS[pairs_list[i][:, 0]].values.flatten(), GNS[pairs_list[i][:, 1]].values.flatten()
-        gnnm3[x, y] = np.asarray(GNNMSUBS[i][indices_list[i][:, 0], indices_list[i][:, 1]]).flatten()
+        gnnm3[x, y] = np.asarray(
+            GNNMSUBS[i][indices_list[i][:, 0], indices_list[i][:, 1]]
+        ).flatten()
 
     gnnm3 = gnnm3.tocsr()
     x, y = gnnm3.nonzero()
@@ -1331,7 +1337,7 @@ def _refine_corr_parallel(
 
     Ws = []
     ix = []
-    for sid in sams.keys():
+    for sid in sams:
         Ws.append(sams[sid].adata.var["weights"][gns_dict[sid]].values)
         ix += [sid] * gns_dict[sid].size
     ix = np.array(ix)
@@ -1343,7 +1349,7 @@ def _refine_corr_parallel(
     gnO = gn[w > 0]
     ix = ix[w > 0]
     gns_dictO = {}
-    for sid in gns_dict.keys():
+    for sid in gns_dict:
         gns_dictO[sid] = gnO[ix == sid]
 
     gnnmO = gnnm[w > 0, :][:, w > 0]
@@ -1392,7 +1398,7 @@ def _refine_corr_parallel(
 
     CORR = dict(zip(to_vn(np.vstack((gnO[p[:, 0]], gnO[p[:, 1]])).T), vals))
 
-    for k in CORR.keys():
+    for k in CORR:
         CORR[k] = 0 if CORR[k] < THR else CORR[k]
         if wscale:
             id1, id2 = [x.split("_")[0] for x in k.split(";")]
@@ -1405,8 +1411,12 @@ def _refine_corr_parallel(
     gnnm3 = sp.sparse.lil_matrix(gnnm.shape)
 
     if use_seq:
-        gnnm3[pairs[:, 0], pairs[:, 1]] = CORR_arr * np.asarray(gnnm2[pairs[:, 0], pairs[:, 1]]).flatten()
-        gnnm3[pairs[:, 1], pairs[:, 0]] = CORR_arr * np.asarray(gnnm2[pairs[:, 1], pairs[:, 0]]).flatten()
+        gnnm3[pairs[:, 0], pairs[:, 1]] = (
+            CORR_arr * np.asarray(gnnm2[pairs[:, 0], pairs[:, 1]]).flatten()
+        )
+        gnnm3[pairs[:, 1], pairs[:, 0]] = (
+            CORR_arr * np.asarray(gnnm2[pairs[:, 1], pairs[:, 0]]).flatten()
+        )
     else:
         gnnm3[pairs[:, 0], pairs[:, 1]] = CORR_arr
         gnnm3[pairs[:, 1], pairs[:, 0]] = CORR_arr
@@ -1470,10 +1480,10 @@ def _mapper(
 ) -> SAM:
     """Map cells between species."""
     if NHS is None:
-        NHS = {sid: 3 for sid in sams.keys()}
+        NHS = dict.fromkeys(sams.keys(), 3)
 
     if neigh_from_keys is None:
-        neigh_from_keys = {sid: False for sid in sams.keys()}
+        neigh_from_keys = dict.fromkeys(sams.keys(), False)
 
     if mdata is None:
         mdata = _mapping_window(sams, gnnm, gn, K=K, pairwise=pairwise)
@@ -1481,13 +1491,13 @@ def _mapper(
     k1 = K
 
     if keys is None:
-        keys = {sid: "leiden_clusters" for sid in sams.keys()}
+        keys = dict.fromkeys(sams.keys(), "leiden_clusters")
 
     nnms_in: dict[str, Any] = {}
     nnms_in0: dict[str, Any] = {}
     flag = False
     species_indexer = []
-    for sid in sams.keys():
+    for sid in sams:
         logger.info("Expanding neighbourhoods of species %s...", sid)
         cl = sams[sid].get_labels(keys[sid])
         _, ix, cluc = np.unique(cl, return_counts=True, return_inverse=True)
@@ -1572,7 +1582,7 @@ def _mapper(
         D = D.multiply(ma / ma2).tocsr()
 
     species_list = []
-    for sid in sams.keys():
+    for sid in sams:
         species_list += [sid] * sams[sid].adata.shape[0]
     species_list = np.array(species_list)
 
@@ -1581,9 +1591,9 @@ def _mapper(
         denom = k1
     else:
         Dk = []
-        for sid1 in sams.keys():
+        for sid1 in sams:
             row = []
-            for sid2 in sams.keys():
+            for sid2 in sams:
                 if sid1 != sid2:
                     Dsubk = sparse_knn(D[species_list == sid1][:, species_list == sid2], k1).tocsr()
                 else:
@@ -1611,8 +1621,8 @@ def _mapper(
     s[s == 0] = 1
     proj = proj.multiply(1 / s).tocsr()
     X, Y = omp.nonzero()
-    X2 = X[np.in1d(X, idx)]
-    Y2 = Y[np.in1d(X, idx)]
+    X2 = X[np.isin(X, idx)]
+    Y2 = Y[np.isin(X, idx)]
 
     omp = omp.tolil()
     omp[X2, Y2] = np.vstack((np.asarray(proj[X2, Y2]).flatten(), np.ones(X2.size) * 0.3)).max(0)
@@ -1668,8 +1678,8 @@ def _concatenate_sam(sams: dict[str, SAM], nnm: sp.sparse.lil_matrix) -> SAM:
         "use_rep": "X",
         "metric": "euclidean",
     }
-    for i in sams.keys():
-        for k in sams[i].adata.obs.keys():
+    for i in sams:
+        for k in sams[i].adata.obs:
             if sams[i].adata.obs[k].dtype.name == "category":
                 z = np.array(["unassigned"] * sam.adata.shape[0], dtype="object")
                 z[sps_arr == i] = _q(sams[i].adata.obs[k])
@@ -1711,8 +1721,8 @@ def _mapping_window(
         ss = {}
         species_indexer = []
         genes_indexer = []
-        for sid in sams.keys():
-            gs[sid] = gns[np.in1d(gns, _q(sams[sid].adata.var_names))]
+        for sid in sams:
+            gs[sid] = gns[np.isin(gns, _q(sams[sid].adata.var_names))]
             adatas[sid] = sams[sid].adata[:, gs[sid]]
             Ws[sid] = adatas[sid].var["weights"].values
             ss[sid] = std.fit_transform(adatas[sid].X).multiply(Ws[sid][None, :]).tocsr()
@@ -1734,9 +1744,9 @@ def _mapping_window(
         if pairwise:
             logger.info("Translating feature spaces pairwise.")
             Xtr = []
-            for i, sid1 in enumerate(sams.keys()):
+            for i, _sid1 in enumerate(sams.keys()):
                 xtr = []
-                for j, sid2 in enumerate(sams.keys()):
+                for j, _sid2 in enumerate(sams.keys()):
                     if i != j:
                         gnnm_corr_sub = gnnm_corr[genes_indexer[i]][:, genes_indexer[j]]
                         su = np.asarray(gnnm_corr_sub.sum(0))
@@ -1767,12 +1777,12 @@ def _mapping_window(
         gc.collect()
 
         logger.info("Projecting data into joint latent space. %.2fs", time.time() - ttt)
-        C = sp.linalg.block_diag(*[adatas[sid].varm["PCs_SAMap"] for sid in sams.keys()])
+        C = sp.linalg.block_diag(*[adatas[sid].varm["PCs_SAMap"] for sid in sams])
         M = np.vstack(mus).dot(C)
         ttt = time.time()
         it = 0
         PCAs = []
-        for sid in sams.keys():
+        for sid in sams:
             PCAs.append(Xc[:, it : it + gs[sid].size].dot(adatas[sid].varm["PCs_SAMap"]))
             it += gs[sid].size
         wpca = np.hstack(PCAs)
@@ -1791,7 +1801,7 @@ def _mapping_window(
         ss = {}
         species_indexer = []
         mus = []
-        for sid in sams.keys():
+        for sid in sams:
             adatas[sid] = sams[sid].adata
             Ws[sid] = adatas[sid].var["weights"].values
             ss[sid] = std.fit_transform(adatas[sid].X).multiply(Ws[sid][None, :]).tocsr()
@@ -1800,7 +1810,7 @@ def _mapping_window(
         for i in range(1, len(species_indexer)):
             species_indexer[i] = species_indexer[i] + species_indexer[i - 1].max() + 1
         X = sp.sparse.vstack(list(ss.values()))
-        C = np.hstack([adatas[sid].varm["PCs_SAMap"] for sid in sams.keys()])
+        C = np.hstack([adatas[sid].varm["PCs_SAMap"] for sid in sams])
         wpca = X.dot(C)
         M = np.vstack(mus).dot(C)
         for i, sid in enumerate(sams.keys()):
@@ -1815,7 +1825,7 @@ def _mapping_window(
         ixq = species_indexer[i]
         query = wpca[ixq]
 
-        for j, sid2 in enumerate(sams.keys()):
+        for j, _sid2 in enumerate(sams.keys()):
             if i != j:
                 ixr = species_indexer[j]
                 reference = wpca[ixr]
@@ -1856,18 +1866,13 @@ def _sparse_knn_ks(D: sp.sparse.coo_matrix, ks: NDArray[Any]) -> sp.sparse.coo_m
         idx = np.argsort(D1.data[ind[i] : ind[i + 1]])
         k = ks[row[i]]
         if idx.size > k:
-            if k != 0:
-                idx = idx[:-k]
-            else:
-                idx = idx
+            idx = idx[:-k] if k != 0 else idx
             D1.data[np.arange(ind[i], ind[i + 1])[idx]] = 0
     D1.eliminate_zeros()
     return D1
 
 
-def _smart_expand(
-    nnm: sp.sparse.csr_matrix, K: NDArray[Any], NH: int = 3
-) -> sp.sparse.csr_matrix:
+def _smart_expand(nnm: sp.sparse.csr_matrix, K: NDArray[Any], NH: int = 3) -> sp.sparse.csr_matrix:
     """Expand neighborhoods progressively."""
     stage0 = nnm.copy()
     S = [stage0]

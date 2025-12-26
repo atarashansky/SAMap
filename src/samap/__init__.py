@@ -21,9 +21,6 @@ from __future__ import annotations
 __version__ = "2.0.0"
 
 # Core imports
-from samap.core.mapping import SAMAP
-from samap.io import load_samap, save_samap
-
 # Analysis imports
 from samap.analysis import (
     GOEA,
@@ -37,6 +34,8 @@ from samap.analysis import (
     get_mapping_scores,
     sankey_plot,
 )
+from samap.core.mapping import SAMAP
+from samap.io import load_samap, save_samap
 
 # Utilities
 from samap.utils import (
@@ -49,29 +48,29 @@ from samap.utils import (
 )
 
 __all__ = [
-    # Version
-    "__version__",
-    # Core
-    "SAMAP",
-    # I/O
-    "save_samap",
-    "load_samap",
     # Analysis
     "GOEA",
+    # Core
+    "SAMAP",
+    "CellTypeTriangles",
     "FunctionalEnrichment",
     "GenePairFinder",
+    "GeneTriangles",
+    "ParalogSubstitutions",
+    # Version
+    "__version__",
+    "convert_eggnog_to_homologs",
+    "df_to_dict",
     "find_cluster_markers",
     "get_mapping_scores",
-    "sankey_plot",
-    "ParalogSubstitutions",
-    "convert_eggnog_to_homologs",
-    "CellTypeTriangles",
-    "GeneTriangles",
+    "load_samap",
     # Utilities
     "prepend_var_prefix",
-    "df_to_dict",
+    "sankey_plot",
+    # I/O
+    "save_samap",
+    "sparse_knn",
+    "substr",
     "to_vn",
     "to_vo",
-    "substr",
-    "sparse_knn",
 ]

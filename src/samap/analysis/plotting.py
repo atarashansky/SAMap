@@ -137,26 +137,36 @@ def sankey_plot(
     # Assign colors based on species
     species_list = [node.split("_")[0] for node in all_nodes]
     unique_species = list(dict.fromkeys(species_list))  # preserve order
-    colorscale = params.get("colorscale", "Viridis")
+    params.get("colorscale", "Viridis")
 
     # Generate colors for each species
     n_species = len(unique_species)
     if n_species <= 10:
         # Use qualitative colors for small number of species
         default_colors = [
-            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+            "#1f77b4",
+            "#ff7f0e",
+            "#2ca02c",
+            "#d62728",
+            "#9467bd",
+            "#8c564b",
+            "#e377c2",
+            "#7f7f7f",
+            "#bcbd22",
+            "#17becf",
         ]
-        species_colors = {sp: default_colors[i % len(default_colors)]
-                         for i, sp in enumerate(unique_species)}
+        species_colors = {
+            sp: default_colors[i % len(default_colors)] for i, sp in enumerate(unique_species)
+        }
     else:
         # Fall back to colorscale
         import colorsys
+
         species_colors = {}
         for i, sp in enumerate(unique_species):
             hue = i / n_species
             rgb = colorsys.hls_to_rgb(hue, 0.5, 0.7)
-            species_colors[sp] = f"rgb({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)})"
+            species_colors[sp] = f"rgb({int(rgb[0] * 255)},{int(rgb[1] * 255)},{int(rgb[2] * 255)})"
 
     node_colors = [species_colors[sp] for sp in species_list]
 
@@ -178,34 +188,38 @@ def sankey_plot(
     # Extract parameters
     node_padding = params.get("node_padding", 20)
     node_thickness = params.get("node_thickness", 20)
-    node_opacity = params.get("node_opacity", 1.0)
+    params.get("node_opacity", 1.0)
     height = params.get("height", 800)
     width = params.get("width", 1000)
     bgcolor = params.get("bgcolor", "white")
     font_size = params.get("font_size", 12)
     font_color = params.get("font_color", "black")
-    title = params.get("title", None)
+    title = params.get("title")
 
     # Create the Sankey diagram
-    fig = go.Figure(data=[go.Sankey(
-        node=dict(
-            pad=node_padding,
-            thickness=node_thickness,
-            line=dict(color="black", width=0.5),
-            label=list(all_nodes),
-            color=node_colors,
-        ),
-        link=dict(
-            source=source_indices,
-            target=target_indices,
-            value=list(R["value"]),
-            color=link_colors,
-        ),
-    )])
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                node={
+                    "pad": node_padding,
+                    "thickness": node_thickness,
+                    "line": {"color": "black", "width": 0.5},
+                    "label": list(all_nodes),
+                    "color": node_colors,
+                },
+                link={
+                    "source": source_indices,
+                    "target": target_indices,
+                    "value": list(R["value"]),
+                    "color": link_colors,
+                },
+            )
+        ]
+    )
 
     fig.update_layout(
-        title=dict(text=title) if title else None,
-        font=dict(size=font_size, color=font_color),
+        title={"text": title} if title else None,
+        font={"size": font_size, "color": font_color},
         paper_bgcolor=bgcolor,
         plot_bgcolor=bgcolor,
         height=height,
@@ -213,5 +227,3 @@ def sankey_plot(
     )
 
     return fig
-
-

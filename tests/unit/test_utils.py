@@ -151,7 +151,6 @@ class TestToVo:
         """Test that to_vo converts semicolon strings back to pairs."""
         # This test requires samalg to be installed
         pytest.importorskip("samalg")
-        from samap.utils import to_vo
 
         vn_strings = np.array(["gene1;gene2", "gene3;gene4"])
         result = to_vo(vn_strings)

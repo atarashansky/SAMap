@@ -81,11 +81,11 @@ def GOEA(
     if goterms is None:
         goterms = np.unique(list(gene_sets.keys()))
     else:
-        goterms = goterms[np.in1d(goterms, np.unique(list(gene_sets.keys())))]
+        goterms = goterms[np.isin(goterms, np.unique(list(gene_sets.keys())))]
 
     _, ix = np.unique(target_genes, return_index=True)
     target_genes = target_genes[np.sort(ix)]
-    target_genes = target_genes[np.in1d(target_genes, all_genes)]
+    target_genes = target_genes[np.isin(target_genes, all_genes)]
 
     N = all_genes.size
 
@@ -95,7 +95,7 @@ def GOEA(
     for goterm in goterms:
         gene_set = np.array(gene_sets[goterm])
         B = gene_set.size
-        gene_set_in_target = gene_set[np.in1d(gene_set, target_genes)]
+        gene_set_in_target = gene_set[np.isin(gene_set, target_genes)]
         b = gene_set_in_target.size
         if b != 0:
             n = target_genes.size
@@ -104,7 +104,9 @@ def GOEA(
             probs.append(
                 sum(
                     [
-                        np.exp(_log_binomial(n, i) + _log_binomial(N - n, B - i) - _log_binomial(N, B))
+                        np.exp(
+                            _log_binomial(n, i) + _log_binomial(N - n, B - i) - _log_binomial(N, B)
+                        )
                         for i in rng
                     ]
                 )
@@ -174,7 +176,7 @@ class FunctionalEnrichment:
             sm.sams[sid] = sams[sid]
             gc.collect()
 
-        for k in dfs.keys():
+        for k in dfs:
             dfs[k].index = k + "_" + dfs[k].index
 
         A = pd.concat(list(dfs.values()), axis=0)
@@ -208,7 +210,7 @@ class FunctionalEnrichment:
         bounds_right = bounds[1:]
         genes_lists = [genes[bounds_left[i] : bounds_right[i]] for i in range(bounds_left.size)]
         gene_sets = dict(zip(np.unique(agt), genes_lists))
-        for cc in gene_sets.keys():
+        for cc in gene_sets:
             gene_sets[cc] = np.unique(gene_sets[cc])
 
         logger.info("Finding enriched gene pairs...")
@@ -224,19 +226,23 @@ class FunctionalEnrichment:
                     self.DICT[c] = x[ff]
 
         if limit_reference:
-            all_genes = np.unique(np.concatenate(substr(np.concatenate(list(self.DICT.values())), ";")))
+            all_genes = np.unique(
+                np.concatenate(substr(np.concatenate(list(self.DICT.values())), ";"))
+            )
         else:
             all_genes = np.unique(np.array(list(A.index)))
 
-        for d in gene_sets.keys():
-            gene_sets[d] = gene_sets[d][np.in1d(gene_sets[d], all_genes)]
+        for d in gene_sets:
+            gene_sets[d] = gene_sets[d][np.isin(gene_sets[d], all_genes)]
 
         self.gene_pairs = gene_pairs
         self.CAT_NAMES = np.unique(np.array(list(RES["GO"])))
         self.GENE_SETS = gene_sets
         self.RES = RES
 
-    def calculate_enrichment(self, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def calculate_enrichment(
+        self, verbose: bool = False
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Calculate functional enrichment.
 
         Parameters
@@ -282,8 +288,8 @@ class FunctionalEnrichment:
             g = CCG[cln]
 
             if g.size > 0:
-                gi = g[np.in1d(g, np.array(list(RES.index)))]
-                ix = np.where(np.in1d(np.array(list(RES.index)), gi))[0]
+                gi = g[np.isin(g, np.array(list(RES.index)))]
+                ix = np.where(np.isin(np.array(list(RES.index)), gi))[0]
                 res = RES.iloc[ix]
                 goterms = np.unique(np.array(list(res["GO"])))
                 goterms = goterms[goterms != "S"].flatten()
@@ -370,8 +376,9 @@ class FunctionalEnrichment:
         SCe = SCe.iloc[ixcol].iloc[:, ixrow]
         SCg = SCg.iloc[ixcol].iloc[:, ixrow]
 
-        x, y = np.tile(np.arange(SC.shape[0]), SC.shape[1]), np.repeat(
-            np.arange(SC.shape[1]), SC.shape[0]
+        x, y = (
+            np.tile(np.arange(SC.shape[0]), SC.shape[1]),
+            np.repeat(np.arange(SC.shape[1]), SC.shape[0]),
         )
         co = SC.values[x, y].flatten()
         ms = SCe.values[x, y].flatten()

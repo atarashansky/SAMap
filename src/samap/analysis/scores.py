@@ -73,7 +73,7 @@ def _compute_csim(
 
     A = pd.DataFrame(data=np.vstack((p, di)).T, columns=["x", "y"])
     valdict = df_to_dict(A, key_key="x", val_key="y")
-    cell_scores = [valdict[k].sum() for k in valdict.keys()]
+    cell_scores = [valdict[k].sum() for k in valdict]
     ixer = pd.Series(data=np.arange(clu.size), index=clu)
     if len(valdict.keys()) > 0:
         xc, yc = substr(list(valdict.keys()), ";")
@@ -119,7 +119,7 @@ def get_mapping_scores(
     """
     if len(list(keys.keys())) < len(list(sm.sams.keys())):
         samap = SAM(
-            counts=sm.samap.adata[np.in1d(sm.samap.adata.obs["species"], list(keys.keys()))]
+            counts=sm.samap.adata[np.isin(sm.samap.adata.obs["species"], list(keys.keys()))]
         )
     else:
         samap = sm.samap
@@ -217,7 +217,9 @@ def ParalogSubstitutions(
             L = np.vstack((L2, L1)).T
             pps = np.unique(np.sort(L, axis=1), axis=0)
 
-            paralog_pairs = np.unique(np.sort(np.vstack((pps, paralog_pairs[ixnot])), axis=1), axis=0)
+            paralog_pairs = np.unique(
+                np.sort(np.vstack((pps, paralog_pairs[ixnot])), axis=1), axis=0
+            )
 
     smp = sm.samap
 
@@ -227,19 +229,19 @@ def ParalogSubstitutions(
     ortholog_pairs = np.sort(ortholog_pairs, axis=1)
 
     ortholog_pairs = ortholog_pairs[
-        np.logical_and(np.in1d(ortholog_pairs[:, 0], gn), np.in1d(ortholog_pairs[:, 1], gn))
+        np.logical_and(np.isin(ortholog_pairs[:, 0], gn), np.isin(ortholog_pairs[:, 1], gn))
     ]
     if paralog_pairs is None:
         paralog_pairs = gn[np.vstack(smp.adata.varp["homology_graph"].nonzero()).T]
     else:
         paralog_pairs = paralog_pairs[
-            np.logical_and(np.in1d(paralog_pairs[:, 0], gn), np.in1d(paralog_pairs[:, 1], gn))
+            np.logical_and(np.isin(paralog_pairs[:, 0], gn), np.isin(paralog_pairs[:, 1], gn))
         ]
 
     paralog_pairs = np.sort(paralog_pairs, axis=1)
 
     paralog_pairs = paralog_pairs[
-        np.in1d(
+        np.isin(
             to_vn(paralog_pairs),
             np.append(to_vn(ortholog_pairs), to_vn(ortholog_pairs[:, ::-1])),
             invert=True,
@@ -292,7 +294,7 @@ def ParalogSubstitutions(
         parassp = np.vstack([np.array([x.split("_")[0] for x in xx]) for xx in to_vo(paras)])
         filt = []
         for i in range(orthssp.shape[0]):
-            filt.append(np.in1d(orthssp[i], parassp[i]).mean() == 1.0)
+            filt.append(np.isin(orthssp[i], parassp[i]).mean() == 1.0)
         filt = np.array(filt)
         return RES[filt]
     else:
@@ -327,18 +329,18 @@ def convert_eggnog_to_homologs(
 
     taxon_str = str(taxon)
     eggs_copy = dict(zip(list(eggs.keys()), list(eggs.values())))
-    for k in eggs_copy.keys():
+    for k in eggs_copy:
         eggs_copy[k] = eggs_copy[k].copy()
 
     Es = []
-    for k in eggs_copy.keys():
+    for k in eggs_copy:
         A = eggs_copy[k]
         A.index = k + "_" + A.index
         Es.append(A)
 
     A = pd.concat(Es, axis=0)
     gn = _q(smp.adata.var_names)
-    A = A[np.in1d(_q(A.index), gn)]
+    A = A[np.isin(_q(A.index), gn)]
 
     orthology_groups = A[og_key]
     og = _q(orthology_groups)
@@ -373,7 +375,7 @@ def convert_eggnog_to_homologs(
     B = B.tocsr()
     B = B.dot(B.T)
     B.data[:] = 1
-    pairs = gn[np.vstack((B.nonzero())).T]
+    pairs = gn[np.vstack(B.nonzero()).T]
     pairssp = np.vstack([_q([x.split("_")[0] for x in xx]) for xx in pairs])
     return np.unique(np.sort(pairs[pairssp[:, 0] != pairssp[:, 1]], axis=1), axis=0)
 
@@ -570,16 +572,40 @@ def GeneTriangles(
 
         if doPsubsAll:
             f1 = np.logical_and(
-                ((ops[:, 0] == A_sid) * (ops[:, 1] == B_sid) + (ops[:, 0] == B_sid) * (ops[:, 1] == A_sid)) > 0,
-                ((pps[:, 0] == A_sid) * (pps[:, 1] == B_sid) + (pps[:, 0] == B_sid) * (pps[:, 1] == A_sid)) > 0,
+                (
+                    (ops[:, 0] == A_sid) * (ops[:, 1] == B_sid)
+                    + (ops[:, 0] == B_sid) * (ops[:, 1] == A_sid)
+                )
+                > 0,
+                (
+                    (pps[:, 0] == A_sid) * (pps[:, 1] == B_sid)
+                    + (pps[:, 0] == B_sid) * (pps[:, 1] == A_sid)
+                )
+                > 0,
             )
             f2 = np.logical_and(
-                ((ops[:, 0] == A_sid) * (ops[:, 1] == C_sid) + (ops[:, 0] == C_sid) * (ops[:, 1] == A_sid)) > 0,
-                ((pps[:, 0] == A_sid) * (pps[:, 1] == C_sid) + (pps[:, 0] == C_sid) * (pps[:, 1] == A_sid)) > 0,
+                (
+                    (ops[:, 0] == A_sid) * (ops[:, 1] == C_sid)
+                    + (ops[:, 0] == C_sid) * (ops[:, 1] == A_sid)
+                )
+                > 0,
+                (
+                    (pps[:, 0] == A_sid) * (pps[:, 1] == C_sid)
+                    + (pps[:, 0] == C_sid) * (pps[:, 1] == A_sid)
+                )
+                > 0,
             )
             f3 = np.logical_and(
-                ((ops[:, 0] == B_sid) * (ops[:, 1] == C_sid) + (ops[:, 0] == C_sid) * (ops[:, 1] == B_sid)) > 0,
-                ((pps[:, 0] == B_sid) * (pps[:, 1] == C_sid) + (pps[:, 0] == C_sid) * (pps[:, 1] == B_sid)) > 0,
+                (
+                    (ops[:, 0] == B_sid) * (ops[:, 1] == C_sid)
+                    + (ops[:, 0] == C_sid) * (ops[:, 1] == B_sid)
+                )
+                > 0,
+                (
+                    (pps[:, 0] == B_sid) * (pps[:, 1] == C_sid)
+                    + (pps[:, 0] == C_sid) * (pps[:, 1] == B_sid)
+                )
+                > 0,
             )
             _ = f1.sum() > 0 and f2.sum() > 0 and f3.sum() > 0  # Not used in simplified version
         else:
@@ -613,9 +639,15 @@ def GeneTriangles(
         DF = pd.DataFrame(data=Z, columns=[x.split("_")[0] for x in Z[0]])
         DF = DF[[A_sid, B_sid, C_sid]]
 
-        orth1DF = pd.DataFrame(data=orth1, columns=[x.split("_")[0] for x in orth1[0]])[[A_sid, B_sid]]
-        orth2DF = pd.DataFrame(data=orth2, columns=[x.split("_")[0] for x in orth2[0]])[[A_sid, C_sid]]
-        orth3DF = pd.DataFrame(data=orth3, columns=[x.split("_")[0] for x in orth3[0]])[[B_sid, C_sid]]
+        orth1DF = pd.DataFrame(data=orth1, columns=[x.split("_")[0] for x in orth1[0]])[
+            [A_sid, B_sid]
+        ]
+        orth2DF = pd.DataFrame(data=orth2, columns=[x.split("_")[0] for x in orth2[0]])[
+            [A_sid, C_sid]
+        ]
+        orth3DF = pd.DataFrame(data=orth3, columns=[x.split("_")[0] for x in orth3[0]])[
+            [B_sid, C_sid]
+        ]
 
         AB = to_vn(DF[[A_sid, B_sid]].values)
         AC = to_vn(DF[[A_sid, C_sid]].values)
@@ -628,7 +660,7 @@ def GeneTriangles(
             [0, 1, 2], [AB, AC, BC], [orth1DF, orth2DF, orth3DF], [CORR1, CORR2, CORR3]
         ):
             cat = _q(["homolog"] * pairs_x.size).astype("object")
-            cat[np.in1d(pairs_x, to_vn(orth_df.values))] = "ortholog"
+            cat[np.isin(pairs_x, to_vn(orth_df.values))] = "ortholog"
             AV = np.zeros(pairs_x.size, dtype="object")
             corr = corr_r[pairs_x].values.flatten()
             AVs.append(AV)
@@ -674,7 +706,9 @@ def GeneTriangles(
         FINAL["#orthologs"] = (cat_pairs == "ortholog").sum(1)
         FINAL["#substitutions"] = (cat_pairs == "substitution").sum(1)
         FINAL = FINAL[(FINAL["#orthologs"] + FINAL["#substitutions"]) == 3]
-        x = FINAL[[f"{A_sid}/{B_sid} corr", f"{A_sid}/{C_sid} corr", f"{B_sid}/{C_sid} corr"]].min(1)
+        x = FINAL[[f"{A_sid}/{B_sid} corr", f"{A_sid}/{C_sid} corr", f"{B_sid}/{C_sid} corr"]].min(
+            1
+        )
         FINAL["min_corr"] = x
         FINAL = FINAL[x > corr_thr]
         if keys is not None:

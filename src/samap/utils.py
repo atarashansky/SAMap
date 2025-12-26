@@ -130,10 +130,7 @@ def df_to_dict(
     if val_key is None:
         val_key = []
 
-    if key_key is None:
-        index = list(df.index)
-    else:
-        index = list(df[key_key].values)
+    index = list(df.index) if key_key is None else list(df[key_key].values)
 
     if len(val_key) == 0:
         val_key = list(df.columns)
@@ -189,7 +186,7 @@ def to_vo(op: NDArray[Any]) -> NDArray[Any]:
     """
     import samalg.utilities as ut
 
-    return np.vstack((ut.extract_annotation(op, None, ";"))).T
+    return np.vstack(ut.extract_annotation(op, None, ";")).T
 
 
 def substr(

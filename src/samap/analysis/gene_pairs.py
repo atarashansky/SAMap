@@ -40,7 +40,7 @@ class GenePairFinder:
 
     def __init__(self, sm: SAMAP, keys: dict[str, str] | None = None) -> None:
         if keys is None:
-            keys = {sid: "leiden_clusters" for sid in sm.sams.keys()}
+            keys = dict.fromkeys(sm.sams.keys(), "leiden_clusters")
         self.sm = sm
         self.sams = sm.sams
         self.s3 = sm.samap
@@ -52,7 +52,7 @@ class GenePairFinder:
 
         mus = {}
         stds = {}
-        for sid in self.sams.keys():
+        for sid in self.sams:
             self.sams[sid].adata.obs[keys[sid]] = self.sams[sid].adata.obs[keys[sid]].astype("str")
             mu, var = sf.mean_variance_axis(self.sams[sid].adata[:, self.gns_dict[sid]].X, axis=0)
             var[var == 0] = 1
@@ -67,11 +67,11 @@ class GenePairFinder:
 
     def find_markers(self) -> None:
         """Find cluster-specific markers for all species."""
-        for sid in self.sams.keys():
+        for sid in self.sams:
             logger.info("Finding cluster-specific markers in %s:%s.", sid, self.keys[sid])
             import gc
 
-            if self.keys[sid] + "_scores" not in self.sams[sid].adata.varm.keys():
+            if self.keys[sid] + "_scores" not in self.sams[sid].adata.varm:
                 find_cluster_markers(self.sams[sid], self.keys[sid])
                 gc.collect()
 
@@ -238,12 +238,12 @@ class GenePairFinder:
         X2 = _sparse_sub_standardize(sam2.adata[:, g2].X[x2 == c2, :], mu2, std2)
         species_mask1 = (sam3.adata.obs["species"] == id1).values
         species_mask2 = (sam3.adata.obs["species"] == id2).values
-        a, b = sam3.adata.obsp["connectivities"][species_mask1, :][
-            :, species_mask2
-        ][x1 == c1, :][:, x2 == c2].nonzero()
-        c, d = sam3.adata.obsp["connectivities"][species_mask2, :][
-            :, species_mask1
-        ][x2 == c2, :][:, x1 == c1].nonzero()
+        a, b = sam3.adata.obsp["connectivities"][species_mask1, :][:, species_mask2][x1 == c1, :][
+            :, x2 == c2
+        ].nonzero()
+        c, d = sam3.adata.obsp["connectivities"][species_mask2, :][:, species_mask1][x2 == c2, :][
+            :, x1 == c1
+        ].nonzero()
 
         pairs = np.unique(np.vstack((np.vstack((a, b)).T, np.vstack((d, c)).T)), axis=0)
 
@@ -256,7 +256,9 @@ class GenePairFinder:
         val = sav1 * sav2 / sav1.size
         X1.data[:] = 1
         X2.data[:] = 1
-        min_expr = (np.asarray(X1.mean(0)).flatten() > expr_thr) * (np.asarray(X2.mean(0)).flatten() > expr_thr)
+        min_expr = (np.asarray(X1.mean(0)).flatten() > expr_thr) * (
+            np.asarray(X2.mean(0)).flatten() > expr_thr
+        )
 
         w1 = sam1.adata.var["weights"][g1].values.copy()
         w2 = sam2.adata.var["weights"][g2].values.copy()
@@ -267,7 +269,9 @@ class GenePairFinder:
         return val * w1 * w2 * min_expr, to_vn(np.array([g1, g2]).T)
 
 
-def find_cluster_markers(sam: SAM, key: str, inplace: bool = True) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | None:
+def find_cluster_markers(
+    sam: SAM, key: str, inplace: bool = True
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | None:
     """Find differentially expressed genes for cell type labels.
 
     Parameters
@@ -290,7 +294,7 @@ def find_cluster_markers(sam: SAM, key: str, inplace: bool = True) -> tuple[pd.D
         a, c = np.unique(_q(sam.adata.obs[key]), return_counts=True)
         t = a[c == 1]
 
-        adata = sam.adata[np.in1d(_q(sam.adata.obs[key]), a[c == 1], invert=True)].copy()
+        adata = sam.adata[np.isin(_q(sam.adata.obs[key]), a[c == 1], invert=True)].copy()
         sc.tl.rank_genes_groups(
             adata,
             key,

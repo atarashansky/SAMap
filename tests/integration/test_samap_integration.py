@@ -1,12 +1,12 @@
 """Integration tests for SAMAP using example data."""
 
-import pytest
 from pathlib import Path
 
+import pytest
 from samalg import SAM
-from samap import SAMAP
-from samap.analysis import get_mapping_scores, sankey_plot, GenePairFinder
 
+from samap import SAMAP
+from samap.analysis import GenePairFinder, get_mapping_scores, sankey_plot
 
 # Path to example data relative to repo root
 EXAMPLE_DATA = Path(__file__).parent.parent.parent / "example_data"
@@ -113,6 +113,7 @@ class TestSAMAPMapping:
 
         # Verify it's a plotly figure
         import plotly.graph_objects as go
+
         assert isinstance(fig, go.Figure)
 
         # Verify the sankey has nodes and links
