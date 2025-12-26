@@ -1,4 +1,4 @@
-# SAMap -- version 1.0.15
+# SAMap -- version 2.0.0
 
 # Citation
 Please cite the following paper if using SAMap: https://elifesciences.org/articles/66747
@@ -9,7 +9,7 @@ Tarashansky, Alexander J., et al. "Mapping single-cell atlases throughout Metazo
 
 ### pip
 
-`pip install samap`
+`pip install sc-samap`
 
 ### Manual installation
 Download Anacodna from here:

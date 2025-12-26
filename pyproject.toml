@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "samap"
-version = "2.0.0"
+name = "sc-samap"
+version = "2.0.2"
 description = "The SAMap algorithm"
 readme = "README.md"
 license = "MIT"
@@ -33,7 +33,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "sam-algorithm>=1.0.2",
+    "sc-sam>=2.0.0",
     "numpy>=1.26.0",
     "scipy>=1.11.0",
     "scanpy>=1.10.0",
@@ -66,6 +66,16 @@ Homepage = "https://github.com/atarashansky/SAMap"
 Documentation = "https://github.com/atarashansky/SAMap"
 Repository = "https://github.com/atarashansky/SAMap"
 Issues = "https://github.com/atarashansky/SAMap/issues"
+
+[tool.hatch.build]
+exclude = [
+    "example_data/",
+    "*.h5ad",
+    "*.h5",
+    "*.hdf5",
+    "tests/",
+    "docs/",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/samap"]
