@@ -92,8 +92,9 @@ def _patch_hnswlib(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace the hnswlib module seen by samap with a deterministic shim.
 
     ``samap.core.mapping`` does a top-level ``import hnswlib`` — that's the
-    only call site reached during the golden pipeline (samalg's hnswlib usage
-    is gated behind update_manifold=True, which SAMap does not trigger).
+    only call site reached during the golden pipeline (samap.sam's hnswlib
+    usage is gated behind ``SAM.run()``/``calculate_nnm``, which the pipeline
+    does not call — input SAMs are pre-computed and loaded from h5ad).
     """
     import samap.core.mapping as mapping
 
@@ -116,9 +117,8 @@ def _run_pipeline(monkeypatch: pytest.MonkeyPatch) -> Any:
     _patch_hnswlib(monkeypatch)
     _fix_seeds()
 
-    from samalg import SAM
-
     from samap import SAMAP
+    from samap.sam import SAM
 
     sams: dict[str, Any] = {}
     for sid, fname in _SPECIES.items():

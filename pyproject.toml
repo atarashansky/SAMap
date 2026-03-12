@@ -33,7 +33,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "sc-sam>=2.0.0",
     "numpy>=1.26.0",
     "scipy>=1.11.0",
     "scanpy>=1.10.0",

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 import scipy.sparse as sp
 
 from samap.utils import df_to_dict, sparse_knn, substr, to_vn, to_vo
@@ -149,9 +148,6 @@ class TestToVo:
 
     def test_converts_back_from_vn(self) -> None:
         """Test that to_vo converts semicolon strings back to pairs."""
-        # This test requires samalg to be installed
-        pytest.importorskip("samalg")
-
         vn_strings = np.array(["gene1;gene2", "gene3;gene4"])
         result = to_vo(vn_strings)
 

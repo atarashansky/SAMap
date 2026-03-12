@@ -9,8 +9,8 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import scipy as sp
-from samalg import SAM
 
+from samap.sam import SAM
 from samap.utils import df_to_dict, substr, to_vn, to_vo
 from samap.utils import q as _q
 

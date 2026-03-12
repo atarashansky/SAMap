@@ -15,7 +15,6 @@ import scanpy as sc
 import scipy as sp
 from numba import njit, prange
 from numba.core.errors import NumbaPerformanceWarning, NumbaWarning
-from samalg import SAM
 from sklearn.preprocessing import StandardScaler
 
 from samap._constants import (
@@ -37,6 +36,7 @@ from samap._constants import (
     UMAP_SIZE_THRESHOLD,
 )
 from samap._logging import logger
+from samap.sam import SAM
 from samap.utils import df_to_dict, prepend_var_prefix, sparse_knn, to_vn
 from samap.utils import q as _q
 
@@ -839,9 +839,9 @@ def _replace(X: NDArray[Any], xi: NDArray[Any], yi: NDArray[Any]) -> NDArray[np.
 
 def _generate_coclustering_matrix(cl: NDArray[Any]) -> sp.sparse.csr_matrix:
     """Generate a co-clustering indicator matrix."""
-    import samalg.utilities as ut
+    from samap.sam.utils import convert_annotations
 
-    cl_arr = ut.convert_annotations(np.array(list(cl)))
+    cl_arr = convert_annotations(np.array(list(cl)))
     clu, _cluc = np.unique(cl_arr, return_counts=True)
     v = np.zeros((cl_arr.size, clu.size))
     v[np.arange(v.shape[0]), cl_arr] = 1

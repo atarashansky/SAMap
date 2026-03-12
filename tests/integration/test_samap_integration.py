@@ -3,10 +3,10 @@
 from pathlib import Path
 
 import pytest
-from samalg import SAM
 
 from samap import SAMAP
 from samap.analysis import GenePairFinder, get_mapping_scores, sankey_plot
+from samap.sam import SAM
 
 # Path to example data relative to repo root
 EXAMPLE_DATA = Path(__file__).parent.parent.parent / "example_data"

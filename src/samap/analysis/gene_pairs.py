@@ -18,9 +18,9 @@ if TYPE_CHECKING:
     from typing import Any
 
     from numpy.typing import NDArray
-    from samalg import SAM
 
     from samap.core.mapping import SAMAP
+    from samap.sam import SAM
 
 
 class GenePairFinder:

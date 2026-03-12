@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 
     import scipy.sparse as sp
     from numpy.typing import NDArray
-    from samalg import SAM
+
+    from samap.sam import SAM
 
 
 def q(x: Any) -> NDArray[Any]:
@@ -189,9 +190,9 @@ def to_vo(op: NDArray[Any]) -> NDArray[Any]:
     ndarray
         Nx2 array of pairs.
     """
-    import samalg.utilities as ut
+    from samap.sam.utils import extract_annotation
 
-    return np.vstack(ut.extract_annotation(op, None, ";")).T
+    return np.vstack(extract_annotation(op, None, ";")).T
 
 
 def substr(
