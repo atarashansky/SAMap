@@ -124,8 +124,12 @@ class SAMAP:
         logger.info("Using backend: %s", self._bk.device)
 
         for key, data in sams.items():
-            if not (isinstance(data, str | SAM)):
-                raise TypeError(f"Input data {key} must be either a path or a SAM object.")
+            if not (isinstance(data, str) or hasattr(data, "adata")):
+                raise TypeError(
+                    f"Input data {key!r} must be either a path to an .h5ad file or a "
+                    f"SAM object (any object with an .adata attribute containing a "
+                    f"preprocessed AnnData). Got {type(data).__name__}."
+                )
 
         ids = list(sams.keys())
 
