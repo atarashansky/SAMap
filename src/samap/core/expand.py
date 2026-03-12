@@ -296,7 +296,7 @@ def _smart_expand(
     K: NDArray[Any],
     NH: int = 3,
     *,
-    legacy: bool = True,
+    legacy: bool = False,
     bk: Any = None,
 ) -> sp.sparse.csr_matrix:
     """Expand each cell's neighbourhood to a per-cell budget via multi-hop walk.
@@ -311,18 +311,18 @@ def _smart_expand(
         Number of extra hops beyond direct neighbours (default 3 → walks up
         to 4 hops).
     legacy
-        If ``True`` (current default), use the original matrix-power
-        algorithm. If ``False``, use the BFS algorithm — faster and
-        memory-bounded but may select different marginal neighbours when
-        budgets truncate. The default will flip once BFS is validated
-        against the golden regression suite.
+        If ``False`` (default), use the BFS algorithm — ~5× faster at 3k cells
+        and memory-bounded. If ``True``, use the original matrix-power
+        algorithm. Note: matpow wastes ~1 budget slot per cell on self-loops
+        (a cell's 2-hop neighbourhood always includes itself); BFS avoids this
+        and is arguably more correct, but will select slightly different
+        marginal neighbours (~1% edge difference on the golden-suite data).
+        Set ``legacy=True`` only if you need bit-exact reproduction of
+        pre-3.0 SAMap output.
     bk
         Array backend. Currently unused (both paths are CPU-only numba);
-        threaded through for Phase 4 GPU work.
+        threaded through for future GPU work.
     """
-    # TODO(Phase 4): flip default to legacy=False (BFS) and regenerate golden.
-    #  BFS differs by ~1% on marginal-neighbour selection (no self-loops) —
-    #  arguably more correct but needs a golden regen.
     if legacy:
         return _smart_expand_matpow(nnm, K, NH=NH)
     return _smart_expand_bfs(nnm, K, NH=NH)

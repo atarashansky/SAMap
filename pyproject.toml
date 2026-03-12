@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sc-samap"
-version = "2.0.2"
+version = "3.0.0"
 description = "The SAMap algorithm"
 readme = "README.md"
 license = "MIT"

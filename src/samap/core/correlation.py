@@ -10,15 +10,16 @@ The memory bottleneck here is ``Xavg = nnms @ Xs`` — an N × G_active matrix a
 10-60% density (multiple GB at million-cell scale). It exists solely to feed
 per-gene-pair Pearson correlations. We offer two paths:
 
-* **Materialized** (``batch_size=None``, default): builds the full ``Xavg``
-  up front. Fast for moderate-scale runs; preserves bit-exact legacy behaviour
-  (golden regression passes unchanged).
-* **Streaming** (``batch_size=int``): processes pairs in batches. For each
-  batch, computes ``Xavg`` only for the genes appearing in that batch's pairs
-  (at most ``2 * batch_size`` columns), correlates, discards. Peak memory
-  drops from O(N × G_active) to O(N × 2·batch_size). Some columns are
-  recomputed across batches if a gene appears in multiple pair-batches; this
-  is a cheap single-column SpMV and empirically <5% overhead.
+* **Materialized** (``batch_size=None``): builds the full ``Xavg`` up front.
+  Faster for moderate-scale runs (~3-5× at <10k cells); pass explicitly to
+  opt out of streaming when memory headroom is plentiful.
+* **Streaming** (``batch_size=int``, default 512): processes pairs in batches.
+  For each batch, computes ``Xavg`` only for the genes appearing in that
+  batch's pairs (at most ``2 * batch_size`` columns), correlates, discards.
+  Peak memory drops from O(N × G_active) to O(N × 2·batch_size). Some columns
+  are recomputed across batches if a gene appears in multiple pair-batches;
+  this is a cheap single-column SpMV and empirically <5% overhead. The default
+  is tuned for million-cell scale where ``Xavg`` would not fit in memory.
 
 Separately, the numba kernel no longer uses a Python dict for species lookup.
 Species cell ranges are passed as integer ``sp_starts`` / ``sp_lens`` arrays,
@@ -396,9 +397,23 @@ def _refine_corr(
     NCLUSTERS: int = 1,
     ncpus: int | None = None,
     wscale: bool = False,
-    batch_size: int | None = None,
+    batch_size: int | None = 512,
 ) -> sp.sparse.csr_matrix:
-    """Refine correlation matrix for homology graph."""
+    """Refine correlation matrix for homology graph.
+
+    Parameters
+    ----------
+    batch_size
+        Streaming batch size for the pair-correlation step. Default 512 —
+        tuned for memory at scale (the ``Xavg`` matrix is never fully
+        materialised; peak memory drops from O(N × G_active) to
+        O(N × 2·batch_size)). On small/toy datasets (<10k cells) the
+        streaming overhead makes this ~3-5× slower than the materialised
+        path — pass ``batch_size=None`` for the legacy all-at-once
+        computation if speed matters more than memory. See the module
+        docstring for the full memory model.
+    (other parameters unchanged)
+    """
     if ncpus is None:
         ncpus = os.cpu_count() or 1
 
@@ -476,19 +491,20 @@ def _refine_corr_parallel(
     T1: float = 0.0,
     ncpus: int | None = None,
     wscale: bool = False,
-    batch_size: int | None = None,
+    batch_size: int | None = 512,
 ) -> sp.sparse.csr_matrix:
     """Parallel correlation refinement.
 
     Parameters
     ----------
     batch_size
-        If ``None`` (default), materialise the full ``Xavg = nnms @ Xs`` —
-        the legacy behaviour, bit-identical to prior versions. If an integer,
-        stream correlations in pair-batches of that size: for each batch only
-        the ≤ ``2 * batch_size`` smoothed-gene columns actually referenced are
-        computed, then discarded. Cuts peak memory from O(N × G_active) to
-        O(N × 2·batch_size).
+        If an integer (default 512), stream correlations in pair-batches:
+        for each batch only the ≤ ``2 * batch_size`` smoothed-gene columns
+        actually referenced are computed, then discarded. Cuts peak memory
+        from O(N × G_active) to O(N × 2·batch_size). If ``None``,
+        materialise the full ``Xavg = nnms @ Xs`` up front — the legacy
+        behaviour, faster at small scale (~3-5× on <10k cells) but
+        memory-hungry at million-cell scale.
     (other parameters unchanged)
     """
     if ncpus is None:
