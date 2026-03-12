@@ -18,7 +18,13 @@ https://github.com/atarashansky/SAMap
 
 from __future__ import annotations
 
-__version__ = "2.0.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("sc-samap")
+except PackageNotFoundError:
+    # Package not installed (e.g. running from source checkout)
+    __version__ = "2.0.2"
 
 # Core imports
 # Analysis imports

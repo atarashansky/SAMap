@@ -11,20 +11,16 @@ import scanpy as sc
 import sklearn.utils.sparsefuncs as sf
 
 from samap._logging import logger
+from samap.utils import q as _q
 from samap.utils import substr, to_vn
 
 if TYPE_CHECKING:
     from typing import Any
 
     from numpy.typing import NDArray
-    from samalg import SAM
 
     from samap.core.mapping import SAMAP
-
-
-def _q(x: Any) -> NDArray[Any]:
-    """Convert input to numpy array."""
-    return np.array(list(x))
+    from samap.sam import SAM
 
 
 class GenePairFinder:
