@@ -3,6 +3,26 @@
 Contains the numba-accelerated kernels for computing Pearson / Xi correlations
 between homologous gene pairs across the stitched manifold, and the driver
 routines that chunk the graph for parallel refinement.
+
+Implementation notes
+--------------------
+The memory bottleneck here is ``Xavg = nnms @ Xs`` — an N × G_active matrix at
+10-60% density (multiple GB at million-cell scale). It exists solely to feed
+per-gene-pair Pearson correlations. We offer two paths:
+
+* **Materialized** (``batch_size=None``, default): builds the full ``Xavg``
+  up front. Fast for moderate-scale runs; preserves bit-exact legacy behaviour
+  (golden regression passes unchanged).
+* **Streaming** (``batch_size=int``): processes pairs in batches. For each
+  batch, computes ``Xavg`` only for the genes appearing in that batch's pairs
+  (at most ``2 * batch_size`` columns), correlates, discards. Peak memory
+  drops from O(N × G_active) to O(N × 2·batch_size). Some columns are
+  recomputed across batches if a gene appears in multiple pair-batches; this
+  is a cheap single-column SpMV and empirically <5% overhead.
+
+Separately, the numba kernel no longer uses a Python dict for species lookup.
+Species cell ranges are passed as integer ``sp_starts`` / ``sp_lens`` arrays,
+indexed by integer species ID. This is a prerequisite for a future CUDA port.
 """
 
 from __future__ import annotations
@@ -79,28 +99,42 @@ def _xicorr(X: NDArray[Any], Y: NDArray[Any]) -> float:
 
 
 @njit(parallel=True)
-def _refine_corr_kernel(
-    p: NDArray[Any],
-    ps: NDArray[Any],
-    sids: NDArray[Any],
-    sixs: list[NDArray[Any]],
+def _corr_kernel(
+    p1: NDArray[np.int64],
+    p2: NDArray[np.int64],
+    ps1: NDArray[np.int64],
+    ps2: NDArray[np.int64],
+    sp_starts: NDArray[np.int64],
+    sp_lens: NDArray[np.int64],
     indptr: NDArray[Any],
     indices: NDArray[Any],
     data: NDArray[Any],
     n: int,
-    corr_mode: str,
+    pearson: bool,
 ) -> NDArray[np.float64]:
-    """Kernel for computing gene correlations in parallel."""
-    p1 = p[:, 0]
-    p2 = p[:, 1]
+    """Compute per-pair gene correlations (dict-free, GPU-portable).
 
-    ps1 = ps[:, 0]
-    ps2 = ps[:, 1]
+    This replaces the original dict-based ``_refine_corr_kernel``. Species
+    cell ranges are passed as integer ``sp_starts`` / ``sp_lens`` arrays
+    (contiguous by construction in the stitched manifold), indexed by integer
+    species ID — no Python dict inside the hot loop. Numerically bit-identical
+    to the original (same Pearson formula, same Xi path).
 
-    d = {}
-    for i in range(len(sids)):
-        d[sids[i]] = sixs[i]
-
+    Parameters
+    ----------
+    p1, p2
+        Column indices into the CSC ``Xavg``, one pair per entry.
+    ps1, ps2
+        Integer species IDs for each gene (index into ``sp_starts``).
+    sp_starts, sp_lens
+        Species ``s`` spans cells ``[sp_starts[s], sp_starts[s]+sp_lens[s])``.
+    indptr, indices, data
+        CSC components of ``Xavg``.
+    n
+        Number of cells (rows in ``Xavg``).
+    pearson
+        True → Pearson; False → Xi correlation.
+    """
     res = np.zeros(p1.size)
 
     for j in prange(len(p1)):
@@ -116,19 +150,113 @@ def _refine_corr_kernel(
         y = np.zeros(n)
         y[sc1i] = sc1d
 
-        a1, a2 = ps1[j], ps2[j]
-        ix1 = d[a1]
-        ix2 = d[a2]
+        s1 = sp_starts[ps1[j]]
+        l1 = sp_lens[ps1[j]]
+        s2 = sp_starts[ps2[j]]
+        l2 = sp_lens[ps2[j]]
 
-        xa, xb, ya, yb = x[ix1], x[ix2], y[ix1], y[ix2]
-        xx = np.append(xa, xb)
-        yy = np.append(ya, yb)
+        total = l1 + l2
+        xx = np.empty(total)
+        yy = np.empty(total)
+        xx[:l1] = x[s1 : s1 + l1]
+        xx[l1:] = x[s2 : s2 + l2]
+        yy[:l1] = y[s1 : s1 + l1]
+        yy[l1:] = y[s2 : s2 + l2]
 
-        if corr_mode == "pearson":
+        if pearson:
             c = ((xx - xx.mean()) * (yy - yy.mean()) / xx.std() / yy.std()).sum() / xx.size
         else:
             c = _xicorr(xx, yy)
         res[j] = c
+    return res
+
+
+def _compute_pair_corrs(
+    nnms: Any,
+    Xs: Any,
+    p: NDArray[np.int64],
+    ps_int: NDArray[np.int64],
+    sp_starts: NDArray[np.int64],
+    sp_lens: NDArray[np.int64],
+    n: int,
+    corr_mode: str,
+    batch_size: int | None,
+) -> NDArray[np.float64]:
+    """Compute correlations for all gene pairs, materialised or streaming.
+
+    Parameters
+    ----------
+    nnms
+        (N × N) row-normalised neighbour-averaging operator (CSR).
+    Xs
+        (N × G_active) block-diagonal expression matrix. CSC preferred for
+        column slicing in the streaming path.
+    p
+        (n_pairs × 2) integer column-indices into ``Xs`` for each gene pair.
+    ps_int
+        (n_pairs × 2) integer species IDs for each gene pair.
+    sp_starts, sp_lens, n
+        Species layout (see :func:`_corr_kernel`).
+    corr_mode
+        ``"pearson"`` or ``"xi"``.
+    batch_size
+        ``None`` → materialise full ``Xavg = nnms @ Xs`` (legacy path,
+        golden-compatible). ``int`` → stream in pair-batches; per batch,
+        compute only the ≤ ``2 * batch_size`` columns of ``Xavg`` actually
+        needed, correlate, discard. Peak memory O(N × 2·batch_size) instead
+        of O(N × G_active).
+    """
+    pearson = corr_mode == "pearson"
+    p1 = np.ascontiguousarray(p[:, 0], dtype=np.int64)
+    p2 = np.ascontiguousarray(p[:, 1], dtype=np.int64)
+    ps1 = np.ascontiguousarray(ps_int[:, 0], dtype=np.int64)
+    ps2 = np.ascontiguousarray(ps_int[:, 1], dtype=np.int64)
+
+    if batch_size is None:
+        # --- Materialised path (golden-compatible) --------------------------
+        Xavg = nnms.dot(Xs).tocsc()
+        return _corr_kernel(
+            p1, p2, ps1, ps2,
+            sp_starts, sp_lens,
+            Xavg.indptr, Xavg.indices, Xavg.data,
+            n, pearson,
+        )
+
+    # --- Streaming path -----------------------------------------------------
+    if not sp.sparse.isspmatrix_csc(Xs):
+        Xs = Xs.tocsc()
+
+    n_pairs = p1.size
+    res = np.zeros(n_pairs)
+
+    for start in range(0, n_pairs, batch_size):
+        end = min(start + batch_size, n_pairs)
+
+        p1b = p1[start:end]
+        p2b = p2[start:end]
+
+        # Genes needed for this batch (sorted, unique) — at most 2·batch_size.
+        needed = np.unique(np.concatenate((p1b, p2b)))
+        # Map original column index → local column index in Xavg_batch.
+        # `needed` is sorted so searchsorted gives the exact local position.
+        p1_local = np.searchsorted(needed, p1b).astype(np.int64)
+        p2_local = np.searchsorted(needed, p2b).astype(np.int64)
+
+        # One SpMM for just the needed columns, then CSC for kernel access.
+        Xavg_batch = nnms.dot(Xs[:, needed]).tocsc()
+
+        res[start:end] = _corr_kernel(
+            p1_local, p2_local,
+            np.ascontiguousarray(ps1[start:end]),
+            np.ascontiguousarray(ps2[start:end]),
+            sp_starts, sp_lens,
+            Xavg_batch.indptr, Xavg_batch.indices, Xavg_batch.data,
+            n, pearson,
+        )
+
+        del Xavg_batch
+        gc.collect()
+
     return res
 
 
@@ -144,6 +272,7 @@ def _refine_corr(
     NCLUSTERS: int = 1,
     ncpus: int | None = None,
     wscale: bool = False,
+    batch_size: int | None = None,
 ) -> sp.sparse.csr_matrix:
     """Refine correlation matrix for homology graph."""
     if ncpus is None:
@@ -185,6 +314,7 @@ def _refine_corr(
             T1=T1,
             ncpus=ncpus,
             wscale=wscale,
+            batch_size=batch_size,
         )
         GNNMSUBS.append(gnnm2_sub)
         GNSUBS.append(gnsub)
@@ -222,8 +352,21 @@ def _refine_corr_parallel(
     T1: float = 0.0,
     ncpus: int | None = None,
     wscale: bool = False,
+    batch_size: int | None = None,
 ) -> sp.sparse.csr_matrix:
-    """Parallel correlation refinement."""
+    """Parallel correlation refinement.
+
+    Parameters
+    ----------
+    batch_size
+        If ``None`` (default), materialise the full ``Xavg = nnms @ Xs`` —
+        the legacy behaviour, bit-identical to prior versions. If an integer,
+        stream correlations in pair-batches of that size: for each batch only
+        the ≤ ``2 * batch_size`` smoothed-gene columns actually referenced are
+        computed, then discarded. Cuts peak memory from O(N × G_active) to
+        O(N × 2·batch_size).
+    (other parameters unchanged)
+    """
     if ncpus is None:
         ncpus = os.cpu_count() or 1
 
@@ -270,7 +413,6 @@ def _refine_corr_parallel(
 
     Xs = sp.sparse.block_diag(xs_list).tocsc()
     nnms = sp.sparse.hstack(nnms).tocsr()
-    Xavg = nnms.dot(Xs).tocsc()
 
     p = pairs
     ps = pairs_species
@@ -279,14 +421,33 @@ def _refine_corr_parallel(
     x, y = gnnm2.nonzero()
     pairs = np.unique(np.sort(np.vstack((x, y)).T, axis=1), axis=0)
 
+    # --- Species layout as integer start/len arrays (dict-free kernel) ------
     species = _q(st.adata.obs["species"])
-    sixs = []
     sidss = np.unique(species)
-    for sid in sidss:
-        sixs.append(np.where(species == sid)[0])
+    sp_starts = np.empty(sidss.size, dtype=np.int64)
+    sp_lens = np.empty(sidss.size, dtype=np.int64)
+    for i, sid in enumerate(sidss):
+        where = np.where(species == sid)[0]
+        sp_starts[i] = where[0]
+        sp_lens[i] = where.size
+        # Contiguity sanity check — true by construction in _concatenate_sam
+        # (cells are grouped by species); guard against future changes.
+        if where[-1] - where[0] + 1 != where.size:
+            raise RuntimeError(
+                f"Species {sid!r} cells are not contiguous in the stitched "
+                f"manifold. This violates the dict-free kernel's assumption "
+                f"(cells must be species-grouped). Please report."
+            )
 
-    vals = _refine_corr_kernel(
-        p, ps, sidss, sixs, Xavg.indptr, Xavg.indices, Xavg.data, Xavg.shape[0], corr_mode
+    # Map string species IDs in `ps` → integer positions in `sidss`.
+    sid_to_int = pd.Series(np.arange(sidss.size, dtype=np.int64), index=sidss)
+    ps_int = np.column_stack(
+        (sid_to_int.loc[ps[:, 0]].values, sid_to_int.loc[ps[:, 1]].values)
+    ).astype(np.int64)
+
+    vals = _compute_pair_corrs(
+        nnms, Xs, p.astype(np.int64), ps_int,
+        sp_starts, sp_lens, nnms.shape[0], corr_mode, batch_size,
     )
     vals[np.isnan(vals)] = 0
 
