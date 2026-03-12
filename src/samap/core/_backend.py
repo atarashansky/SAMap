@@ -107,9 +107,10 @@ class Backend:
         The resolved device string, ``"cpu"`` or ``"cuda"``.
     """
 
-    __slots__ = ("device", "gpu", "sp", "spla", "xp")
+    __slots__ = ("_faiss_res", "device", "gpu", "sp", "spla", "xp")
 
     def __init__(self, device: Literal["cpu", "cuda", "auto"] = "auto") -> None:
+        self._faiss_res: Any = None  # lazy faiss.StandardGpuResources cache
         if device == "auto":
             device = "cuda" if _cuda_available() else "cpu"
 
@@ -320,6 +321,30 @@ class Backend:
             return
         _cupy.get_default_memory_pool().free_all_blocks()
         _cupy.get_default_pinned_memory_pool().free_all_blocks()
+
+    def faiss_gpu_resources(self) -> Any:
+        """Lazily create and cache a ``faiss.StandardGpuResources`` instance.
+
+        FAISS's ``StandardGpuResources`` holds cuBLAS handles, streams, and a
+        temporary-memory pool. Creating one is expensive (~100ms) and the
+        object is safe to reuse across index builds, so we cache a single
+        instance per Backend.
+
+        Returns ``None`` on a CPU backend or if faiss has no GPU support.
+        """
+        if not self.gpu:
+            return None
+        if self._faiss_res is not None:
+            return self._faiss_res
+        try:
+            import faiss
+        except ImportError:
+            return None
+        if not hasattr(faiss, "StandardGpuResources"):
+            # faiss-cpu build — no GPU index support
+            return None
+        self._faiss_res = faiss.StandardGpuResources()
+        return self._faiss_res
 
 
 class COOBuilder:

@@ -34,7 +34,6 @@ import gc
 import time
 from typing import TYPE_CHECKING
 
-import hnswlib
 import numpy as np
 import pandas as pd
 import scipy as sp
@@ -42,6 +41,7 @@ from sklearn.preprocessing import StandardScaler
 
 from samap._logging import logger
 from samap.core._backend import Backend
+from samap.core.knn import approximate_knn
 from samap.utils import q as _q
 
 from .homology import _tanh_scale
@@ -84,18 +84,22 @@ def _united_proj(
     wpca2: NDArray[Any],
     k: int = 20,
     metric: str = "cosine",
-    ef: int = 200,
-    M: int = 48,
+    bk: Backend | None = None,
 ) -> sp.sparse.csr_matrix:
-    """Project between feature spaces using HNSW."""
+    """Build cross-species kNN sparse graph with similarity weights.
+
+    Finds the ``k`` nearest neighbours of each row of ``wpca1`` in
+    ``wpca2``, transforms distances into similarity weights, and returns a
+    sparse (n_q, n_d) CSR.
+
+    The kNN search is delegated to :func:`samap.core.knn.approximate_knn`,
+    which dispatches between CPU HNSW (hnswlib) and GPU brute-force (FAISS)
+    based on ``bk``. When ``bk`` is ``None`` a CPU backend is used.
+    """
     metric = "l2" if metric == "euclidean" else metric
     metric = "cosine" if metric == "correlation" else metric
-    labels2 = np.arange(wpca2.shape[0])
-    p2 = hnswlib.Index(space=metric, dim=wpca2.shape[1])
-    p2.init_index(max_elements=wpca2.shape[0], ef_construction=ef, M=M)
-    p2.add_items(wpca2, labels2)
-    p2.set_ef(ef)
-    idx1, dist1 = p2.knn_query(wpca1, k=k)
+
+    idx1, dist1 = approximate_knn(wpca1, wpca2, k=k, metric=metric, bk=bk)
 
     if metric == "cosine":
         dist1 = 1 - dist1
@@ -108,10 +112,12 @@ def _united_proj(
         dist1 = np.exp(-dist1 / sigma1[:, None])
 
     Sim1 = dist1
-    knn1v2 = sp.sparse.lil_matrix((wpca1.shape[0], wpca2.shape[0]))
-    x1 = np.tile(np.arange(idx1.shape[0])[:, None], (1, idx1.shape[1])).flatten()
-    knn1v2[x1.astype("int32"), idx1.flatten().astype("int32")] = Sim1.flatten()
-    return knn1v2.tocsr()
+    n_q = wpca1.shape[0]
+    n_d = wpca2.shape[0]
+    rows = np.repeat(np.arange(n_q, dtype=np.int32), k)
+    cols = idx1.ravel().astype(np.int32)
+    vals = Sim1.ravel()
+    return sp.sparse.coo_matrix((vals, (rows, cols)), shape=(n_q, n_d)).tocsr()
 
 
 # --------------------------------------------------------------------------- #
@@ -407,7 +413,7 @@ def _mapping_window_fast(
 
     logger.info("Correcting data with means. %.2fs", time.time() - ttt)
 
-    # ---- Cross-species kNN via HNSW (host, numpy — hnswlib is CPU-only) -- #
+    # ---- Cross-species kNN (hnswlib CPU or FAISS GPU via approximate_knn) #
     wpca_host = bk.to_host(wpca)
     gnnm_corr_host = bk.to_host(gnnm_corr)
 
@@ -425,7 +431,7 @@ def _mapping_window_fast(
             ixr = species_indexer[j]
             reference = wpca_host[ixr]
 
-            b = _united_proj(query, reference, k=k)
+            b = _united_proj(query, reference, k=k, bk=bk)
 
             su = np.asarray(b.sum(1))
             su[su == 0] = 1

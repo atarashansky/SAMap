@@ -91,15 +91,15 @@ class _DeterministicHNSWIndex:
 def _patch_hnswlib(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace the hnswlib module seen by samap with a deterministic shim.
 
-    ``samap.core.projection`` does a top-level ``import hnswlib`` — that's the
+    ``samap.core.knn`` does a top-level ``import hnswlib`` — that's the
     only call site reached during the golden pipeline (samap.sam's hnswlib
     usage is gated behind ``SAM.run()``/``calculate_nnm``, which the pipeline
     does not call — input SAMs are pre-computed and loaded from h5ad).
     """
-    import samap.core.projection as projection
+    import samap.core.knn as knn_mod
 
     fake = types.SimpleNamespace(Index=_DeterministicHNSWIndex)
-    monkeypatch.setattr(projection, "hnswlib", fake)
+    monkeypatch.setattr(knn_mod, "hnswlib", fake)
 
 
 # ---------------------------------------------------------------------------
