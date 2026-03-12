@@ -17,7 +17,15 @@ import numpy as np
 import pytest
 import scipy.sparse as spp
 
-from samap.core.correlation import _compute_pair_corrs, _corr_kernel, _xicorr
+from samap.core._backend import Backend
+from samap.core.correlation import (
+    _compute_pair_corrs,
+    _corr_kernel,
+    _replace,
+    _replace_vectorized,
+    _xicorr,
+    replace_corr,
+)
 
 # ---------------------------------------------------------------------------
 # Reference (pure-NumPy) correlation for a single pair
@@ -287,3 +295,154 @@ class TestKernelDirect:
             sp_starts, sp_lens, M.indptr, M.indices, M.data, 20, True,
         )
         assert res.size == 0
+
+
+# ---------------------------------------------------------------------------
+# _replace (per-pair Pearson over dense wPCA rows)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def replace_inputs(rng: np.random.Generator) -> dict[str, Any]:
+    """Dense embedding + random index pairs for _replace tests."""
+    n, d = 800, 50
+    X = rng.standard_normal((n, d)).astype(np.float64)
+    n_pairs = 1000
+    xi = rng.integers(0, n, size=n_pairs).astype(np.int64)
+    yi = rng.integers(0, n, size=n_pairs).astype(np.int64)
+    return {"X": X, "xi": xi, "yi": yi, "n": n, "d": d, "n_pairs": n_pairs}
+
+
+class TestReplaceVectorized:
+    """_replace_vectorized matches numba _replace and pure-numpy reference."""
+
+    def test_against_numpy_corrcoef(
+        self, replace_inputs: dict[str, Any]
+    ) -> None:
+        """Vectorised form matches np.corrcoef pairwise (rtol=1e-12)."""
+        inp = replace_inputs
+        bk = Backend("cpu")
+
+        got = _replace_vectorized(inp["X"], inp["xi"], inp["yi"], bk)
+
+        # Reference via np.corrcoef — O(n_pairs) loop, but authoritative
+        ref = np.array([
+            np.corrcoef(inp["X"][i], inp["X"][j])[0, 1]
+            for i, j in zip(inp["xi"], inp["yi"])
+        ])
+        np.testing.assert_allclose(got, ref, rtol=1e-12, atol=1e-14)
+
+    def test_against_numba(
+        self, replace_inputs: dict[str, Any]
+    ) -> None:
+        """Vectorised form matches numba _replace (the CPU fast path)."""
+        inp = replace_inputs
+        bk = Backend("cpu")
+
+        numba_res = _replace(inp["X"], inp["xi"], inp["yi"])
+        vec_res = _replace_vectorized(inp["X"], inp["xi"], inp["yi"], bk)
+
+        np.testing.assert_allclose(vec_res, numba_res, rtol=1e-12, atol=1e-14)
+
+    @pytest.mark.parametrize("batch_size", [1, 7, 100, 500, 2000])
+    def test_batched_matches_full(
+        self, replace_inputs: dict[str, Any], batch_size: int
+    ) -> None:
+        """Chunked vectorised == single-shot vectorised (all batch sizes).
+
+        batch_size=1 is the tightest correctness probe; 2000 > n_pairs
+        exercises the fallthrough.
+        """
+        inp = replace_inputs
+        bk = Backend("cpu")
+
+        full = _replace_vectorized(inp["X"], inp["xi"], inp["yi"], bk, batch_size=None)
+        chunked = _replace_vectorized(
+            inp["X"], inp["xi"], inp["yi"], bk, batch_size=batch_size
+        )
+        np.testing.assert_allclose(chunked, full, rtol=0, atol=0)
+
+    def test_float32_input(
+        self, replace_inputs: dict[str, Any]
+    ) -> None:
+        """float32 input → float64 output, matches float64 input path.
+
+        wPCA is often stored float32 for memory; the vectorised form
+        upcasts internally to match _replace's float64 arithmetic.
+        """
+        inp = replace_inputs
+        bk = Backend("cpu")
+        X32 = inp["X"].astype(np.float32)
+
+        res32 = _replace_vectorized(X32, inp["xi"], inp["yi"], bk)
+        res64 = _replace_vectorized(inp["X"], inp["xi"], inp["yi"], bk)
+
+        assert res32.dtype == np.float64
+        # float32 input has less precision → looser tolerance
+        np.testing.assert_allclose(res32, res64, rtol=1e-5, atol=1e-7)
+
+    def test_zero_variance_row(
+        self, rng: np.random.Generator
+    ) -> None:
+        """Constant row → std=0 → nan (matches _replace behaviour)."""
+        bk = Backend("cpu")
+        X = rng.standard_normal((10, 20))
+        X[3, :] = 5.0  # constant → zero variance
+
+        xi = np.array([3, 0], dtype=np.int64)
+        yi = np.array([1, 2], dtype=np.int64)
+
+        vec = _replace_vectorized(X, xi, yi, bk)
+        numba = _replace(X, xi, yi)
+
+        assert np.isnan(vec[0])
+        assert np.isnan(numba[0])
+        np.testing.assert_allclose(vec[1], numba[1], rtol=1e-12)
+
+
+class TestReplaceCorrDispatcher:
+    """replace_corr routes to numba on CPU, vectorised on GPU."""
+
+    def test_cpu_backend_uses_numba(
+        self, replace_inputs: dict[str, Any]
+    ) -> None:
+        """CPU backend → numba path; result matches _replace directly."""
+        inp = replace_inputs
+        bk = Backend("cpu")
+
+        disp = replace_corr(inp["X"], inp["xi"], inp["yi"], bk)
+        numba = _replace(inp["X"], inp["xi"], inp["yi"])
+        # CPU dispatch IS the numba path → bit-identical
+        np.testing.assert_array_equal(disp, numba)
+
+    def test_bk_none_defaults_to_numba(
+        self, replace_inputs: dict[str, Any]
+    ) -> None:
+        """bk=None (backward-compat) → numba path."""
+        inp = replace_inputs
+        disp = replace_corr(inp["X"], inp["xi"], inp["yi"], bk=None)
+        numba = _replace(inp["X"], inp["xi"], inp["yi"])
+        np.testing.assert_array_equal(disp, numba)
+
+    def test_mock_gpu_uses_vectorized(
+        self, replace_inputs: dict[str, Any]
+    ) -> None:
+        """Mock Backend with gpu=True → vectorised path.
+
+        We can't test a real GPU path on CI; this verifies the dispatch
+        logic by constructing a duck-typed backend with gpu=True + xp=numpy.
+        """
+
+        class _MockGPUBackend:
+            gpu = True
+            xp = np  # numpy stands in for cupy here
+
+        inp = replace_inputs
+        bk = _MockGPUBackend()
+
+        disp = replace_corr(inp["X"], inp["xi"], inp["yi"], bk, batch_size=100)
+        ref = _replace_vectorized(inp["X"], inp["xi"], inp["yi"], bk, batch_size=100)
+        np.testing.assert_array_equal(disp, ref)
+        # and that it matches numba to fp tolerance
+        numba = _replace(inp["X"], inp["xi"], inp["yi"])
+        np.testing.assert_allclose(disp, numba, rtol=1e-12, atol=1e-14)

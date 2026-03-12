@@ -54,13 +54,101 @@ warnings.filterwarnings("ignore", category=NumbaWarning)
 
 @njit(parallel=True)
 def _replace(X: NDArray[Any], xi: NDArray[Any], yi: NDArray[Any]) -> NDArray[np.float64]:
-    """Compute correlations for pairs in parallel."""
+    """Per-pair Pearson over rows of a dense matrix (CPU fast path, numba).
+
+    For each pair ``(xi[i], yi[i])``, gather the two rows of ``X`` and compute
+    Pearson correlation. ``prange`` parallelises over pairs.
+
+    On CPU this outperforms the vectorised form below because numba can fuse
+    the mean/std/dot into a single tight loop per pair with no intermediate
+    ``(n_pairs × d)`` allocation. On GPU, use :func:`_replace_vectorized`.
+    """
     data = np.zeros(xi.size)
     for i in prange(xi.size):
         x = X[xi[i]]
         y = X[yi[i]]
         data[i] = ((x - x.mean()) * (y - y.mean()) / x.std() / y.std()).sum() / x.size
     return data
+
+
+def _replace_vectorized(
+    X: Any,
+    xi: Any,
+    yi: Any,
+    bk: Any,
+    batch_size: int | None = None,
+) -> Any:
+    """Per-pair Pearson over rows of a dense matrix — vectorised, backend-agnostic.
+
+    Algebraically identical to :func:`_replace`. Works on both numpy and cupy
+    via ``bk.xp`` dispatch. Each batch gathers ``2 × batch`` rows of ``X``
+    and computes Pearson in one shot — one reduction kernel on GPU instead of
+    ``n_pairs`` launches.
+
+    Parameters
+    ----------
+    X
+        Dense (N × d) array on the active backend.
+    xi, yi
+        Integer index arrays of shape (n_pairs,) on the active backend.
+    bk
+        :class:`Backend` instance for xp dispatch.
+    batch_size
+        If ``None``, process all pairs at once (requires ``2 * n_pairs * d``
+        floats of scratch). If an integer, chunk pairs to cap the working
+        set at ``2 * batch_size * d`` floats. Use when ``n_pairs × d × 8``
+        bytes approaches device memory.
+
+    Returns
+    -------
+    Array of shape (n_pairs,) on the active backend, dtype float64.
+    """
+    xp = bk.xp
+    n_pairs = xi.shape[0]
+
+    def _one_batch(ii: Any, jj: Any) -> Any:
+        Xa = X[ii].astype(xp.float64, copy=True)
+        Xb = X[jj].astype(xp.float64, copy=True)
+        Xa -= Xa.mean(axis=1, keepdims=True)
+        Xb -= Xb.mean(axis=1, keepdims=True)
+        num = (Xa * Xb).sum(axis=1)
+        den = xp.sqrt((Xa * Xa).sum(axis=1) * (Xb * Xb).sum(axis=1))
+        # den==0 (zero-variance row) → 0/0 → nan. Match _replace's behaviour
+        # (callers already do vals[isnan]=0). Suppress the expected warning.
+        with np.errstate(invalid="ignore"):
+            return num / den
+
+    if batch_size is None or batch_size >= n_pairs:
+        return _one_batch(xi, yi)
+
+    out = xp.empty(n_pairs, dtype=xp.float64)
+    for start in range(0, n_pairs, batch_size):
+        end = min(start + batch_size, n_pairs)
+        out[start:end] = _one_batch(xi[start:end], yi[start:end])
+    return out
+
+
+def replace_corr(
+    X: Any,
+    xi: Any,
+    yi: Any,
+    bk: Any = None,
+    batch_size: int | None = None,
+) -> Any:
+    """Dispatch per-pair Pearson to numba (CPU) or vectorised (GPU).
+
+    Drop-in entry point for callers that have a :class:`Backend`. When
+    ``bk is None`` or ``not bk.gpu``, uses the numba :func:`_replace` (fastest
+    on CPU: fused loop, no intermediate allocation). When ``bk.gpu`` is True,
+    uses :func:`_replace_vectorized` (single large reduction kernel on
+    device).
+
+    Numerically equivalent to :func:`_replace` to machine precision.
+    """
+    if bk is None or not bk.gpu:
+        # CPU fast path — numba prange beats numpy vectorisation here
+        return _replace(np.asarray(X), np.asarray(xi), np.asarray(yi))
+    return _replace_vectorized(X, xi, yi, bk, batch_size=batch_size)
 
 
 @njit
@@ -96,6 +184,42 @@ def _xicorr(X: NDArray[Any], Y: NDArray[Any]) -> float:
         return 1 - n * np.abs(np.diff(r)).sum() / denominator
     else:
         return 0.0
+
+
+# ---------------------------------------------------------------------------
+# CUDA-porting notes for _corr_kernel
+# ---------------------------------------------------------------------------
+# The kernel below is structurally dict-free and uses only integer species
+# indexing, but is NOT yet directly compilable under @cuda.jit. Remaining
+# blockers and the restructuring they imply:
+#
+# 1. Dynamic allocation. `np.zeros(n)`, `np.empty(total)` allocate per-call
+#    with runtime sizes. CUDA kernels cannot heap-allocate.
+#    → Fix: do not densify. Instead of scattering CSC column → dense N-vector
+#      → slicing by species, iterate directly over the CSC nonzeros,
+#      test each index against the two species ranges [s1,s1+l1)∪[s2,s2+l2),
+#      and accumulate Pearson sums (sum_x, sum_y, sum_xx, sum_xy, sum_yy,
+#      count) in scalar registers. This is a two-pass loop per pair (mean
+#      first, then centred products) but needs only O(1) per-thread state.
+#
+# 2. Fancy-index scatter `x[pl1i] = pl1d`. Not supported on cuda device
+#    arrays. Becomes irrelevant once (1) removes the dense scatter.
+#
+# 3. `prange` → `cuda.grid(1)` + `if j >= n_pairs: return`. Trivial.
+#
+# 4. `.mean()`, `.std()` on arrays. Not available on cuda.local arrays.
+#    Irrelevant after (1) — sums are accumulated manually.
+#
+# 5. `_xicorr` device call. Xi correlation uses `np.argsort` and rank
+#    computations that have no @cuda.jit equivalent. A GPU Xi path would
+#    need cub/thrust sort (via cupy) + a separate device kernel for the
+#    rank statistics. For a first CUDA port, gate the kernel to
+#    `pearson=True` only and fall back to CPU for Xi.
+#
+# With (1), the kernel becomes a CSR/CSC-walking Pearson that reads CSC
+# columns twice (two passes) and writes one float per pair. Workspace:
+# ~6 float64 + ~6 int64 registers per thread. No shared memory needed.
+# ---------------------------------------------------------------------------
 
 
 @njit(parallel=True)
