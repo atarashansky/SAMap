@@ -91,15 +91,15 @@ class _DeterministicHNSWIndex:
 def _patch_hnswlib(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace the hnswlib module seen by samap with a deterministic shim.
 
-    ``samap.core.mapping`` does a top-level ``import hnswlib`` — that's the
+    ``samap.core.projection`` does a top-level ``import hnswlib`` — that's the
     only call site reached during the golden pipeline (samap.sam's hnswlib
     usage is gated behind ``SAM.run()``/``calculate_nnm``, which the pipeline
     does not call — input SAMs are pre-computed and loaded from h5ad).
     """
-    import samap.core.mapping as mapping
+    import samap.core.projection as projection
 
     fake = types.SimpleNamespace(Index=_DeterministicHNSWIndex)
-    monkeypatch.setattr(mapping, "hnswlib", fake)
+    monkeypatch.setattr(projection, "hnswlib", fake)
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +258,7 @@ def test_golden_3species(
     -----------------
     The only known source of run-to-run variation in the core algorithm is
     hnswlib's multi-threaded ``add_items`` in ``_united_proj``. We patch the
-    ``hnswlib`` module reference inside ``samap.core.mapping`` with a wrapper
+    ``hnswlib`` module reference inside ``samap.core.projection`` with a wrapper
     that forces single-threaded index construction and a fixed seed.
 
     If this test fails after a refactor with *structural* differences in the
