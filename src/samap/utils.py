@@ -17,6 +17,11 @@ if TYPE_CHECKING:
     from samalg import SAM
 
 
+def q(x: Any) -> NDArray[Any]:
+    """Convert an iterable to a numpy array via list()."""
+    return np.array(list(x))
+
+
 def save_samap(sm: Any, fn: str) -> None:
     """Save a SAMAP object to a pickle file.
 

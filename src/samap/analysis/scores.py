@@ -12,6 +12,7 @@ import scipy as sp
 from samalg import SAM
 
 from samap.utils import df_to_dict, substr, to_vn, to_vo
+from samap.utils import q as _q
 
 if TYPE_CHECKING:
     from typing import Any
@@ -19,11 +20,6 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from samap.core.mapping import SAMAP
-
-
-def _q(x: Any) -> NDArray[Any]:
-    """Convert input to numpy array."""
-    return np.array(list(x))
 
 
 def _compute_csim(

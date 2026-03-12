@@ -7,15 +7,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from samap.utils import q as _q
+
 if TYPE_CHECKING:
     from typing import Any
-
-    from numpy.typing import NDArray
-
-
-def _q(x: Any) -> NDArray[Any]:
-    """Convert input to numpy array."""
-    return np.array(list(x))
 
 
 def sankey_plot(

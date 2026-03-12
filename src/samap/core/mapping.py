@@ -38,6 +38,7 @@ from samap._constants import (
 )
 from samap._logging import logger
 from samap.utils import df_to_dict, prepend_var_prefix, sparse_knn, to_vn
+from samap.utils import q as _q
 
 if TYPE_CHECKING:
     from typing import Any
@@ -46,11 +47,6 @@ if TYPE_CHECKING:
 
 warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
 warnings.filterwarnings("ignore", category=NumbaWarning)
-
-
-def _q(x: Any) -> NDArray[Any]:
-    """Convert input to numpy array."""
-    return np.array(list(x))
 
 
 class SAMAP:
@@ -620,26 +616,6 @@ class SAMAP:
         samap.scatter(projection="X_umap", c=cc, axes=ax, s=sc, colorbar=False, **kwargs)
 
         return ax
-
-    def gui(self) -> Any:
-        """Launch a SAMGUI instance containing the SAM objects."""
-        if "SamapGui" not in self.__dict__:
-            try:
-                from samalg.gui import SAMGUI
-            except ImportError:
-                raise ImportError(
-                    "Please install SAMGUI dependencies. See the README in the SAM github repository."
-                ) from None
-
-            sg = SAMGUI(
-                sam=list(self.sams.values()),
-                title=list(self.ids),
-                default_proj="X_umap_samap",
-            )
-            self.SamapGui = sg
-            return sg.SamPlot
-        else:
-            return self.SamapGui.SamPlot
 
     def refine_homology_graph(
         self,
@@ -1554,7 +1530,6 @@ def _mapper(
 
     D = D.multiply(D.T).tocsr()
     D.data[:] = D.data**0.5
-    mdata["xsim"] = D
 
     if scale_edges_by_corr:
         logger.info("Rescaling edge weights by expression correlations.")
@@ -1607,27 +1582,8 @@ def _mapper(
 
     x = 1 - sr.flatten() / denom
 
-    sr[sr == 0] = 1
-    st = np.asarray(Dk.sum(0)).flatten()[None, :]
-    st[st == 0] = 1
-    proj = Dk.multiply(1 / sr).dot(Dk.multiply(1 / st)).tocsr()
-    z = proj.copy()
-    z.data[:] = 1
-    idx = np.where(np.asarray(z.sum(1)).flatten() >= k1)[0]
-
-    omp = nnm_internal0
-    omp.data[:] = 1
-    s = np.asarray(proj.max(1).todense())
-    s[s == 0] = 1
-    proj = proj.multiply(1 / s).tocsr()
-    X, Y = omp.nonzero()
-    X2 = X[np.isin(X, idx)]
-    Y2 = Y[np.isin(X, idx)]
-
-    omp = omp.tolil()
-    omp[X2, Y2] = np.vstack((np.asarray(proj[X2, Y2]).flatten(), np.ones(X2.size) * 0.3)).max(0)
-
     omp = nnm_internal0.tocsr()
+    omp.data[:] = 1
     NNM = omp.multiply(x[:, None])
     NNM = (NNM + Dk).tolil()
     NNM.setdiag(0)
@@ -1832,7 +1788,7 @@ def _mapping_window(
 
                 b = _united_proj(query, reference, k=k)
 
-                su = b.sum(1).A
+                su = np.asarray(b.sum(1))
                 su[su == 0] = 1
                 b = b.multiply(1 / su).tocsr()
 

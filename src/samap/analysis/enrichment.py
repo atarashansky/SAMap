@@ -215,7 +215,7 @@ class FunctionalEnrichment:
 
         logger.info("Finding enriched gene pairs...")
         gpf = GenePairFinder(sm, keys=keys)
-        gene_pairs = gpf.find_all(thr=align_thr, n_top=n_top)
+        gene_pairs = gpf.find_all(align_thr=align_thr, n_top=n_top)
 
         self.DICT: dict[str, NDArray[Any]] = {}
         for c in gene_pairs.columns:
