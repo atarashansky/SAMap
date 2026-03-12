@@ -138,7 +138,7 @@ class TestArpackVsRandomized:
 
         diff = np.linalg.norm(rec_arp - rec_rnd)
         ref = np.linalg.norm(rec_arp)
-        assert diff / ref < 0.05, f"Reconstruction differs by {diff/ref:.2%}"
+        assert diff / ref < 0.05, f"Reconstruction differs by {diff / ref:.2%}"
 
     def test_output_shapes_and_dtypes(self, low_rank_sparse):
         """Both paths return the same dict schema."""
@@ -295,9 +295,7 @@ class TestGPU:
 
         # Variances should agree to within numerical tolerance — both are
         # approximating the same singular values.
-        np.testing.assert_allclose(
-            out_cpu["variance"][:10], out_gpu["variance"][:10], rtol=0.02
-        )
+        np.testing.assert_allclose(out_cpu["variance"][:10], out_gpu["variance"][:10], rtol=0.02)
 
     def test_gpu_vs_arpack(self, low_rank_sparse):
         """GPU randomized SVD matches CPU ARPACK ground truth."""

@@ -107,9 +107,7 @@ def _reference_mutual_graph(
 # ---------------------------------------------------------------------------
 
 
-def _make_sym_knn(
-    rng: np.random.Generator, n: int, k: int, values: bool = False
-) -> spp.csr_matrix:
+def _make_sym_knn(rng: np.random.Generator, n: int, k: int, values: bool = False) -> spp.csr_matrix:
     """Build a symmetric kNN-ish sparse matrix with positive entries.
 
     If ``values`` is False the matrix is binary {0,1}; if True, nonzeros are
@@ -202,9 +200,7 @@ def three_species_inputs(
     offsets = {"x": 0, "y": 60, "z": 130}
     N = 180
 
-    nnms_in = {
-        sid: _make_sym_knn(rng, n_cells[sid], k=6, values=False) for sid in sids
-    }
+    nnms_in = {sid: _make_sym_knn(rng, n_cells[sid], k=6, values=False) for sid in sids}
     neigh_from_keys = dict.fromkeys(sids, False)
     B = _make_cross_B(rng, sids, n_cells, offsets, N, k=8)
 
@@ -273,9 +269,7 @@ class TestTwoSpecies:
     """Equivalence tests for the common 2-species case."""
 
     @pytest.mark.parametrize("chunksize", [10_000, 30, 7])
-    def test_basic(
-        self, two_species_inputs: dict[str, Any], chunksize: int
-    ) -> None:
+    def test_basic(self, two_species_inputs: dict[str, Any], chunksize: int) -> None:
         """Streaming == reference, 2 species, no scaling, various chunk sizes.
 
         chunksize=7 forces many small chunks within each species to exercise
@@ -285,15 +279,33 @@ class TestTwoSpecies:
         k1 = 15
 
         ref = _reference_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, threshold=0.1, scale_edges_by_corr=False, wPCA=None,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            threshold=0.1,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         got = _compute_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, chunksize=chunksize, threshold=0.1,
-            scale_edges_by_corr=False, wPCA=None,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            chunksize=chunksize,
+            threshold=0.1,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         _assert_sparse_equal(got, ref)
 
@@ -310,35 +322,69 @@ class TestTwoSpecies:
         wPCA = rng.standard_normal((inp["N"], 50))
 
         ref = _reference_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, threshold=0.1, scale_edges_by_corr=True, wPCA=wPCA,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            threshold=0.1,
+            scale_edges_by_corr=True,
+            wPCA=wPCA,
         )
         got = _compute_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, chunksize=25, threshold=0.1,
-            scale_edges_by_corr=True, wPCA=wPCA,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            chunksize=25,
+            threshold=0.1,
+            scale_edges_by_corr=True,
+            wPCA=wPCA,
         )
         _assert_sparse_equal(got, ref)
 
-    def test_non_pairwise(
-        self, two_species_inputs: dict[str, Any]
-    ) -> None:
+    def test_non_pairwise(self, two_species_inputs: dict[str, Any]) -> None:
         """pairwise=False (global per-row top-k) matches reference."""
         inp = two_species_inputs
         k1 = 10
 
         ref = _reference_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=False, threshold=0.1, scale_edges_by_corr=False, wPCA=None,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=False,
+            threshold=0.1,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         got = _compute_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=False, chunksize=1000, threshold=0.1,
-            scale_edges_by_corr=False, wPCA=None,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=False,
+            chunksize=1000,
+            threshold=0.1,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         _assert_sparse_equal(got, ref)
 
@@ -346,22 +392,38 @@ class TestTwoSpecies:
 class TestThreeSpecies:
     """Multi-species with pairwise per-block top-k."""
 
-    def test_pairwise_topk(
-        self, three_species_inputs: dict[str, Any]
-    ) -> None:
+    def test_pairwise_topk(self, three_species_inputs: dict[str, Any]) -> None:
         inp = three_species_inputs
         k1 = 10
 
         ref = _reference_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, threshold=0.1, scale_edges_by_corr=False, wPCA=None,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            threshold=0.1,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         got = _compute_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, chunksize=20, threshold=0.1,
-            scale_edges_by_corr=False, wPCA=None,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            chunksize=20,
+            threshold=0.1,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         _assert_sparse_equal(got, ref)
 
@@ -373,15 +435,33 @@ class TestThreeSpecies:
         wPCA = rng.standard_normal((inp["N"], 40))
 
         ref = _reference_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, threshold=0.1, scale_edges_by_corr=True, wPCA=wPCA,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            threshold=0.1,
+            scale_edges_by_corr=True,
+            wPCA=wPCA,
         )
         got = _compute_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, chunksize=15, threshold=0.1,
-            scale_edges_by_corr=True, wPCA=wPCA,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            chunksize=15,
+            threshold=0.1,
+            scale_edges_by_corr=True,
+            wPCA=wPCA,
         )
         _assert_sparse_equal(got, ref)
 
@@ -389,23 +469,39 @@ class TestThreeSpecies:
 class TestCoclustering:
     """The neigh_from_keys (nfk) coclustering path."""
 
-    def test_nfk_one_species(
-        self, nfk_inputs: dict[str, Any]
-    ) -> None:
+    def test_nfk_one_species(self, nfk_inputs: dict[str, Any]) -> None:
         """One species uses coclustering; threshold is disabled (matches original)."""
         inp = nfk_inputs
         k1 = 12
 
         ref = _reference_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, threshold=0.0, scale_edges_by_corr=False, wPCA=None,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            threshold=0.0,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         got = _compute_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], inp["B"],
-            inp["offsets"], inp["n_cells"], inp["sids"], k1, inp["N"],
-            pairwise=True, chunksize=30, threshold=0.0,
-            scale_edges_by_corr=False, wPCA=None,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            inp["B"],
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            k1,
+            inp["N"],
+            pairwise=True,
+            chunksize=30,
+            threshold=0.0,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         _assert_sparse_equal(got, ref)
 
@@ -424,24 +520,41 @@ class TestEdgeCases:
         B = spp.csr_matrix((N, N))  # empty
 
         got = _compute_mutual_graph(
-            nnms_in, neigh_from_keys, B, offsets, n_cells, sids, 10, N,
-            pairwise=True, chunksize=1000, threshold=0.1,
-            scale_edges_by_corr=False, wPCA=None,
+            nnms_in,
+            neigh_from_keys,
+            B,
+            offsets,
+            n_cells,
+            sids,
+            10,
+            N,
+            pairwise=True,
+            chunksize=1000,
+            threshold=0.1,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         assert got.shape == (N, N)
         assert got.nnz == 0
 
-    def test_empty_cross_species(
-        self, two_species_inputs: dict[str, Any]
-    ) -> None:
+    def test_empty_cross_species(self, two_species_inputs: dict[str, Any]) -> None:
         """B has no entries → Dk should be empty."""
         inp = two_species_inputs
         B_empty = spp.csr_matrix((inp["N"], inp["N"]))
 
         got = _compute_mutual_graph(
-            inp["nnms_in"], inp["neigh_from_keys"], B_empty,
-            inp["offsets"], inp["n_cells"], inp["sids"], 10, inp["N"],
-            pairwise=True, chunksize=1000, threshold=0.1,
-            scale_edges_by_corr=False, wPCA=None,
+            inp["nnms_in"],
+            inp["neigh_from_keys"],
+            B_empty,
+            inp["offsets"],
+            inp["n_cells"],
+            inp["sids"],
+            10,
+            inp["N"],
+            pairwise=True,
+            chunksize=1000,
+            threshold=0.1,
+            scale_edges_by_corr=False,
+            wPCA=None,
         )
         assert got.nnz == 0

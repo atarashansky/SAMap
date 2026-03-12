@@ -19,10 +19,12 @@ def _tiny_adata_with_neighbors() -> AnnData:
     rng = np.random.default_rng(0)
     n = 40
     # 2D blobs so UMAP/Leiden have something to find
-    X = np.vstack([
-        rng.normal([0, 0], 0.1, (n // 2, 2)),
-        rng.normal([5, 5], 0.1, (n // 2, 2)),
-    ]).astype(np.float32)
+    X = np.vstack(
+        [
+            rng.normal([0, 0], 0.1, (n // 2, 2)),
+            rng.normal([5, 5], 0.1, (n // 2, 2)),
+        ]
+    ).astype(np.float32)
     adata = AnnData(X)
     # Fake a connectivity graph (scanpy's neighbors output)
     from sklearn.neighbors import kneighbors_graph

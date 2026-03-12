@@ -680,7 +680,11 @@ class SAMAP:
             ncpus = os.cpu_count() or 1
 
         gnnm = self.smap.refine_homology_graph(
-            NCLUSTERS=n_clusters, ncpus=ncpus, THR=thr, corr_mode=corr_mode, wscale=wscale,
+            NCLUSTERS=n_clusters,
+            ncpus=ncpus,
+            THR=thr,
+            corr_mode=corr_mode,
+            wscale=wscale,
             correlation_mem_threshold=correlation_mem_threshold,
         )
         samap = self.smap.samap
@@ -869,5 +873,3 @@ def _avg_as(s: SAM) -> pd.DataFrame:
                     / s.adata.uns["mapping_K"]
                 )
     return pd.DataFrame(data=a, index=xu, columns=xu)
-
-

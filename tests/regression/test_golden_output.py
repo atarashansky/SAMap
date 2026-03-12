@@ -171,19 +171,20 @@ def _extract_outputs(sm: Any) -> dict[str, np.ndarray]:
 # ---------------------------------------------------------------------------
 
 
-def _compare_sparse_strict(
-    prefix: str, golden: Any, actual: dict[str, np.ndarray]
-) -> None:
+def _compare_sparse_strict(prefix: str, golden: Any, actual: dict[str, np.ndarray]) -> None:
     """Assert sparse-matrix equality: exact structure + allclose data."""
-    np.testing.assert_array_equal(
-        golden[f"{prefix}_shape"], actual[f"{prefix}_shape"]
-    ), f"{prefix}: shape mismatch"
-    np.testing.assert_array_equal(
-        golden[f"{prefix}_indptr"], actual[f"{prefix}_indptr"]
-    ), f"{prefix}: indptr mismatch (different nnz pattern)"
-    np.testing.assert_array_equal(
-        golden[f"{prefix}_indices"], actual[f"{prefix}_indices"]
-    ), f"{prefix}: indices mismatch (different sparsity pattern)"
+    (
+        np.testing.assert_array_equal(golden[f"{prefix}_shape"], actual[f"{prefix}_shape"]),
+        f"{prefix}: shape mismatch",
+    )
+    (
+        np.testing.assert_array_equal(golden[f"{prefix}_indptr"], actual[f"{prefix}_indptr"]),
+        f"{prefix}: indptr mismatch (different nnz pattern)",
+    )
+    (
+        np.testing.assert_array_equal(golden[f"{prefix}_indices"], actual[f"{prefix}_indices"]),
+        f"{prefix}: indices mismatch (different sparsity pattern)",
+    )
     np.testing.assert_allclose(
         golden[f"{prefix}_data"],
         actual[f"{prefix}_data"],
@@ -193,9 +194,7 @@ def _compare_sparse_strict(
     )
 
 
-def _compare_sparse_as_dense(
-    prefix: str, golden: Any, actual: dict[str, np.ndarray]
-) -> None:
+def _compare_sparse_as_dense(prefix: str, golden: Any, actual: dict[str, np.ndarray]) -> None:
     """Fallback: compare sparse matrices as dense, elementwise allclose.
 
     Used if structural comparison fails due to tiny values crossing the
@@ -224,9 +223,7 @@ def _compare_sparse_as_dense(
     )
 
 
-def _report_sparse_mismatch(
-    prefix: str, golden: Any, actual: dict[str, np.ndarray]
-) -> str:
+def _report_sparse_mismatch(prefix: str, golden: Any, actual: dict[str, np.ndarray]) -> str:
     """Produce a diagnostic string when structural comparison fails."""
     g_nnz = len(golden[f"{prefix}_data"])
     a_nnz = len(actual[f"{prefix}_data"])
@@ -244,9 +241,7 @@ def _report_sparse_mismatch(
 
 
 @pytest.mark.slow
-def test_golden_3species(
-    regenerate_golden: bool, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_golden_3species(regenerate_golden: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin full 3-species SAMap pipeline output against a golden fixture.
 
     Runs the pipeline end-to-end on the example hydra/planarian/schistosome

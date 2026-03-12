@@ -183,9 +183,7 @@ def _legacy_wpca(sams, gnnm, gns, pairwise: bool):
                     x = X[species_indexer[i]][:, genes_indexer[i]].dot(gsub)
                     xtr.append(std.fit_transform(x).multiply(W[genes_indexer[j]][None, :]))
                 else:
-                    xtr.append(
-                        spp.csr_matrix((species_indexer[i].size, genes_indexer[i].size))
-                    )
+                    xtr.append(spp.csr_matrix((species_indexer[i].size, genes_indexer[i].size)))
             Xtr_rows.append(spp.hstack(xtr))
         Xtr = spp.vstack(Xtr_rows)
     else:

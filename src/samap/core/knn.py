@@ -183,9 +183,7 @@ def _faiss_gpu_knn(
     res = bk.faiss_gpu_resources()
     if res is None:
         # Should not happen — caller checks _FAISS_GPU — but be defensive.
-        logger.warning(
-            "faiss_gpu_resources() returned None; falling back to hnswlib."
-        )
+        logger.warning("faiss_gpu_resources() returned None; falling back to hnswlib.")
         return _hnswlib_knn(queries, database, k, metric)
 
     # FAISS insists on float32, C-contiguous. We upload to device first so

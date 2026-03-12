@@ -35,9 +35,7 @@ from samap.core.correlation import (
 
 def _pearson_np(x: np.ndarray, y: np.ndarray) -> float:
     """Textbook Pearson — matches the kernel's formula exactly."""
-    return float(
-        ((x - x.mean()) * (y - y.mean()) / x.std() / y.std()).sum() / x.size
-    )
+    return float(((x - x.mean()) * (y - y.mean()) / x.std() / y.std()).sum() / x.size)
 
 
 def _ref_corr(
@@ -126,9 +124,7 @@ def corr_inputs(rng: np.random.Generator) -> dict[str, Any]:
     p2 = rng.integers(g_a, G, size=n_pairs)
     p = np.column_stack((p1, p2)).astype(np.int64)
     # species IDs: gene < g_a → species 0, else species 1
-    ps_int = np.column_stack(
-        (np.zeros(n_pairs, dtype=np.int64), np.ones(n_pairs, dtype=np.int64))
-    )
+    ps_int = np.column_stack((np.zeros(n_pairs, dtype=np.int64), np.ones(n_pairs, dtype=np.int64)))
 
     return {
         "nnms": nnms,
@@ -172,9 +168,7 @@ def corr_inputs_3sp(rng: np.random.Generator) -> dict[str, Any]:
         p1 = rng.integers(g_off[s1], g_off[s1 + 1], size=n_pairs_per)
         p2 = rng.integers(g_off[s2], g_off[s2 + 1], size=n_pairs_per)
         p_list.append(np.column_stack((p1, p2)))
-        ps_list.append(np.column_stack(
-            (np.full(n_pairs_per, s1), np.full(n_pairs_per, s2))
-        ))
+        ps_list.append(np.column_stack((np.full(n_pairs_per, s1), np.full(n_pairs_per, s2))))
     p = np.vstack(p_list).astype(np.int64)
     ps_int = np.vstack(ps_list).astype(np.int64)
     # shuffle so batches don't align with species combos
@@ -203,24 +197,48 @@ class TestKernelAgainstReference:
     def test_pearson_vs_numpy(self, corr_inputs: dict[str, Any]) -> None:
         inp = corr_inputs
         ref = _ref_corr(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], "pearson",
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            "pearson",
         )
         got = _compute_pair_corrs(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], inp["N"], "pearson", None,
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            inp["N"],
+            "pearson",
+            None,
         )
         np.testing.assert_allclose(got, ref, rtol=1e-12, atol=1e-14)
 
     def test_xi_vs_numpy(self, corr_inputs: dict[str, Any]) -> None:
         inp = corr_inputs
         ref = _ref_corr(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], "xi",
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            "xi",
         )
         got = _compute_pair_corrs(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], inp["N"], "xi", None,
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            inp["N"],
+            "xi",
+            None,
         )
         np.testing.assert_allclose(got, ref, rtol=1e-12, atol=1e-14)
 
@@ -229,9 +247,7 @@ class TestStreamingEquivalence:
     """Streaming path (batch_size=int) matches materialised (batch_size=None)."""
 
     @pytest.mark.parametrize("batch_size", [1, 7, 64, 256, 10_000])
-    def test_pearson_batched(
-        self, corr_inputs: dict[str, Any], batch_size: int
-    ) -> None:
+    def test_pearson_batched(self, corr_inputs: dict[str, Any], batch_size: int) -> None:
         """Streaming Pearson == materialised, across a range of batch sizes.
 
         batch_size=1 is the strictest correctness check (every pair isolated);
@@ -239,44 +255,82 @@ class TestStreamingEquivalence:
         """
         inp = corr_inputs
         ref = _compute_pair_corrs(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], inp["N"], "pearson", None,
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            inp["N"],
+            "pearson",
+            None,
         )
         got = _compute_pair_corrs(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], inp["N"], "pearson", batch_size,
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            inp["N"],
+            "pearson",
+            batch_size,
         )
         np.testing.assert_allclose(got, ref, rtol=1e-10, atol=1e-12)
 
     @pytest.mark.parametrize("batch_size", [1, 32, 500])
-    def test_xi_batched(
-        self, corr_inputs: dict[str, Any], batch_size: int
-    ) -> None:
+    def test_xi_batched(self, corr_inputs: dict[str, Any], batch_size: int) -> None:
         inp = corr_inputs
         ref = _compute_pair_corrs(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], inp["N"], "xi", None,
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            inp["N"],
+            "xi",
+            None,
         )
         got = _compute_pair_corrs(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], inp["N"], "xi", batch_size,
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            inp["N"],
+            "xi",
+            batch_size,
         )
         np.testing.assert_allclose(got, ref, rtol=1e-10, atol=1e-12)
 
     @pytest.mark.parametrize("batch_size", [1, 50, 200])
-    def test_three_species_pearson(
-        self, corr_inputs_3sp: dict[str, Any], batch_size: int
-    ) -> None:
+    def test_three_species_pearson(self, corr_inputs_3sp: dict[str, Any], batch_size: int) -> None:
         """3-species, shuffled pairs across all combos — exercises mixed-batch
         species indexing and gene-overlap between batches."""
         inp = corr_inputs_3sp
         ref = _compute_pair_corrs(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], inp["N"], "pearson", None,
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            inp["N"],
+            "pearson",
+            None,
         )
         got = _compute_pair_corrs(
-            inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-            inp["sp_starts"], inp["sp_lens"], inp["N"], "pearson", batch_size,
+            inp["nnms"],
+            inp["Xs"],
+            inp["p"],
+            inp["ps_int"],
+            inp["sp_starts"],
+            inp["sp_lens"],
+            inp["N"],
+            "pearson",
+            batch_size,
         )
         np.testing.assert_allclose(got, ref, rtol=1e-10, atol=1e-12)
 
@@ -291,9 +345,17 @@ class TestKernelDirect:
         # dummy CSC
         M = spp.csc_matrix((20, 5))
         res = _corr_kernel(
-            np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64),
-            np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64),
-            sp_starts, sp_lens, M.indptr, M.indices, M.data, 20, True,
+            np.empty(0, dtype=np.int64),
+            np.empty(0, dtype=np.int64),
+            np.empty(0, dtype=np.int64),
+            np.empty(0, dtype=np.int64),
+            sp_starts,
+            sp_lens,
+            M.indptr,
+            M.indices,
+            M.data,
+            20,
+            True,
         )
         assert res.size == 0
 
@@ -317,9 +379,7 @@ def replace_inputs(rng: np.random.Generator) -> dict[str, Any]:
 class TestReplaceVectorized:
     """_replace_vectorized matches numba _replace and pure-numpy reference."""
 
-    def test_against_numpy_corrcoef(
-        self, replace_inputs: dict[str, Any]
-    ) -> None:
+    def test_against_numpy_corrcoef(self, replace_inputs: dict[str, Any]) -> None:
         """Vectorised form matches np.corrcoef pairwise (rtol=1e-12)."""
         inp = replace_inputs
         bk = Backend("cpu")
@@ -327,15 +387,12 @@ class TestReplaceVectorized:
         got = _replace_vectorized(inp["X"], inp["xi"], inp["yi"], bk)
 
         # Reference via np.corrcoef — O(n_pairs) loop, but authoritative
-        ref = np.array([
-            np.corrcoef(inp["X"][i], inp["X"][j])[0, 1]
-            for i, j in zip(inp["xi"], inp["yi"])
-        ])
+        ref = np.array(
+            [np.corrcoef(inp["X"][i], inp["X"][j])[0, 1] for i, j in zip(inp["xi"], inp["yi"])]
+        )
         np.testing.assert_allclose(got, ref, rtol=1e-12, atol=1e-14)
 
-    def test_against_numba(
-        self, replace_inputs: dict[str, Any]
-    ) -> None:
+    def test_against_numba(self, replace_inputs: dict[str, Any]) -> None:
         """Vectorised form matches numba _replace (the CPU fast path)."""
         inp = replace_inputs
         bk = Backend("cpu")
@@ -346,9 +403,7 @@ class TestReplaceVectorized:
         np.testing.assert_allclose(vec_res, numba_res, rtol=1e-12, atol=1e-14)
 
     @pytest.mark.parametrize("batch_size", [1, 7, 100, 500, 2000])
-    def test_batched_matches_full(
-        self, replace_inputs: dict[str, Any], batch_size: int
-    ) -> None:
+    def test_batched_matches_full(self, replace_inputs: dict[str, Any], batch_size: int) -> None:
         """Chunked vectorised == single-shot vectorised (all batch sizes).
 
         batch_size=1 is the tightest correctness probe; 2000 > n_pairs
@@ -358,14 +413,10 @@ class TestReplaceVectorized:
         bk = Backend("cpu")
 
         full = _replace_vectorized(inp["X"], inp["xi"], inp["yi"], bk, batch_size=None)
-        chunked = _replace_vectorized(
-            inp["X"], inp["xi"], inp["yi"], bk, batch_size=batch_size
-        )
+        chunked = _replace_vectorized(inp["X"], inp["xi"], inp["yi"], bk, batch_size=batch_size)
         np.testing.assert_allclose(chunked, full, rtol=0, atol=0)
 
-    def test_float32_input(
-        self, replace_inputs: dict[str, Any]
-    ) -> None:
+    def test_float32_input(self, replace_inputs: dict[str, Any]) -> None:
         """float32 input → float64 output, matches float64 input path.
 
         wPCA is often stored float32 for memory; the vectorised form
@@ -382,9 +433,7 @@ class TestReplaceVectorized:
         # float32 input has less precision → looser tolerance
         np.testing.assert_allclose(res32, res64, rtol=1e-5, atol=1e-7)
 
-    def test_zero_variance_row(
-        self, rng: np.random.Generator
-    ) -> None:
+    def test_zero_variance_row(self, rng: np.random.Generator) -> None:
         """Constant row → std=0 → nan (matches _replace behaviour)."""
         bk = Backend("cpu")
         X = rng.standard_normal((10, 20))
@@ -404,9 +453,7 @@ class TestReplaceVectorized:
 class TestReplaceCorrDispatcher:
     """replace_corr routes to numba on CPU, vectorised on GPU."""
 
-    def test_cpu_backend_uses_numba(
-        self, replace_inputs: dict[str, Any]
-    ) -> None:
+    def test_cpu_backend_uses_numba(self, replace_inputs: dict[str, Any]) -> None:
         """CPU backend → numba path; result matches _replace directly."""
         inp = replace_inputs
         bk = Backend("cpu")
@@ -416,18 +463,14 @@ class TestReplaceCorrDispatcher:
         # CPU dispatch IS the numba path → bit-identical
         np.testing.assert_array_equal(disp, numba)
 
-    def test_bk_none_defaults_to_numba(
-        self, replace_inputs: dict[str, Any]
-    ) -> None:
+    def test_bk_none_defaults_to_numba(self, replace_inputs: dict[str, Any]) -> None:
         """bk=None (backward-compat) → numba path."""
         inp = replace_inputs
         disp = replace_corr(inp["X"], inp["xi"], inp["yi"], bk=None)
         numba = _replace(inp["X"], inp["xi"], inp["yi"])
         np.testing.assert_array_equal(disp, numba)
 
-    def test_mock_gpu_uses_vectorized(
-        self, replace_inputs: dict[str, Any]
-    ) -> None:
+    def test_mock_gpu_uses_vectorized(self, replace_inputs: dict[str, Any]) -> None:
         """Mock Backend with gpu=True → vectorised path.
 
         We can't test a real GPU path on CI; this verifies the dispatch

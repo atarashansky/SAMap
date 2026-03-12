@@ -536,4 +536,3 @@ def _mapping_window(
     knn = sp.sparse.coo_matrix((Vs, (Xs, Ys)), shape=(ixg.size, ixg.size))
 
     return {"knn": knn.tocsr(), "wPCA": wpca}
-

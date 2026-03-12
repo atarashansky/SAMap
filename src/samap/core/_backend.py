@@ -136,9 +136,7 @@ class Backend:
             self.spla = scipy_spla
             self.gpu = False
         else:
-            raise ValueError(
-                f"device must be 'cpu', 'cuda', or 'auto'; got {device!r}"
-            )
+            raise ValueError(f"device must be 'cpu', 'cuda', or 'auto'; got {device!r}")
 
         self.device: str = device
 
@@ -379,9 +377,7 @@ class COOBuilder:
 
     __slots__ = ("_bk", "_cols", "_dtype", "_rows", "_shape", "_vals")
 
-    def __init__(
-        self, bk: Backend, shape: tuple[int, int], dtype: Any = None
-    ) -> None:
+    def __init__(self, bk: Backend, shape: tuple[int, int], dtype: Any = None) -> None:
         self._bk = bk
         self._shape = shape
         self._dtype = np.float64 if dtype is None else np.dtype(dtype)

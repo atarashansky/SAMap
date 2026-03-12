@@ -128,13 +128,16 @@ def synth_knn_graph(
     (0, 1], diagonal absent, cluster-local neighbourhood structure.
     Returns the graph and an integer cluster-label array.
     """
-    centres = np.stack(
-        [
-            np.cos(2 * np.pi * np.arange(n_clusters) / n_clusters),
-            np.sin(2 * np.pi * np.arange(n_clusters) / n_clusters),
-        ],
-        axis=1,
-    ) * 10.0
+    centres = (
+        np.stack(
+            [
+                np.cos(2 * np.pi * np.arange(n_clusters) / n_clusters),
+                np.sin(2 * np.pi * np.arange(n_clusters) / n_clusters),
+            ],
+            axis=1,
+        )
+        * 10.0
+    )
     labels = rng.integers(0, n_clusters, size=n_cells)
     pts = centres[labels] + rng.normal(scale=1.0, size=(n_cells, 2))
 
@@ -206,9 +209,7 @@ def synth_species_pair(
     gns_list: list[np.ndarray] = []
 
     for sid in sids:
-        var_names = np.array(
-            [f"{sid}_gene{i:05d}" for i in range(n_genes_per_species)]
-        )
+        var_names = np.array([f"{sid}_gene{i:05d}" for i in range(n_genes_per_species)])
         X = spp.random(
             n_cells_per_species,
             n_genes_per_species,
@@ -219,9 +220,7 @@ def synth_species_pair(
         )
         X.data *= 10  # roughly count-scale
         weights = rng.uniform(0.1, 1.0, n_genes_per_species)
-        PCs = rng.standard_normal(
-            (n_genes_per_species, npcs), dtype=np.float64
-        )
+        PCs = rng.standard_normal((n_genes_per_species, npcs), dtype=np.float64)
         sams[sid] = _MockSAM(_MockAdata(X, var_names, weights, PCs))
         gns_list.append(var_names)
 
@@ -272,9 +271,7 @@ def synth_correlation_inputs(
     # affect timing, only numerical output).
     rows = np.repeat(np.arange(N), knn_k)
     cols = rng.integers(0, N, size=N * knn_k)
-    knn = spp.csr_matrix(
-        (np.ones(N * knn_k), (rows, cols)), shape=(N, N)
-    )
+    knn = spp.csr_matrix((np.ones(N * knn_k), (rows, cols)), shape=(N, N))
     knn.setdiag(1.0)
     knn.sum_duplicates()
     rs = np.asarray(knn.sum(1)).flatten()
@@ -282,12 +279,20 @@ def synth_correlation_inputs(
 
     # Block-diagonal expression. Use float32 to match production.
     Xa = spp.random(
-        n_a, g_a, density=density, format="csr",
-        random_state=rng.integers(1 << 31), dtype=np.float32,
+        n_a,
+        g_a,
+        density=density,
+        format="csr",
+        random_state=rng.integers(1 << 31),
+        dtype=np.float32,
     )
     Xb = spp.random(
-        n_b, g_b, density=density, format="csr",
-        random_state=rng.integers(1 << 31), dtype=np.float32,
+        n_b,
+        g_b,
+        density=density,
+        format="csr",
+        random_state=rng.integers(1 << 31),
+        dtype=np.float32,
     )
     Xs = spp.block_diag([Xa, Xb]).tocsc()
 
@@ -295,9 +300,7 @@ def synth_correlation_inputs(
     p1 = rng.integers(0, g_a, size=n_pairs)
     p2 = rng.integers(g_a, G, size=n_pairs)
     p = np.column_stack((p1, p2)).astype(np.int64)
-    ps_int = np.column_stack(
-        (np.zeros(n_pairs, dtype=np.int64), np.ones(n_pairs, dtype=np.int64))
-    )
+    ps_int = np.column_stack((np.zeros(n_pairs, dtype=np.int64), np.ones(n_pairs, dtype=np.int64)))
 
     return {
         "nnms": nnms,
@@ -323,9 +326,7 @@ def bench_expand(
 ) -> list[Result]:
     """Legacy matrix-power vs BFS neighbourhood expansion."""
     print(f"  [expand] building kNN graph: n={n_cells}", file=sys.stderr)
-    nnm, labels = synth_knn_graph(
-        n_cells, k=20, n_clusters=max(8, n_cells // 200), rng=rng
-    )
+    nnm, labels = synth_knn_graph(n_cells, k=20, n_clusters=max(8, n_cells // 200), rng=rng)
     _, ix, counts = np.unique(labels, return_inverse=True, return_counts=True)
     K = counts[ix].astype(np.int64)
 
@@ -339,21 +340,31 @@ def bench_expand(
     with measure() as m:
         for _ in range(n_iters):
             _smart_expand(nnm, K.copy(), NH=3, legacy=True)
-    results.append(Result(
-        n_cells=n_cells, phase="expand", config="legacy",
-        wall_time_s=m["wall_time_s"], peak_mem_mb=m["peak_mem_mb"],
-        n_iters=n_iters,
-    ))
+    results.append(
+        Result(
+            n_cells=n_cells,
+            phase="expand",
+            config="legacy",
+            wall_time_s=m["wall_time_s"],
+            peak_mem_mb=m["peak_mem_mb"],
+            n_iters=n_iters,
+        )
+    )
 
     # --- Optimized: BFS ---------------------------------------------------
     with measure() as m:
         for _ in range(n_iters):
             _smart_expand(nnm, K.copy(), NH=3, legacy=False)
-    results.append(Result(
-        n_cells=n_cells, phase="expand", config="optimized",
-        wall_time_s=m["wall_time_s"], peak_mem_mb=m["peak_mem_mb"],
-        n_iters=n_iters,
-    ))
+    results.append(
+        Result(
+            n_cells=n_cells,
+            phase="expand",
+            config="optimized",
+            wall_time_s=m["wall_time_s"],
+            peak_mem_mb=m["peak_mem_mb"],
+            n_iters=n_iters,
+        )
+    )
 
     return results
 
@@ -376,8 +387,7 @@ def bench_projection(
     SAMap runs 3+ iterations and amortizes it.
     """
     print(
-        f"  [projection] building species pair: n={n_cells}/species, "
-        f"genes=5000/species",
+        f"  [projection] building species pair: n={n_cells}/species, genes=5000/species",
         file=sys.stderr,
     )
     synth = synth_species_pair(
@@ -399,11 +409,16 @@ def bench_projection(
     with measure() as m:
         for _ in range(n_iters):
             _mapping_window(sams, gnnm, gns, K=20)
-    results.append(Result(
-        n_cells=n_cells, phase="projection", config="legacy",
-        wall_time_s=m["wall_time_s"], peak_mem_mb=m["peak_mem_mb"],
-        n_iters=n_iters,
-    ))
+    results.append(
+        Result(
+            n_cells=n_cells,
+            phase="projection",
+            config="legacy",
+            wall_time_s=m["wall_time_s"],
+            peak_mem_mb=m["peak_mem_mb"],
+            n_iters=n_iters,
+        )
+    )
 
     # --- Optimized: precompute once, fast path per iter -------------------
     # Precompute outside the measurement window — it's iteration-invariant.
@@ -411,11 +426,16 @@ def bench_projection(
     with measure() as m:
         for _ in range(n_iters):
             _mapping_window_fast(gnnm, pre, K=20)
-    results.append(Result(
-        n_cells=n_cells, phase="projection", config="optimized",
-        wall_time_s=m["wall_time_s"], peak_mem_mb=m["peak_mem_mb"],
-        n_iters=n_iters,
-    ))
+    results.append(
+        Result(
+            n_cells=n_cells,
+            phase="projection",
+            config="optimized",
+            wall_time_s=m["wall_time_s"],
+            peak_mem_mb=m["peak_mem_mb"],
+            n_iters=n_iters,
+        )
+    )
 
     return results
 
@@ -433,8 +453,7 @@ def bench_correlation(
     the columns needed per batch.
     """
     print(
-        f"  [correlation] building inputs: n={n_cells}/species, "
-        f"2000 genes/species, 8000 pairs",
+        f"  [correlation] building inputs: n={n_cells}/species, 2000 genes/species, 8000 pairs",
         file=sys.stderr,
     )
     inp = synth_correlation_inputs(
@@ -447,8 +466,13 @@ def bench_correlation(
     )
 
     args = (
-        inp["nnms"], inp["Xs"], inp["p"], inp["ps_int"],
-        inp["sp_starts"], inp["sp_lens"], inp["n"],
+        inp["nnms"],
+        inp["Xs"],
+        inp["p"],
+        inp["ps_int"],
+        inp["sp_starts"],
+        inp["sp_lens"],
+        inp["n"],
     )
 
     # Warmup (both paths share the numba _corr_kernel).
@@ -460,21 +484,31 @@ def bench_correlation(
     with measure() as m:
         for _ in range(n_iters):
             _compute_pair_corrs(*args, corr_mode="pearson", batch_size=None)
-    results.append(Result(
-        n_cells=n_cells, phase="correlation", config="legacy",
-        wall_time_s=m["wall_time_s"], peak_mem_mb=m["peak_mem_mb"],
-        n_iters=n_iters,
-    ))
+    results.append(
+        Result(
+            n_cells=n_cells,
+            phase="correlation",
+            config="legacy",
+            wall_time_s=m["wall_time_s"],
+            peak_mem_mb=m["peak_mem_mb"],
+            n_iters=n_iters,
+        )
+    )
 
     # --- Optimized: streaming batches -------------------------------------
     with measure() as m:
         for _ in range(n_iters):
             _compute_pair_corrs(*args, corr_mode="pearson", batch_size=512)
-    results.append(Result(
-        n_cells=n_cells, phase="correlation", config="optimized",
-        wall_time_s=m["wall_time_s"], peak_mem_mb=m["peak_mem_mb"],
-        n_iters=n_iters,
-    ))
+    results.append(
+        Result(
+            n_cells=n_cells,
+            phase="correlation",
+            config="optimized",
+            wall_time_s=m["wall_time_s"],
+            peak_mem_mb=m["peak_mem_mb"],
+            n_iters=n_iters,
+        )
+    )
 
     return results
 
@@ -496,15 +530,18 @@ def write_csv(path: Path, results: list[Result]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(
-            ["n_cells", "phase", "config", "wall_time_s", "peak_mem_mb", "n_iters"]
-        )
+        w.writerow(["n_cells", "phase", "config", "wall_time_s", "peak_mem_mb", "n_iters"])
         for r in results:
-            w.writerow([
-                r.n_cells, r.phase, r.config,
-                f"{r.wall_time_s:.6f}", f"{r.peak_mem_mb:.3f}",
-                r.n_iters,
-            ])
+            w.writerow(
+                [
+                    r.n_cells,
+                    r.phase,
+                    r.config,
+                    f"{r.wall_time_s:.6f}",
+                    f"{r.peak_mem_mb:.3f}",
+                    r.n_iters,
+                ]
+            )
 
 
 def print_summary(results: list[Result]) -> None:
@@ -536,22 +573,30 @@ def print_summary(results: list[Result]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument(
-        "--max-cells", type=int, default=10000,
+        "--max-cells",
+        type=int,
+        default=10000,
         help="stop at the first scale whose n_cells exceeds this (default: 10000)",
     )
     p.add_argument(
-        "--phases", default="expand,projection,correlation",
-        help="comma-separated list of phases to run "
-             "(expand,projection,correlation; default: all)",
+        "--phases",
+        default="expand,projection,correlation",
+        help="comma-separated list of phases to run (expand,projection,correlation; default: all)",
     )
     p.add_argument(
-        "--out", type=Path, default=None,
+        "--out",
+        type=Path,
+        default=None,
         help="output CSV path (default: benchmarks/results/bench_<TIMESTAMP>.csv)",
     )
     p.add_argument(
-        "--seed", type=int, default=42,
+        "--seed",
+        type=int,
+        default=42,
         help="RNG seed for synthetic data (default: 42)",
     )
     args = p.parse_args(argv)
@@ -570,9 +615,7 @@ def main(argv: list[str] | None = None) -> int:
         scales = [args.max_cells]
 
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    out_path = args.out or (
-        Path(__file__).parent / "results" / f"bench_{ts}.csv"
-    )
+    out_path = args.out or (Path(__file__).parent / "results" / f"bench_{ts}.csv")
 
     rng = np.random.default_rng(args.seed)
     all_results: list[Result] = []

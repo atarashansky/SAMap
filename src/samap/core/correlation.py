@@ -346,10 +346,17 @@ def _compute_pair_corrs(
         # --- Materialised path (golden-compatible) --------------------------
         Xavg = nnms.dot(Xs).tocsc()
         return _corr_kernel(
-            p1, p2, ps1, ps2,
-            sp_starts, sp_lens,
-            Xavg.indptr, Xavg.indices, Xavg.data,
-            n, pearson,
+            p1,
+            p2,
+            ps1,
+            ps2,
+            sp_starts,
+            sp_lens,
+            Xavg.indptr,
+            Xavg.indices,
+            Xavg.data,
+            n,
+            pearson,
         )
 
     # --- Streaming path -----------------------------------------------------
@@ -376,12 +383,17 @@ def _compute_pair_corrs(
         Xavg_batch = nnms.dot(Xs[:, needed]).tocsc()
 
         res[start:end] = _corr_kernel(
-            p1_local, p2_local,
+            p1_local,
+            p2_local,
             np.ascontiguousarray(ps1[start:end]),
             np.ascontiguousarray(ps2[start:end]),
-            sp_starts, sp_lens,
-            Xavg_batch.indptr, Xavg_batch.indices, Xavg_batch.data,
-            n, pearson,
+            sp_starts,
+            sp_lens,
+            Xavg_batch.indptr,
+            Xavg_batch.indices,
+            Xavg_batch.data,
+            n,
+            pearson,
         )
 
         del Xavg_batch
@@ -451,14 +463,22 @@ def _resolve_batch_size(
         logger.info(
             "Correlation: estimated Xavg %.3f GB (density~%.1f%%, %d cells x %d genes) "
             "< %.1f GB threshold — using materialised path.",
-            est_gb, out_density * 100, n_cells, n_genes, mem_threshold_gb,
+            est_gb,
+            out_density * 100,
+            n_cells,
+            n_genes,
+            mem_threshold_gb,
         )
         return None
 
     logger.info(
         "Correlation: estimated Xavg %.3f GB (density~%.1f%%, %d cells x %d genes) "
         ">= %.1f GB threshold — using streaming path (batch_size=512).",
-        est_gb, out_density * 100, n_cells, n_genes, mem_threshold_gb,
+        est_gb,
+        out_density * 100,
+        n_cells,
+        n_genes,
+        mem_threshold_gb,
     )
     return 512
 
@@ -672,8 +692,15 @@ def _refine_corr_parallel(
     ).astype(np.int64)
 
     vals = _compute_pair_corrs(
-        nnms, Xs, p.astype(np.int64), ps_int,
-        sp_starts, sp_lens, nnms.shape[0], corr_mode, batch_size,
+        nnms,
+        Xs,
+        p.astype(np.int64),
+        ps_int,
+        sp_starts,
+        sp_lens,
+        nnms.shape[0],
+        corr_mode,
+        batch_size,
     )
     vals[np.isnan(vals)] = 0
 

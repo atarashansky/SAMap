@@ -21,9 +21,7 @@ if HAS_CUPY:
 else:
     _CUDA = False
 
-gpu_only = pytest.mark.skipif(
-    not _CUDA, reason="requires cupy + a CUDA device"
-)
+gpu_only = pytest.mark.skipif(not _CUDA, reason="requires cupy + a CUDA device")
 
 
 # ---------------------------------------------------------------------------
@@ -122,9 +120,7 @@ class TestSparseFromCoo:
 
     def test_duplicates_are_summed(self, bk_cpu: Backend) -> None:
         # Two entries at (0, 0) → summed
-        A = bk_cpu.sparse_from_coo(
-            [1.0, 2.0, 10.0], [0, 0, 1], [0, 0, 1], shape=(2, 2)
-        )
+        A = bk_cpu.sparse_from_coo([1.0, 2.0, 10.0], [0, 0, 1], [0, 0, 1], shape=(2, 2))
         assert A[0, 0] == 3.0
         assert A[1, 1] == 10.0
 
@@ -449,9 +445,7 @@ class TestDataMovementGPU:
         A_host[2, 2] = 7.0
         A_dev = bk_gpu.to_device(A_host)
         assert A_dev.format == "csr"
-        np.testing.assert_allclose(
-            cp.asnumpy(A_dev.toarray()), A_host.toarray()
-        )
+        np.testing.assert_allclose(cp.asnumpy(A_dev.toarray()), A_host.toarray())
 
     def test_to_device_idempotent(self, bk_gpu: Backend) -> None:
         """Calling to_device on already-device data should be a no-op."""
@@ -486,9 +480,7 @@ class TestCOOBuilderGPU:
         A = b.finalize()
         assert cpx_sparse.issparse(A)
         dense = cp.asnumpy(A.toarray())
-        np.testing.assert_array_equal(
-            dense, [[0, 5, 0], [0, 0, 3], [7, 0, 0]]
-        )
+        np.testing.assert_array_equal(dense, [[0, 5, 0], [0, 0, 3], [7, 0, 0]])
 
     def test_cpu_gpu_builders_agree(self, bk_gpu: Backend) -> None:
         """Same triplets → same dense matrix regardless of backend."""

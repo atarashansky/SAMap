@@ -583,9 +583,9 @@ class SAM:
             # E[x²] via squaring the data buffer. We need D_avg_g.data² summed
             # per column — reuse the matrix structure.
             D_sq_g = D_avg_g.copy()
-            D_sq_g.data = D_sq_g.data ** 2
+            D_sq_g.data = D_sq_g.data**2
             ex2 = xp.asarray(D_sq_g.sum(axis=0)).ravel() / n
-            var = ex2 - mu ** 2
+            var = ex2 - mu**2
 
             mu2 = None
             if weight_mode in ("rms", "combined"):
@@ -1006,9 +1006,7 @@ class SAM:
                     else:
                         no = np.asarray(D_sub.mean(0)).flatten()
                     mean_correction = no
-                    output = _pca_with_sparse(
-                        D_sub, npcs, mu=(no)[None, :], seed=seed, bk=self._bk
-                    )
+                    output = _pca_with_sparse(D_sub, npcs, mu=(no)[None, :], seed=seed, bk=self._bk)
                     components = output["components"]
                     g_weighted = output["X_pca"]
 
@@ -1051,9 +1049,7 @@ class SAM:
             try:
                 import harmonypy
 
-                harmony_out = harmonypy.run_harmony(
-                    g_weighted, adata.obs, batch_key, verbose=False
-                )
+                harmony_out = harmonypy.run_harmony(g_weighted, adata.obs, batch_key, verbose=False)
                 g_weighted = harmony_out.Z_corr.T
             except ImportError as err:
                 raise ImportError(

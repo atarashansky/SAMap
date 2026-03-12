@@ -368,9 +368,7 @@ def convert_eggnog_to_homologs(
     Y = np.array(Y)
     # Binary membership matrix; only the nonzero pattern matters downstream
     # (result is binarised after dot), so COO sum-duplicates is safe here.
-    B = sp.sparse.coo_matrix(
-        (np.ones(Y.size), (Y, X)), shape=(og.size, D.size)
-    ).tocsr()
+    B = sp.sparse.coo_matrix((np.ones(Y.size), (Y, X)), shape=(og.size, D.size)).tocsr()
     B = B.dot(B.T)
     B.data[:] = 1
     pairs = gn[np.vstack(B.nonzero()).T]

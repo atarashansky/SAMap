@@ -234,12 +234,8 @@ def _pca_with_sparse(
     # only case SAM actually uses. For mu_axis=1, fall through to ARPACK.
     if svd_solver == "randomized":
         if mu_axis != 0:
-            raise ValueError(
-                "randomized svd_solver only supports mu_axis=0 (column centering)"
-            )
-        return randomized_svd_implicit_center(
-            X, npcs, mu=mu, seed=seed, bk=bk
-        )
+            raise ValueError("randomized svd_solver only supports mu_axis=0 (column centering)")
+        return randomized_svd_implicit_center(X, npcs, mu=mu, seed=seed, bk=bk)
 
     # --- ARPACK path (original) ----------------------------------------------
     random_state = check_random_state(seed)

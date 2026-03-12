@@ -23,9 +23,7 @@ if _FAISS_GPU_AVAILABLE:
 
     _FAISS_GPU_AVAILABLE = hasattr(faiss, "StandardGpuResources")
 
-gpu_only = pytest.mark.skipif(
-    not _FAISS_GPU_AVAILABLE, reason="requires cupy + CUDA + faiss-gpu"
-)
+gpu_only = pytest.mark.skipif(not _FAISS_GPU_AVAILABLE, reason="requires cupy + CUDA + faiss-gpu")
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +91,7 @@ class TestOutputFormat:
         assert dist.min() >= 0.0 - 1e-6
         assert dist.max() <= 2.0 + 1e-6
 
-    def test_distances_sorted_ascending(
-        self, bk_cpu: Backend, small_data
-    ) -> None:
+    def test_distances_sorted_ascending(self, bk_cpu: Backend, small_data) -> None:
         q, db = small_data
         _, dist = approximate_knn(q, db, k=10, metric="cosine", bk=bk_cpu)
         # Each row should be non-decreasing (closest first)
@@ -161,16 +157,12 @@ class TestFaissGPU:
     def bk_gpu(self) -> Backend:
         return Backend("cuda")
 
-    def test_exact_vs_brute_force(
-        self, bk_gpu: Backend, small_data
-    ) -> None:
+    def test_exact_vs_brute_force(self, bk_gpu: Backend, small_data) -> None:
         """GpuIndexFlatIP is exact — neighbour sets must match brute-force."""
         q, db = small_data
         k = 10
 
-        idx_faiss, dist_faiss = approximate_knn(
-            q, db, k=k, metric="cosine", bk=bk_gpu
-        )
+        idx_faiss, dist_faiss = approximate_knn(q, db, k=k, metric="cosine", bk=bk_gpu)
         idx_exact, dist_exact = _brute_force_cosine_knn(q, db, k=k)
 
         # Neighbour sets should be identical (exact search). Use sets per row
@@ -214,9 +206,7 @@ class TestFaissGPU:
         with pytest.raises(ValueError, match="only supports metric='cosine'"):
             _faiss_gpu_knn(q, db, k=5, metric="l2", bk=bk_gpu)
 
-    def test_faiss_matches_hnsw_distances(
-        self, bk_gpu: Backend, small_data
-    ) -> None:
+    def test_faiss_matches_hnsw_distances(self, bk_gpu: Backend, small_data) -> None:
         """Sanity cross-check: FAISS and HNSW agree on nearest-neighbour distance."""
         q, db = small_data
         _, dist_gpu = approximate_knn(q, db, k=1, metric="cosine", bk=bk_gpu)
@@ -230,9 +220,7 @@ class TestFaissGPU:
 
 
 class TestFallback:
-    def test_cpu_backend_always_uses_hnswlib(
-        self, bk_cpu: Backend, small_data, caplog
-    ) -> None:
+    def test_cpu_backend_always_uses_hnswlib(self, bk_cpu: Backend, small_data, caplog) -> None:
         """On CPU backend, no fallback warning — hnswlib is the direct path."""
         q, db = small_data
         with caplog.at_level("WARNING"):

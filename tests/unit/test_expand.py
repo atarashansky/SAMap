@@ -35,13 +35,16 @@ def _make_knn_graph(
     connectivities look like (weights in (0, 1], diagonal absent).
     """
     # Place cluster centres on a circle so they're well-separated.
-    centres = np.stack(
-        [
-            np.cos(2 * np.pi * np.arange(n_clusters) / n_clusters),
-            np.sin(2 * np.pi * np.arange(n_clusters) / n_clusters),
-        ],
-        axis=1,
-    ) * 10.0
+    centres = (
+        np.stack(
+            [
+                np.cos(2 * np.pi * np.arange(n_clusters) / n_clusters),
+                np.sin(2 * np.pi * np.arange(n_clusters) / n_clusters),
+            ],
+            axis=1,
+        )
+        * 10.0
+    )
     labels = rng.integers(0, n_clusters, size=n_cells)
     pts = centres[labels] + rng.normal(scale=1.0, size=(n_cells, 2))
 

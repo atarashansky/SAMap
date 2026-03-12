@@ -36,9 +36,7 @@ def _resolve_csv(arg: str) -> Path:
         results_dir = Path(__file__).parent / "results"
         candidates = sorted(results_dir.glob("bench_*.csv"))
         if not candidates:
-            raise FileNotFoundError(
-                f"no bench_*.csv files in {results_dir}"
-            )
+            raise FileNotFoundError(f"no bench_*.csv files in {results_dir}")
         return candidates[-1]
     return Path(arg)
 
@@ -59,7 +57,8 @@ def plot(csv_path: Path, out_path: Path | None = None) -> Path:
     n_ph = len(phases)
 
     fig, axes = plt.subplots(
-        2, n_ph,
+        2,
+        n_ph,
         figsize=(4.5 * n_ph, 8),
         squeeze=False,
         sharex="col",
@@ -75,8 +74,10 @@ def plot(csv_path: Path, out_path: Path | None = None) -> Path:
             if s.empty:
                 continue
             ax_t.loglog(
-                s["n_cells"], s["time_per_iter_s"],
-                label=cfg, **style,
+                s["n_cells"],
+                s["time_per_iter_s"],
+                label=cfg,
+                **style,
             )
         ax_t.set_title(phase, fontsize=12, fontweight="bold")
         ax_t.set_ylabel("wall time / iter (s)")
@@ -91,8 +92,10 @@ def plot(csv_path: Path, out_path: Path | None = None) -> Path:
             if s.empty:
                 continue
             ax_m.loglog(
-                s["n_cells"], s["peak_mem_mb"],
-                label=cfg, **style,
+                s["n_cells"],
+                s["peak_mem_mb"],
+                label=cfg,
+                **style,
             )
         ax_m.set_xlabel("n_cells")
         ax_m.set_ylabel("peak memory (MiB)")
@@ -118,7 +121,10 @@ def main(argv: list[str] | None = None) -> int:
         help="path to bench CSV, or 'latest' for most recent in results/",
     )
     p.add_argument(
-        "-o", "--out", type=Path, default=None,
+        "-o",
+        "--out",
+        type=Path,
+        default=None,
         help="output figure path (default: same as CSV with .png suffix)",
     )
     args = p.parse_args(argv)
