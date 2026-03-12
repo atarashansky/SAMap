@@ -11,15 +11,19 @@ The memory bottleneck here is ``Xavg = nnms @ Xs`` — an N × G_active matrix a
 per-gene-pair Pearson correlations. We offer two paths:
 
 * **Materialized** (``batch_size=None``): builds the full ``Xavg`` up front.
-  Faster for moderate-scale runs (~3-5× at <10k cells); pass explicitly to
-  opt out of streaming when memory headroom is plentiful.
-* **Streaming** (``batch_size=int``, default 512): processes pairs in batches.
-  For each batch, computes ``Xavg`` only for the genes appearing in that
-  batch's pairs (at most ``2 * batch_size`` columns), correlates, discards.
-  Peak memory drops from O(N × G_active) to O(N × 2·batch_size). Some columns
-  are recomputed across batches if a gene appears in multiple pair-batches;
-  this is a cheap single-column SpMV and empirically <5% overhead. The default
-  is tuned for million-cell scale where ``Xavg`` would not fit in memory.
+  Faster for moderate-scale runs (~3-5× at <10k cells); the right choice when
+  the estimated ``Xavg`` fits comfortably in memory.
+* **Streaming** (``batch_size=int``): processes pairs in batches. For each
+  batch, computes ``Xavg`` only for the genes appearing in that batch's pairs
+  (at most ``2 * batch_size`` columns), correlates, discards. Peak memory
+  drops from O(N × G_active) to O(N × 2·batch_size). Some columns are
+  recomputed across batches if a gene appears in multiple pair-batches;
+  this is a cheap single-column SpMV and empirically <5% overhead.
+* **Auto** (``batch_size="auto"``, the default): estimates the materialised
+  ``Xavg`` size from cell/gene counts, expression density, and kNN degree.
+  If the estimate is under ``correlation_mem_threshold`` (default 2 GB),
+  materialise; otherwise stream at ``batch_size=512``. See
+  :func:`_resolve_batch_size`.
 
 Separately, the numba kernel no longer uses a Python dict for species lookup.
 Species cell ranges are passed as integer ``sp_starts`` / ``sp_lens`` arrays,
@@ -39,6 +43,7 @@ import scipy as sp
 from numba import njit, prange
 from numba.core.errors import NumbaPerformanceWarning, NumbaWarning
 
+from samap._logging import logger
 from samap.utils import q as _q
 from samap.utils import to_vn
 
@@ -385,6 +390,79 @@ def _compute_pair_corrs(
     return res
 
 
+def _resolve_batch_size(
+    batch_size: int | str | None,
+    nnms: Any,
+    Xs: Any,
+    mem_threshold_gb: float = 2.0,
+) -> int | None:
+    """Auto-select batched vs materialised correlation based on estimated memory.
+
+    The materialised path (``batch_size=None``) is 3-5× faster on small data
+    (fewer SpMM dispatches, better cache reuse) but requires holding the full
+    ``Xavg = nnms @ Xs`` in memory. The streaming path (``batch_size=int``)
+    caps memory but pays per-batch overhead.
+
+    Heuristic: estimate the materialised ``Xavg`` size. The output density
+    after kNN smoothing is roughly ``1 - (1 - p)^k`` where ``p`` is the input
+    expression density and ``k`` is the average neighbour degree — each output
+    entry is zero only if all ``k`` contributing inputs are zero. If the
+    estimate is comfortably under ``mem_threshold_gb``, materialise; otherwise
+    stream at 512.
+
+    Parameters
+    ----------
+    batch_size
+        User-supplied batch_size. If not the string ``"auto"``, returned
+        unchanged (respects explicit user choice including ``None``).
+    nnms
+        Row-normalised averaging operator (N × N sparse).
+    Xs
+        Block-diagonal expression (N × G_active sparse).
+    mem_threshold_gb
+        If estimated ``Xavg`` size is below this, materialise. Default 2 GB
+        leaves ample headroom on a 16 GB laptop; large-memory nodes can
+        raise it via ``correlation_mem_threshold``.
+
+    Returns
+    -------
+    ``None`` to materialise, or an integer batch size to stream.
+    """
+    if batch_size != "auto":
+        return batch_size
+
+    n_cells, n_genes = Xs.shape
+    if n_cells == 0 or n_genes == 0:
+        return None  # trivial — materialise
+
+    k_avg = nnms.nnz / max(nnms.shape[0], 1)
+    expr_density = Xs.nnz / (n_cells * n_genes)
+    # Output entry is zero iff all k contributing inputs are zero: (1-p)^k.
+    # This overestimates density slightly (ignores structural zeros from
+    # block-diag Xs outside a species' gene range), which is the safe direction.
+    out_density = min(1.0, 1.0 - (1.0 - expr_density) ** max(k_avg, 1.0))
+
+    # CSC storage: data (float64) + indices (int32) + indptr. Dominated by
+    # data + indices ≈ 12 bytes/nonzero. Use 12 not 8 to be conservative.
+    est_bytes = n_cells * n_genes * out_density * 12.0
+    est_gb = est_bytes / 1e9
+
+    if est_gb < mem_threshold_gb:
+        logger.info(
+            "Correlation: estimated Xavg %.3f GB (density~%.1f%%, %d cells x %d genes) "
+            "< %.1f GB threshold — using materialised path.",
+            est_gb, out_density * 100, n_cells, n_genes, mem_threshold_gb,
+        )
+        return None
+
+    logger.info(
+        "Correlation: estimated Xavg %.3f GB (density~%.1f%%, %d cells x %d genes) "
+        ">= %.1f GB threshold — using streaming path (batch_size=512).",
+        est_gb, out_density * 100, n_cells, n_genes, mem_threshold_gb,
+    )
+    return 512
+
+
 def _refine_corr(
     sams: dict[str, SAM],
     st: SAM,
@@ -397,21 +475,25 @@ def _refine_corr(
     NCLUSTERS: int = 1,
     ncpus: int | None = None,
     wscale: bool = False,
-    batch_size: int | None = 512,
+    batch_size: int | str | None = "auto",
+    correlation_mem_threshold: float = 2.0,
 ) -> sp.sparse.csr_matrix:
     """Refine correlation matrix for homology graph.
 
     Parameters
     ----------
-    batch_size
-        Streaming batch size for the pair-correlation step. Default 512 —
-        tuned for memory at scale (the ``Xavg`` matrix is never fully
-        materialised; peak memory drops from O(N × G_active) to
-        O(N × 2·batch_size)). On small/toy datasets (<10k cells) the
-        streaming overhead makes this ~3-5× slower than the materialised
-        path — pass ``batch_size=None`` for the legacy all-at-once
-        computation if speed matters more than memory. See the module
-        docstring for the full memory model.
+    batch_size : int | str | None
+        ``"auto"`` (default) → :func:`_resolve_batch_size` decides: materialise
+        when the estimated ``Xavg`` fits under ``correlation_mem_threshold``
+        GB (3-5× faster on small data), stream at 512 otherwise. ``None``
+        forces the materialised path unconditionally. An integer forces
+        streaming at that batch size. See the module docstring for the full
+        memory model.
+    correlation_mem_threshold : float
+        Memory threshold (GB) for ``batch_size="auto"``. Default 2.0 — leaves
+        ample headroom on a 16 GB laptop. Raise on large-memory nodes to keep
+        the faster materialised path for larger datasets; lower for
+        memory-constrained environments.
     (other parameters unchanged)
     """
     if ncpus is None:
@@ -454,6 +536,7 @@ def _refine_corr(
             ncpus=ncpus,
             wscale=wscale,
             batch_size=batch_size,
+            correlation_mem_threshold=correlation_mem_threshold,
         )
         GNNMSUBS.append(gnnm2_sub)
         GNSUBS.append(gnsub)
@@ -491,20 +574,20 @@ def _refine_corr_parallel(
     T1: float = 0.0,
     ncpus: int | None = None,
     wscale: bool = False,
-    batch_size: int | None = 512,
+    batch_size: int | str | None = "auto",
+    correlation_mem_threshold: float = 2.0,
 ) -> sp.sparse.csr_matrix:
     """Parallel correlation refinement.
 
     Parameters
     ----------
     batch_size
-        If an integer (default 512), stream correlations in pair-batches:
-        for each batch only the ≤ ``2 * batch_size`` smoothed-gene columns
-        actually referenced are computed, then discarded. Cuts peak memory
-        from O(N × G_active) to O(N × 2·batch_size). If ``None``,
-        materialise the full ``Xavg = nnms @ Xs`` up front — the legacy
-        behaviour, faster at small scale (~3-5× on <10k cells) but
-        memory-hungry at million-cell scale.
+        ``"auto"`` (default) → pick materialised vs streaming based on the
+        estimated ``Xavg`` memory footprint (see :func:`_resolve_batch_size`).
+        ``None`` → force materialised (legacy, fast on small data). Integer →
+        force streaming at that batch size.
+    correlation_mem_threshold
+        GB threshold for auto-selection. Default 2.0.
     (other parameters unchanged)
     """
     if ncpus is None:
@@ -553,6 +636,9 @@ def _refine_corr_parallel(
 
     Xs = sp.sparse.block_diag(xs_list).tocsc()
     nnms = sp.sparse.hstack(nnms).tocsr()
+
+    # Resolve "auto" to a concrete batch_size now that nnms/Xs shapes are known.
+    batch_size = _resolve_batch_size(batch_size, nnms, Xs, correlation_mem_threshold)
 
     p = pairs
     ps = pairs_species

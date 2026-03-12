@@ -23,6 +23,7 @@ from samap.core.correlation import (
     _corr_kernel,
     _replace,
     _replace_vectorized,
+    _resolve_batch_size,
     _xicorr,
     replace_corr,
 )
@@ -446,3 +447,92 @@ class TestReplaceCorrDispatcher:
         # and that it matches numba to fp tolerance
         numba = _replace(inp["X"], inp["xi"], inp["yi"])
         np.testing.assert_allclose(disp, numba, rtol=1e-12, atol=1e-14)
+
+
+# ---------------------------------------------------------------------------
+# _resolve_batch_size auto-selection heuristic
+# ---------------------------------------------------------------------------
+
+
+class TestResolveBatchSize:
+    """Auto-selection of materialised vs streaming based on estimated memory."""
+
+    def test_explicit_passthrough(self, rng: np.random.Generator) -> None:
+        """Explicit batch_size (non-'auto') is returned unchanged."""
+        nnms = spp.eye(100, format="csr")
+        Xs = spp.random(100, 50, density=0.1, format="csc")
+
+        # All explicit values pass through untouched — including None.
+        assert _resolve_batch_size(None, nnms, Xs) is None
+        assert _resolve_batch_size(32, nnms, Xs) == 32
+        assert _resolve_batch_size(9999, nnms, Xs) == 9999
+
+    def test_tiny_data_materialises(self, rng: np.random.Generator) -> None:
+        """Toy-scale data (hundreds of cells) → auto picks materialised.
+
+        At 500 cells × 200 genes, even 100% density is 800 KB — far under
+        the 2 GB default threshold.
+        """
+        # Realistic toy: 500 cells, avg 15 neighbours, 20% expression density
+        nnms = spp.random(500, 500, density=15 / 500, format="csr")
+        Xs = spp.random(500, 200, density=0.2, format="csc")
+
+        got = _resolve_batch_size("auto", nnms, Xs, mem_threshold_gb=2.0)
+        assert got is None
+
+    def test_million_cell_streams(self) -> None:
+        """Million-cell scale → auto picks streaming.
+
+        1M cells × 10k genes × ~50% density (after kNN fill-in from 5%
+        input density with k~20) ≈ 60 GB CSC. Well over any threshold.
+        We mock shapes/nnz rather than allocating a real million-entry
+        matrix — _resolve_batch_size only reads .shape and .nnz.
+        """
+
+        class _MockSparse:
+            def __init__(self, shape: tuple[int, int], nnz: int) -> None:
+                self.shape = shape
+                self.nnz = nnz
+
+        n_cells, n_genes = 1_000_000, 10_000
+        k = 20
+        expr_nnz = int(n_cells * n_genes * 0.05)  # 5% expression density
+
+        nnms = _MockSparse(shape=(n_cells, n_cells), nnz=n_cells * k)
+        Xs = _MockSparse(shape=(n_cells, n_genes), nnz=expr_nnz)
+
+        got = _resolve_batch_size("auto", nnms, Xs, mem_threshold_gb=2.0)
+        assert got == 512
+
+    def test_threshold_boundary(self) -> None:
+        """Crossing the threshold flips the decision.
+
+        Fixed shapes → fixed estimate. Vary mem_threshold_gb above and
+        below the estimate to verify the boundary logic.
+        """
+
+        class _MockSparse:
+            def __init__(self, shape: tuple[int, int], nnz: int) -> None:
+                self.shape = shape
+                self.nnz = nnz
+
+        # 100k cells × 5k genes, k=15, density 10% → output density ~80%
+        # → est = 100k * 5k * 0.8 * 12 bytes ≈ 4.8 GB
+        n_cells, n_genes = 100_000, 5_000
+        nnms = _MockSparse(shape=(n_cells, n_cells), nnz=n_cells * 15)
+        Xs = _MockSparse(shape=(n_cells, n_genes), nnz=int(n_cells * n_genes * 0.10))
+
+        # threshold above estimate → materialise
+        assert _resolve_batch_size("auto", nnms, Xs, mem_threshold_gb=10.0) is None
+        # threshold below estimate → stream
+        assert _resolve_batch_size("auto", nnms, Xs, mem_threshold_gb=1.0) == 512
+
+    def test_zero_sized_inputs(self) -> None:
+        """Degenerate 0-cell / 0-gene inputs → materialise (trivial)."""
+        nnms = spp.csr_matrix((0, 0))
+        Xs = spp.csc_matrix((0, 0))
+        assert _resolve_batch_size("auto", nnms, Xs) is None
+
+        nnms = spp.eye(50, format="csr")
+        Xs = spp.csc_matrix((50, 0))
+        assert _resolve_batch_size("auto", nnms, Xs) is None

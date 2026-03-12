@@ -647,6 +647,7 @@ class SAMAP:
         ncpus: int | None = None,
         corr_mode: str = "pearson",
         wscale: bool = False,
+        correlation_mem_threshold: float = 2.0,
     ) -> sp.sparse.csr_matrix:
         """Refine the homology graph using expression correlations.
 
@@ -662,6 +663,13 @@ class SAMAP:
             Correlation mode: 'pearson'. Default 'pearson'.
         wscale : bool, optional
             Whether to scale by weights. Default False.
+        correlation_mem_threshold : float, optional
+            Memory threshold (GB) for auto-selecting materialised vs
+            streaming correlation. The materialised path is 3-5× faster on
+            small data but requires holding the full smoothed-expression
+            matrix in memory. Default 2.0 GB — raise on large-memory nodes
+            to keep the faster path for larger datasets. See
+            ``docs/performance.md`` for details.
 
         Returns
         -------
@@ -672,7 +680,8 @@ class SAMAP:
             ncpus = os.cpu_count() or 1
 
         gnnm = self.smap.refine_homology_graph(
-            NCLUSTERS=n_clusters, ncpus=ncpus, THR=thr, corr_mode=corr_mode, wscale=wscale
+            NCLUSTERS=n_clusters, ncpus=ncpus, THR=thr, corr_mode=corr_mode, wscale=wscale,
+            correlation_mem_threshold=correlation_mem_threshold,
         )
         samap = self.smap.samap
         gns_dict = self.smap.gns_dict
@@ -741,6 +750,7 @@ class _Samap_Iter:
         THR: float = 0,
         corr_mode: str = "pearson",
         wscale: bool = False,
+        correlation_mem_threshold: float = 2.0,
     ) -> sp.sparse.csr_matrix:
         """Refine homology graph using correlations."""
         if ncpus is None:
@@ -758,6 +768,7 @@ class _Samap_Iter:
             ncpus=ncpus,
             corr_mode=corr_mode,
             wscale=wscale,
+            correlation_mem_threshold=correlation_mem_threshold,
         )
         return gnnmu
 

@@ -84,8 +84,8 @@ The legacy path materialized `Xavg = nnms @ Xs` — an N × G_active dense
 matrix — so the per-pair correlation kernel could pull columns by index.
 At million-cell scale this is multiple GB.
 
-The 3.0 default (`batch_size=512`) streams: for each batch of 512 gene
-pairs, compute only the ≤1024 columns of `Xavg` actually referenced,
+The 3.0 streaming path (`batch_size=512`) processes 512 gene pairs at a
+time: compute only the ≤1024 columns of `Xavg` actually referenced,
 correlate, discard. Peak memory drops to O(N × 1024) regardless of how
 many genes are active. Columns that appear in multiple batches are
 recomputed — this is a cheap single-column SpMV and empirically <5%
@@ -93,13 +93,24 @@ overhead at scale.
 
 **Trade-off:** At small scale (<10k cells), where the full `Xavg` fits
 comfortably in memory, the streaming path is ~3-5× *slower* than the
-materialized path (benchmark: 3.6× at 3k cells). The default is tuned for
-large-scale runs where memory, not speed, is the constraint. Pass
-`batch_size=None` to `_refine_corr` / `_refine_corr_parallel` to opt out.
+materialized path (benchmark: 3.6× at 3k cells, fixed per-batch dispatch
+overhead).
 
-**When it kicks in:** Default-on with `batch_size=512`. Not currently
-exposed as a top-level `SAMAP.run()` parameter — tune via the internal
-`_refine_corr` call if needed.
+**Auto-selection (the default):** `batch_size="auto"` estimates the
+materialized `Xavg` size from cell count, gene count, expression density,
+and kNN degree (output density ≈ `1 - (1-p)^k` where `p` is input
+density and `k` is average neighbour degree). If the estimate is under
+`correlation_mem_threshold` (default 2 GB), materialise — fast path,
+one big SpMM. Otherwise stream at `batch_size=512`. The decision is
+logged at INFO level.
+
+**Tuning:**
+- `correlation_mem_threshold` is exposed on `SAMAP.refine_homology_graph`.
+  Raise it on large-memory nodes (say 8 GB on a 64 GB box) to keep the
+  faster materialised path for larger datasets. Lower it on
+  memory-constrained environments.
+- `batch_size=None` forces the materialised path unconditionally.
+- `batch_size=<int>` forces streaming at that size.
 
 ### Neighbourhood expansion: BFS
 
