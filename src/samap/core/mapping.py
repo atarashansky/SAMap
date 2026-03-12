@@ -6,7 +6,7 @@ import gc
 import os
 import time
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
@@ -36,6 +36,7 @@ from samap.sam import SAM
 from samap.utils import prepend_var_prefix
 from samap.utils import q as _q
 
+from ._backend import Backend
 from .coarsening import _mapper
 from .correlation import _refine_corr
 from .homology import (
@@ -88,6 +89,9 @@ class SAMAP:
     eval_thr : float, optional
         E-value threshold for BLAST results filtering. Default 1e-6.
 
+    backend : {"auto", "cpu", "cuda"}, optional
+        Compute backend. "auto" picks CUDA if a GPU is available, else CPU.
+
     Attributes
     ----------
     sams : dict
@@ -114,7 +118,11 @@ class SAMAP:
         gnnm: tuple[Any, NDArray[Any], dict[str, NDArray[Any]]] | None = None,
         save_processed: bool = True,
         eval_thr: float = DEFAULT_EVAL_THRESHOLD,
+        backend: Literal["auto", "cpu", "cuda"] = "auto",
     ) -> None:
+        self._bk = Backend(backend)
+        logger.info("Using backend: %s", self._bk.device)
+
         for key, data in sams.items():
             if not (isinstance(data, str | SAM)):
                 raise TypeError(f"Input data {key} must be either a path or a SAM object.")
@@ -208,7 +216,7 @@ class SAMAP:
             if not sp.sparse.issparse(sams[sid].adata.X):
                 sams[sid].adata.X = sp.sparse.csr_matrix(sams[sid].adata.X)
 
-        smap = _Samap_Iter(sams, gnnm_matrix, gns_dict, keys=keys)
+        smap = _Samap_Iter(sams, gnnm_matrix, gns_dict, keys=keys, bk=self._bk)
         self.sams = sams
         self.gnnm = gnnm_matrix
         self.gns_dict = gns_dict
@@ -683,7 +691,9 @@ class _Samap_Iter:
         gnnm: sp.sparse.csr_matrix,
         gns_dict: dict[str, NDArray[Any]],
         keys: dict[str, str] | None = None,
+        bk: Backend | None = None,
     ) -> None:
+        self._bk = bk if bk is not None else Backend("cpu")
         self.sams = sams
         self.gnnm = gnnm
         self.gnnmu = gnnm

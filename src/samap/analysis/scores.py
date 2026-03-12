@@ -11,7 +11,7 @@ import pandas as pd
 import scipy as sp
 
 from samap.sam import SAM
-from samap.utils import df_to_dict, substr, to_vn, to_vo
+from samap.utils import coo_to_csr_overwrite, df_to_dict, substr, to_vn, to_vo
 from samap.utils import q as _q
 
 if TYPE_CHECKING:
@@ -366,9 +366,11 @@ def convert_eggnog_to_homologs(
 
     X = np.array(X)
     Y = np.array(Y)
-    B = sp.sparse.lil_matrix((og.size, D.size))
-    B[Y, X] = 1
-    B = B.tocsr()
+    # Binary membership matrix; only the nonzero pattern matters downstream
+    # (result is binarised after dot), so COO sum-duplicates is safe here.
+    B = sp.sparse.coo_matrix(
+        (np.ones(Y.size), (Y, X)), shape=(og.size, D.size)
+    ).tocsr()
     B = B.dot(B.T)
     B.data[:] = 1
     pairs = gn[np.vstack(B.nonzero()).T]
@@ -411,10 +413,14 @@ def CellTypeTriangles(
     x, y = substr(all_pairs, ";")
     ctu = np.unique(np.concatenate((x, y)))
     Z = pd.DataFrame(data=np.arange(ctu.size)[None, :], columns=ctu)
-    nnm = sp.sparse.lil_matrix((ctu.size,) * 2)
-    nnm[Z[x].values.flatten(), Z[y].values.flatten()] = alignment
-    nnm[Z[y].values.flatten(), Z[x].values.flatten()] = alignment
-    nnm = nnm.tocsr()
+    zx = Z[x].values.flatten()
+    zy = Z[y].values.flatten()
+    nnm = coo_to_csr_overwrite(
+        np.concatenate([zx, zy]),
+        np.concatenate([zy, zx]),
+        np.concatenate([alignment, alignment]),
+        (ctu.size, ctu.size),
+    )
 
     G = nx.Graph()
     gps = ctu[np.vstack(nnm.nonzero()).T]
@@ -620,9 +626,7 @@ def GeneTriangles(
         all_genes = np.unique(pairs.flatten())
         Z = pd.DataFrame(data=np.arange(all_genes.size)[None, :], columns=all_genes)
         x, y = Z[pairs[:, 0]].values.flatten(), Z[pairs[:, 1]].values.flatten()
-        GNNM = sp.sparse.lil_matrix((all_genes.size,) * 2)
-        GNNM[x, y] = data
-        GNNM = GNNM.tocsr()
+        GNNM = coo_to_csr_overwrite(x, y, data, (all_genes.size, all_genes.size))
         GNNM.data[GNNM.data < corr_thr] = 0
         GNNM.eliminate_zeros()
 

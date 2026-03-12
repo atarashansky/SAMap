@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+import scipy.sparse as sparse
 
 from samap._logging import logger
 
@@ -21,6 +22,29 @@ if TYPE_CHECKING:
 def q(x: Any) -> NDArray[Any]:
     """Convert an iterable to a numpy array via list()."""
     return np.array(list(x))
+
+
+def coo_to_csr_overwrite(
+    row: Any, col: Any, data: Any, shape: tuple[int, int]
+) -> sparse.csr_matrix:
+    """Build a CSR matrix from COO triplets with last-write-wins semantics.
+
+    Equivalent to ``M = lil_matrix(shape); M[row, col] = data; M.tocsr()`` but
+    without LIL (which cupy lacks). Standard COO construction sums duplicate
+    (row, col) entries; this keeps only the *last* value for each duplicate,
+    matching LIL fancy-index assignment.
+    """
+    row = np.asarray(row, dtype=np.int64)
+    col = np.asarray(col, dtype=np.int64)
+    data = np.asarray(data)
+    if row.size == 0:
+        return sparse.csr_matrix(shape)
+    # Linearise indices to a single key; find last occurrence of each key by
+    # reversing, taking unique first-occurrence indices, mapping back.
+    lin = row * shape[1] + col
+    _, idx = np.unique(lin[::-1], return_index=True)
+    keep = lin.size - 1 - idx
+    return sparse.coo_matrix((data[keep], (row[keep], col[keep])), shape=shape).tocsr()
 
 
 def save_samap(sm: Any, fn: str) -> None:

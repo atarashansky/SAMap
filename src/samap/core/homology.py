@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import scipy as sp
 
-from samap.utils import df_to_dict
+from samap.utils import coo_to_csr_overwrite, df_to_dict
 from samap.utils import q as _q
 
 if TYPE_CHECKING:
@@ -95,13 +95,15 @@ def _calculate_blast_graph(
 
                 Arows = np.vstack((A.index, A.iloc[:, 0], A.iloc[:, i3])).T
                 Arows = Arows[A.iloc[:, i1].values.flatten() <= eval_thr, :]
-                gnnm1 = sp.sparse.lil_matrix((gn.size,) * 2)
-                gnnm1[Arows[:, 0].astype("int32"), Arows[:, 1].astype("int32")] = Arows[:, 2]
+                gnnm1 = coo_to_csr_overwrite(
+                    Arows[:, 0], Arows[:, 1], Arows[:, 2], (gn.size, gn.size)
+                )
 
                 Brows = np.vstack((B.index, B.iloc[:, 0], B.iloc[:, i3])).T
                 Brows = Brows[B.iloc[:, i1].values.flatten() <= eval_thr, :]
-                gnnm2 = sp.sparse.lil_matrix((gn.size,) * 2)
-                gnnm2[Brows[:, 0].astype("int32"), Brows[:, 1].astype("int32")] = Brows[:, 2]
+                gnnm2 = coo_to_csr_overwrite(
+                    Brows[:, 0], Brows[:, 1], Brows[:, 2], (gn.size, gn.size)
+                )
 
                 gnnm = (gnnm1 + gnnm2).tocsr()
                 gnnms = (gnnm + gnnm.T) / 2
@@ -242,9 +244,14 @@ def _filter_gnnm(gnnm: sp.sparse.csr_matrix, thr: float = 0.25) -> sp.sparse.csr
     gnnm4.eliminate_zeros()
     x, y = gnnm4.nonzero()
     z = gnnm4.data
-    gnnm4 = gnnm4.tolil()
-    gnnm4[y, x] = z
-    return gnnm4.tocsr()
+    # Symmetrise: ensure (y, x) has the (x, y) value. Original entries first,
+    # transpose second — last-write-wins matches the old LIL [y,x]=z behaviour.
+    return coo_to_csr_overwrite(
+        np.concatenate([x, y]),
+        np.concatenate([y, x]),
+        np.concatenate([z, z]),
+        gnnm4.shape,
+    )
 
 
 def _get_pairs(
