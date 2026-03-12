@@ -14,6 +14,8 @@ from scipy import sparse
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
+    from samap.core._backend import Backend
+
 
 def gen_sparse_knn(
     knni: NDArray[np.int64],
@@ -103,6 +105,7 @@ def calc_nnm(
     g_weighted: NDArray[np.floating[Any]],
     k: int,
     distance: str | None = None,
+    bk: Backend | None = None,
 ) -> sparse.csr_matrix:
     """Calculate k-nearest neighbor matrix.
 
@@ -113,8 +116,13 @@ def calc_nnm(
     k : int
         Number of neighbors.
     distance : str | None, optional
-        Distance metric. If 'cosine', uses HNSW (hnswlib); otherwise
-        falls back to UMAP's pynndescent.
+        Distance metric. If 'cosine', dispatches to
+        :func:`samap.core.knn.approximate_knn` (FAISS-GPU on a CUDA
+        backend, hnswlib otherwise). For other metrics falls back to
+        UMAP's pynndescent — CPU only.
+    bk : Backend, optional
+        GPU/CPU dispatch for the cosine path. Ignored for non-cosine
+        metrics (FAISS-GPU is cosine-only).
 
     Returns
     -------
@@ -122,7 +130,11 @@ def calc_nnm(
         Sparse k-NN matrix with distances as values.
     """
     if distance == "cosine":
-        nnm, dists = nearest_neighbors_hnsw(g_weighted, n_neighbors=k)
+        # approximate_knn dispatches FAISS-GPU ↔ hnswlib. SAM's kNN is
+        # symmetric (self-query) so queries == database.
+        from samap.core.knn import approximate_knn
+
+        nnm, dists = approximate_knn(g_weighted, g_weighted, k, metric="cosine", bk=bk)
     else:
         nnm, dists = _nearest_neighbors_umap(g_weighted, n_neighbors=k, metric=distance)
     return gen_sparse_knn(nnm, dists)

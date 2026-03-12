@@ -58,6 +58,19 @@ viz = [
     "seaborn>=0.13",
     "plotly>=5.18",
 ]
+gpu = [
+    # cupy for GPU array ops + cupyx.scipy.sparse for SpMM.
+    # Pick the cuda12x variant as the sensible default; users on cuda11x
+    # should install cupy-cuda11x directly and skip this extra.
+    "cupy-cuda12x>=12.0",
+    # FAISS-GPU for brute-force kNN on the CUDA backend. NOTE: faiss-gpu
+    # wheels are not on PyPI — install via conda (faiss-gpu from the
+    # pytorch/conda-forge channels). This pin is advisory only.
+    "faiss-gpu>=1.7",
+    # rapids-singlecell for GPU UMAP + Leiden. Same caveat: best installed
+    # from the rapidsai conda channel for CUDA version matching.
+    "rapids-singlecell>=0.10",
+]
 all = ["samap[dev,viz]"]
 
 [project.urls]

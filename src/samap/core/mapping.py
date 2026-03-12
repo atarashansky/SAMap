@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
-import scanpy as sc
 import scipy as sp
 
+from samap import _rsc_compat
 from samap._constants import (
     DEFAULT_CROSS_K,
     DEFAULT_EVAL_THRESHOLD,
@@ -347,7 +347,13 @@ class SAMAP:
                 if self.samap.adata.shape[0] <= UMAP_SIZE_THRESHOLD
                 else UMAP_MAXITER_LARGE
             )
-            sc.tl.umap(self.samap.adata, min_dist=UMAP_MIN_DIST, init_pos="random", maxiter=maxiter)
+            _rsc_compat.umap(
+                self.samap.adata,
+                self._bk,
+                min_dist=UMAP_MIN_DIST,
+                init_pos="random",
+                maxiter=maxiter,
+            )
 
         ix = pd.Series(data=np.arange(samap.adata.shape[1]), index=samap.adata.var_names)[
             gns
@@ -400,7 +406,13 @@ class SAMAP:
             if self.samap.adata.shape[0] <= UMAP_SIZE_THRESHOLD
             else UMAP_MAXITER_LARGE
         )
-        sc.tl.umap(self.samap.adata, min_dist=UMAP_MIN_DIST, init_pos="random", maxiter=maxiter)
+        _rsc_compat.umap(
+            self.samap.adata,
+            self._bk,
+            min_dist=UMAP_MIN_DIST,
+            init_pos="random",
+            maxiter=maxiter,
+        )
         for sid in ids:
             sams[sid].adata.obsm["X_umap_samap"] = self.samap.adata[sams[sid].adata.obs_names].obsm[
                 "X_umap"

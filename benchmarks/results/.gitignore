@@ -1,0 +1,3 @@
+# Timestamped bench outputs — keep the directory, not the contents.
+*.csv
+*.png

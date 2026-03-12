@@ -44,6 +44,8 @@ from .utils import convert_annotations
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
+    from samap.core._backend import Backend
+
 logger = get_logger("samap.sam")
 
 
@@ -124,7 +126,18 @@ class SAM:
             | None
         ) = None,
         inplace: bool = False,
+        bk: Backend | None = None,
     ) -> None:
+        # Backend for GPU dispatch in the iteration-loop hot spots
+        # (dispersion SpMM, sparse PCA, kNN). Lazy-construct Backend("cpu")
+        # if not provided so importing SAM doesn't force a dependency on
+        # samap.core._backend at module-load time.
+        if bk is None:
+            from samap.core._backend import Backend as _Backend
+
+            bk = _Backend("cpu")
+        self._bk = bk
+
         self.run_args: dict[str, Any] = {}
         self.preprocess_args: dict[str, Any] = {}
 
@@ -546,33 +559,82 @@ class SAM:
             nnm = adata.obsp["connectivities"]
         f = np.asarray(nnm.sum(1))
         f[f == 0] = 1
-        D_avg = (nnm.multiply(1 / f)).dot(adata.layers["X_disp"])
 
-        if save_avgs:
-            adata.layers["X_knn_avg"] = D_avg.copy()
+        bk = self._bk
 
-        if sp.issparse(D_avg):
-            mu, var = sf.mean_variance_axis(D_avg, axis=0)
-            if weight_mode == "rms":
-                D_avg.data[:] = D_avg.data**2
-                mu, _ = sf.mean_variance_axis(D_avg, axis=0)
-                mu = mu**0.5
+        # --- SpMM: D_avg = (nnm / row_sums) @ X_disp ----------------------
+        # This is the dominant cost of the SAM iteration. On GPU we upload
+        # both sparse operands once, do a cuSPARSE SpGEMM, compute column
+        # mean/var on the device, and pull back only the (n_genes,) vectors.
+        # The rest of the dispersion arithmetic is cheap numpy on host.
+        if bk.gpu:
+            # Row-normalise nnm before upload so we do one SpGEMM on device.
+            nnm_norm = nnm.multiply(1.0 / f)
+            nnm_g = bk.to_device(nnm_norm.tocsr())
+            Xd_g = bk.to_device(adata.layers["X_disp"].tocsr())
+            D_avg_g = nnm_g @ Xd_g  # cuSPARSE sparse-sparse → sparse (n_cells, n_genes)
 
-            if weight_mode == "combined":
-                D_avg.data[:] = D_avg.data**2
-                mu2, _ = sf.mean_variance_axis(D_avg, axis=0)
-                mu2 = mu2**0.5
+            xp = bk.xp
+            n = D_avg_g.shape[0]
+            # Mean: column sums / n. Var: E[x²] - E[x]² (population variance,
+            # matching sklearn.sparsefuncs.mean_variance_axis axis=0 ddof=0).
+            col_sum = xp.asarray(D_avg_g.sum(axis=0)).ravel()
+            mu = col_sum / n
+            # E[x²] via squaring the data buffer. We need D_avg_g.data² summed
+            # per column — reuse the matrix structure.
+            D_sq_g = D_avg_g.copy()
+            D_sq_g.data = D_sq_g.data ** 2
+            ex2 = xp.asarray(D_sq_g.sum(axis=0)).ravel() / n
+            var = ex2 - mu ** 2
+
+            mu2 = None
+            if weight_mode in ("rms", "combined"):
+                # RMS = sqrt(E[x²]) — we already have ex2.
+                mu_rms = xp.sqrt(ex2)
+                if weight_mode == "rms":
+                    mu = mu_rms
+                else:  # combined
+                    mu2 = mu_rms
+
+            mu = bk.to_host(mu)
+            var = bk.to_host(var)
+            if mu2 is not None:
+                mu2 = bk.to_host(mu2)
+
+            if save_avgs:
+                adata.layers["X_knn_avg"] = bk.to_host(D_avg_g)
+            del nnm_g, Xd_g, D_avg_g, D_sq_g
+            bk.free_pool()
+
         else:
-            mu = D_avg.mean(0)
-            var = D_avg.var(0)
-            if weight_mode == "rms":
-                mu = (D_avg**2).mean(0) ** 0.5
-            if weight_mode == "combined":
-                mu2 = (D_avg**2).mean(0) ** 0.5
+            # --- CPU path (original) --------------------------------------
+            D_avg = (nnm.multiply(1 / f)).dot(adata.layers["X_disp"])
 
-        if not save_avgs:
-            del D_avg
-            gc.collect()
+            if save_avgs:
+                adata.layers["X_knn_avg"] = D_avg.copy()
+
+            if sp.issparse(D_avg):
+                mu, var = sf.mean_variance_axis(D_avg, axis=0)
+                if weight_mode == "rms":
+                    D_avg.data[:] = D_avg.data**2
+                    mu, _ = sf.mean_variance_axis(D_avg, axis=0)
+                    mu = mu**0.5
+
+                if weight_mode == "combined":
+                    D_avg.data[:] = D_avg.data**2
+                    mu2, _ = sf.mean_variance_axis(D_avg, axis=0)
+                    mu2 = mu2**0.5
+            else:
+                mu = D_avg.mean(0)
+                var = D_avg.var(0)
+                if weight_mode == "rms":
+                    mu = (D_avg**2).mean(0) ** 0.5
+                if weight_mode == "combined":
+                    mu2 = (D_avg**2).mean(0) ** 0.5
+
+            if not save_avgs:
+                del D_avg
+                gc.collect()
 
         if weight_mode in ("dispersion", "rms", "combined"):
             dispersions = np.zeros(var.size)
@@ -944,7 +1006,9 @@ class SAM:
                     else:
                         no = np.asarray(D_sub.mean(0)).flatten()
                     mean_correction = no
-                    output = _pca_with_sparse(D_sub, npcs, mu=(no)[None, :], seed=seed)
+                    output = _pca_with_sparse(
+                        D_sub, npcs, mu=(no)[None, :], seed=seed, bk=self._bk
+                    )
                     components = output["components"]
                     g_weighted = output["X_pca"]
 
@@ -998,7 +1062,7 @@ class SAM:
                 ) from err
 
         if update_manifold:
-            edm = calc_nnm(g_weighted, k, distance)
+            edm = calc_nnm(g_weighted, k, distance, bk=self._bk)
 
             # Distances matrix: zero out self-distances on the diagonal.
             edm_dist = edm.copy()
@@ -1040,7 +1104,11 @@ class SAM:
     ) -> NDArray[np.int64] | None:
         """Perform Leiden clustering.
 
-        Requires leidenalg and igraph packages.
+        On a CUDA backend with rapids-singlecell installed, dispatches to
+        the cugraph-backed GPU implementation for the common case
+        (``X=None``, ``method='modularity'``). Otherwise uses CPU
+        leidenalg/igraph — which also handles custom adjacency matrices
+        and the significance-based partition.
 
         Parameters
         ----------
@@ -1058,6 +1126,25 @@ class SAM:
         NDArray | None
             Cluster labels if X provided, None otherwise.
         """
+        # --- GPU fast path ----------------------------------------------------
+        # rsc.tl.leiden only handles the modularity partition on an AnnData
+        # with pre-computed neighbors. That covers SAM's default invocation
+        # (X=None, method='modularity'). Custom-X and significance paths fall
+        # through to CPU leidenalg below, which is the only implementation
+        # that supports them.
+        if X is None and method == "modularity" and self._bk.gpu:
+            from samap import _rsc_compat
+
+            if _rsc_compat.HAS_RSC:
+                _rsc_compat.leiden(
+                    self.adata,
+                    self._bk,
+                    resolution=res,
+                    key_added="leiden_clusters",
+                    random_state=seed,
+                )
+                return None
+
         if X is None:
             X = self.adata.obsp["connectivities"]
             save = True
