@@ -297,6 +297,7 @@ def _smart_expand(
     NH: int = 3,
     *,
     legacy: bool = True,
+    bk: Any = None,
 ) -> sp.sparse.csr_matrix:
     """Expand each cell's neighbourhood to a per-cell budget via multi-hop walk.
 
@@ -315,7 +316,13 @@ def _smart_expand(
         memory-bounded but may select different marginal neighbours when
         budgets truncate. The default will flip once BFS is validated
         against the golden regression suite.
+    bk
+        Array backend. Currently unused (both paths are CPU-only numba);
+        threaded through for Phase 4 GPU work.
     """
+    # TODO(Phase 4): flip default to legacy=False (BFS) and regenerate golden.
+    #  BFS differs by ~1% on marginal-neighbour selection (no self-loops) —
+    #  arguably more correct but needs a golden regen.
     if legacy:
         return _smart_expand_matpow(nnm, K, NH=NH)
     return _smart_expand_bfs(nnm, K, NH=NH)

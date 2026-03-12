@@ -45,7 +45,7 @@ from .homology import (
     _filter_gnnm,
     _get_pairs,
 )
-from .projection import prepare_SAMap_loadings
+from .projection import _projection_precompute, prepare_SAMap_loadings
 
 if TYPE_CHECKING:
     from typing import Any
@@ -715,6 +715,13 @@ class _Samap_Iter:
         ]
         self.iter = 0
 
+        # Iteration-invariant projection state: standardised expression matrices,
+        # their Gram matrices/means (for the sigma quadratic form), and the
+        # own-species PC projection. Built once here, consumed every iteration
+        # inside _mapper → _mapping_window_fast.
+        self._gns = np.concatenate(list(gns_dict.values()))
+        self._proj_cache = _projection_precompute(sams, self._gns, self._bk)
+
     def refine_homology_graph(
         self,
         NCLUSTERS: int = 1,
@@ -768,7 +775,7 @@ class _Samap_Iter:
             NHS = dict.fromkeys(sams.keys(), 2)
         if neigh_from_keys is None:
             neigh_from_keys = dict.fromkeys(sams, False)
-        gns = np.concatenate(list(gns_dict.values()))
+        gns = self._gns
 
         if self.iter > 0:
             sam4 = self.samap
@@ -798,6 +805,8 @@ class _Samap_Iter:
                 scale_edges_by_corr=scale_edges_by_corr,
                 neigh_from_keys=neigh_from_keys,
                 pairwise=pairwise,
+                proj_cache=self._proj_cache,
+                bk=self._bk,
             )
             sam4.adata.uns["mapping_K"] = K
             self.samap = sam4

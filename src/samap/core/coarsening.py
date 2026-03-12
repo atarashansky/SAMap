@@ -46,7 +46,7 @@ from ._backend import Backend, COOBuilder
 from .correlation import _replace
 from .expand import _smart_expand
 from .homology import _tanh_scale
-from .projection import _mapping_window
+from .projection import _mapping_window, _mapping_window_fast
 
 if TYPE_CHECKING:
     from typing import Any
@@ -119,6 +119,7 @@ def _compute_mutual_graph(
     threshold: float,
     scale_edges_by_corr: bool,
     wPCA: NDArray[Any] | None,
+    bk: Backend | None = None,
 ) -> Any:
     """Streaming per-species-pair mutual-NN construction.
 
@@ -167,7 +168,8 @@ def _compute_mutual_graph(
     scipy.sparse.csr_matrix
         The mutualised, sparsified cross-species graph (N × N).
     """
-    bk = Backend("cpu")
+    if bk is None:
+        bk = Backend("cpu")
     builder = COOBuilder(bk, shape=(N, N))
     pairwise_topk = pairwise and len(sids) > 2
 
@@ -300,6 +302,8 @@ def _mapper(
     scale_edges_by_corr: bool = False,
     neigh_from_keys: dict[str, bool] | None = None,
     pairwise: bool = True,
+    proj_cache: dict[str, Any] | None = None,
+    bk: Backend | None = None,
     **kwargs: Any,
 ) -> SAM:
     """Map cells between species."""
@@ -310,7 +314,13 @@ def _mapper(
         neigh_from_keys = dict.fromkeys(sams.keys(), False)
 
     if mdata is None:
-        mdata = _mapping_window(sams, gnnm, gn, K=K, pairwise=pairwise)
+        if proj_cache is not None:
+            # Fast path: precomputed iteration-invariant state; the expensive
+            # ss/XtX/wpca_own are read from cache, not rebuilt.
+            mdata = _mapping_window_fast(gnnm, proj_cache, K=K, pairwise=pairwise)
+        else:
+            # Legacy path: rebuild precompute on the fly (wasteful but correct).
+            mdata = _mapping_window(sams, gnnm, gn, K=K, pairwise=pairwise)
 
     k1 = K
 
@@ -327,7 +337,7 @@ def _mapper(
         K_arr = cluc[ix]
         nnms_in0[sid] = sams[sid].adata.obsp["connectivities"].copy()
         if not neigh_from_keys[sid]:
-            nnm_in = _smart_expand(nnms_in0[sid], K_arr, NH=NHS[sid])
+            nnm_in = _smart_expand(nnms_in0[sid], K_arr, NH=NHS[sid], bk=bk)
             nnm_in.data[:] = 1
             nnms_in[sid] = nnm_in
         else:
@@ -369,6 +379,7 @@ def _mapper(
         threshold=threshold,
         scale_edges_by_corr=scale_edges_by_corr,
         wPCA=mdata["wPCA"] if scale_edges_by_corr else None,
+        bk=bk,
     )
 
     del nnms_in
