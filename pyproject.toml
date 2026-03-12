@@ -103,6 +103,9 @@ ignore = [
     "B008",   # do not perform function calls in argument defaults
     "B905",   # zip without explicit strict
     "NPY002", # legacy numpy random (not critical)
+    "RUF002", # ambiguous unicode in docstrings (math notation: ×, σ, ⊙ are intentional)
+    "RUF003", # ambiguous unicode in comments (same)
+    "SIM108", # ternary operator (multi-branch math is clearer as if/else)
 ]
 
 [tool.ruff.lint.isort]
