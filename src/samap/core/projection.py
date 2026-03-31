@@ -64,7 +64,12 @@ def prepare_SAMap_loadings(sam: SAM, npcs: int = 300) -> None:
     npcs : int, optional
         Number of PCs to calculate. Default 300.
     """
-    ra = sam.adata.uns["run_args"]
+    # scanpy.external.tl.sam nests run_args under uns["sam"] (#156)
+    ra = sam.adata.uns.get("run_args") or sam.adata.uns.get("sam", {}).get("run_args")
+    if ra is None:
+        raise KeyError(
+            "run_args not found in adata.uns — was this AnnData processed with SAM.run()?"
+        )
     preprocessing = ra.get("preprocessing", "StandardScaler")
     weight_PCs = ra.get("weight_PCs", False)
     A, _ = sam.calculate_nnm(

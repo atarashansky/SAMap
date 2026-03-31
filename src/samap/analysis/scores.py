@@ -55,6 +55,8 @@ def _compute_csim(
     if X is None:
         X = samap.adata.obsp["connectivities"].copy()
 
+    X.eliminate_zeros()  # ensure X.data and X.nonzero() are consistent (#172)
+
     xi, yi = X.nonzero()
     spxi = splabels[xi]
     spyi = splabels[yi]

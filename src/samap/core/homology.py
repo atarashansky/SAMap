@@ -70,10 +70,10 @@ def _calculate_blast_graph(
                 B = B[B.iloc[:, 0].astype("str") != "nan"]
 
                 A.index = _prepend_blast_prefix(A.index, id1)
-                B[B.columns[0]] = _prepend_blast_prefix(B.iloc[:, 0].values.flatten(), id1)
+                B[B.columns[0]] = _prepend_blast_prefix(np.asarray(B.iloc[:, 0]), id1)
 
                 B.index = _prepend_blast_prefix(B.index, id2)
-                A[A.columns[0]] = _prepend_blast_prefix(A.iloc[:, 0].values.flatten(), id2)
+                A[A.columns[0]] = _prepend_blast_prefix(np.asarray(A.iloc[:, 0]), id2)
 
                 i1 = np.where(A.columns == "10")[0][0]
                 i3 = np.where(A.columns == "11")[0][0]
@@ -88,19 +88,19 @@ def _calculate_blast_graph(
                 gn = np.append(gn1, gn2)
                 gnind = pd.DataFrame(data=np.arange(gn.size)[None, :], columns=gn)
 
-                A.index = pd.Index(gnind[A.index].values.flatten())
-                B.index = pd.Index(gnind[B.index].values.flatten())
-                A[A.columns[0]] = gnind[A.iloc[:, 0].values.flatten()].values.flatten()
-                B[B.columns[0]] = gnind[B.iloc[:, 0].values.flatten()].values.flatten()
+                A.index = pd.Index(np.asarray(gnind[A.index]).flatten())
+                B.index = pd.Index(np.asarray(gnind[B.index]).flatten())
+                A[A.columns[0]] = np.asarray(gnind[np.asarray(A.iloc[:, 0])]).flatten()
+                B[B.columns[0]] = np.asarray(gnind[np.asarray(B.iloc[:, 0])]).flatten()
 
                 Arows = np.vstack((A.index, A.iloc[:, 0], A.iloc[:, i3])).T
-                Arows = Arows[A.iloc[:, i1].values.flatten() <= eval_thr, :]
+                Arows = Arows[np.asarray(A.iloc[:, i1]) <= eval_thr, :]
                 gnnm1 = coo_to_csr_overwrite(
                     Arows[:, 0], Arows[:, 1], Arows[:, 2], (gn.size, gn.size)
                 )
 
                 Brows = np.vstack((B.index, B.iloc[:, 0], B.iloc[:, i3])).T
-                Brows = Brows[B.iloc[:, i1].values.flatten() <= eval_thr, :]
+                Brows = Brows[np.asarray(B.iloc[:, i1]) <= eval_thr, :]
                 gnnm2 = coo_to_csr_overwrite(
                     Brows[:, 0], Brows[:, 1], Brows[:, 2], (gn.size, gn.size)
                 )

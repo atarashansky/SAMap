@@ -1,69 +1,44 @@
-# SAMap -- version 2.0.2
+# SAMap -- version 3.0.0
 
 # Citation
 Please cite the following paper if using SAMap: https://elifesciences.org/articles/66747
 
 Tarashansky, Alexander J., et al. "Mapping single-cell atlases throughout Metazoa unravels cell type evolution." Elife 10 (2021): e66747.
 
+> **Requirements:** Python ≥3.11. See `pyproject.toml` for the full dependency list.
+
 ## Installation
 
-### pip
+SAMap requires **Python ≥3.11**.
 
-`pip install sc-samap`
-
-### Manual installation
-Download Anacodna from here:
-    https://www.anaconda.com/download/
-
-Create and activate a new environment for SAMap as follows:
+### From PyPI (recommended)
 
 ```bash
-# Install SAMap dependencies availabe in conda
-conda create -n SAMap -c conda-forge python=3.9 numpy=1.23.5 pip pybind11 h5py=3.8.0 leidenalg python-igraph texttable
+conda create -n SAMap -c conda-forge python=3.12 pip
 conda activate SAMap
+pip install sc-samap
 ```
 
-Having activated the environment, install SAMap like so:
-
+### From source (development)
 
 ```bash
-git clone https://github.com/atarashansky/SAMap.git samap_directory
-cd samap_directory
-pip install .
+conda create -n SAMap -c conda-forge python=3.12 pip
+conda activate SAMap
+git clone https://github.com/atarashansky/SAMap.git
+cd SAMap
+pip install -e .
 ```
 
-NCBI BLAST must be installed for the commandline.
+### NCBI BLAST
 
+SAMap requires NCBI BLAST on your `PATH` for the homology mapping step.
+
+Easiest via conda:
 ```bash
-# Define NCBI BLAST version.
-ncbi_blast_version='2.9.0'
-
-# Download NCBI BLAST tarball.
-wget "ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/${ncbi_blast_version}/ncbi-blast-${ncbi_blast_version}+-x64-linux.tar.gz"
-
-# Extract NCBI BLAST binaries in current conda environment bin directory.
-tar -xzvf "ncbi-blast-${ncbi_blast_version}+-x64-linux.tar.gz" \
-    -C "${CONDA_PREFIX}/bin/" \
-    --strip-components=2 \
-    "ncbi-blast-${ncbi_blast_version}+/bin/"
+conda install -c bioconda blast
 ```
 
-Alternatively, add the NCBI BLAST binaries manually to the path:
-
-```bash
-# Define NCBI BLAST version.
-ncbi_blast_version='2.9.0'
-
-# Download NCBI BLAST tarball.
-wget "ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/${ncbi_blast_version}/ncbi-blast-${ncbi_blast_version}+-x64-linux.tar.gz"
-
-# Extract NCBI BLAST tarball.
-tar -xzvf "ncbi-blast-${ncbi_blast_version}+-x64-linux.tar.gz"
-
-# Add NCBI BLAST programs to PATH.
-echo "export PATH=\"$PATH:/your/directory/ncbi-blast-${ncbi_blast_version}+/bin\"" >> ~/.bashrc
-source ~/.bashrc
-```
+Or download binaries directly from [NCBI](https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/).
 
 *Installation time should take no more than 10 minutes.*
 
@@ -75,4 +50,13 @@ Depending on the number of cores available on your machine and the size/type of 
 
 ## Running SAMap
 
-To run SAMap, use the `SAMAP` function in `samap/mapping.py`. Please see its function documentation for a description of the inputs and outputs. Take a look at the provided Jupyter notebook to get started (`SAMap_vignette.ipynb`).
+To run SAMap, use the `SAMAP` class from `samap`:
+
+```python
+from samap import SAMAP
+sm = SAMAP(sams={'sp1': 'species1.h5ad', 'sp2': 'species2.h5ad'}, f_maps='maps/')
+sm.run()
+```
+
+See the function documentation for a description of the inputs and outputs. Take a look at the provided Jupyter notebook to get started (`SAMap_vignette.ipynb`).
+

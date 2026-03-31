@@ -88,17 +88,11 @@ def sankey_plot(
         node_pairs = nodes[np.vstack((x, y)).T]
         sn1 = _q([xi.split("_")[0] for xi in node_pairs[:, 0]])
         sn2 = _q([xi.split("_")[0] for xi in node_pairs[:, 1]])
-        # Filter to only adjacent species pairs in the ordering
-        filt = np.logical_or(
-            np.logical_or(
-                np.logical_and(sn1 == ids[0], sn2 == ids[1]),
-                np.logical_and(sn1 == ids[1], sn2 == ids[0]),
-            ),
-            np.logical_or(
-                np.logical_and(sn1 == ids[1], sn2 == ids[2]),
-                np.logical_and(sn1 == ids[2], sn2 == ids[1]),
-            ),
-        )
+        # Filter to only adjacent species pairs in the ordering (#130)
+        filt = np.zeros(sn1.shape[0], dtype=bool)
+        for i in range(len(ids) - 1):
+            filt |= (sn1 == ids[i]) & (sn2 == ids[i + 1])
+            filt |= (sn1 == ids[i + 1]) & (sn2 == ids[i])
         x, y, values = x[filt], y[filt], values[filt]
 
         # Create depth mapping for node ordering

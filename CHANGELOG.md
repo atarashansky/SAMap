@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1]
+
+### Fixed
+
+- `get_mapping_scores` no longer raises `IndexError` when the connectivity
+  matrix contains explicit stored zeros — `_compute_csim` now calls
+  `eliminate_zeros()` before `nonzero()`. (#172)
+- `_calculate_blast_graph` is now compatible with pandas ≥3.0, which returns
+  `StringArray` (no `.flatten()` method) from `.values` on string columns.
+  Replaced `.values.flatten()` with `np.asarray(...)`. (#173)
+- `GenePairFinder.find_genes` now honours the `w1t`/`w2t` SAM-weight threshold
+  parameters instead of using a hardcoded `0.2`. (#166)
+- `prepare_SAMap_loadings` now falls back to `adata.uns["sam"]["run_args"]`
+  when `run_args` is not at the top level, supporting AnnData produced by
+  `scanpy.external.tl.sam`. (#156)
+- `sankey_plot` now renders all adjacent species pairs instead of being
+  hardcoded for exactly 3 species. (#130)
+- `_find_link_genes_avg` coerces sparse matrix indices to `int64` before
+  fancy-indexing, avoiding scipy's int32 overflow (`ValueError: negative
+  dimensions are not allowed`) on very large datasets. (#118)
+
+### Changed
+
+- README updated for v3.0.0: Python ≥3.11 requirement, simplified conda/pip
+  install instructions, fixed "Anacodna" typo, updated import paths.
+  (#171, #137, #136, #132)
+
 ## [3.0.0] - UNRELEASED
 
 ### Breaking

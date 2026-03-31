@@ -230,8 +230,11 @@ class GenePairFinder:
             stds[id2][g2].values,
         )
 
-        X1 = _sparse_sub_standardize(sam1.adata[:, g1].X[x1 == c1, :], mu1, std1)
-        X2 = _sparse_sub_standardize(sam2.adata[:, g2].X[x2 == c2, :], mu2, std2)
+        # int64 coercion to avoid scipy int32 overflow on large-dataset fancy indexing (#118)
+        X1 = _ensure_int64_indices(sam1.adata[:, g1].X)[x1 == c1, :]
+        X2 = _ensure_int64_indices(sam2.adata[:, g2].X)[x2 == c2, :]
+        X1 = _sparse_sub_standardize(X1, mu1, std1)
+        X2 = _sparse_sub_standardize(X2, mu2, std2)
         species_mask1 = (sam3.adata.obs["species"] == id1).values
         species_mask2 = (sam3.adata.obs["species"] == id2).values
         a, b = sam3.adata.obsp["connectivities"][species_mask1, :][:, species_mask2][x1 == c1, :][
@@ -258,8 +261,8 @@ class GenePairFinder:
 
         w1 = sam1.adata.var["weights"][g1].values.copy()
         w2 = sam2.adata.var["weights"][g2].values.copy()
-        w1[w1 < 0.2] = 0
-        w2[w2 < 0.2] = 0
+        w1[w1 < w1t] = 0
+        w2[w2 < w2t] = 0
         w1[w1 > 0] = 1
         w2[w2 > 0] = 1
         return val * w1 * w2 * min_expr, to_vn(np.array([g1, g2]).T)
@@ -342,6 +345,15 @@ def find_cluster_markers(
             sam.adata.varm[key + "_pvals"][t[i]] = 1
 
     return None
+
+
+def _ensure_int64_indices(X: Any) -> Any:
+    """Coerce CSR indices/indptr to int64 to avoid int32 overflow on large slices (#118)."""
+    if hasattr(X, "indices") and X.indices.dtype != np.int64:
+        X = X.copy()
+        X.indices = X.indices.astype(np.int64)
+        X.indptr = X.indptr.astype(np.int64)
+    return X
 
 
 def _sparse_sub_standardize(
