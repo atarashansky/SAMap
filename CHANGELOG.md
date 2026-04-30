@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`samap.io` onboarding helpers** (see `docs/io.md`):
+  - `detect_id_flavor` — regex classifier for `var_names` namespace
+    (Ensembl/RefSeq/NCBI GeneID/UniProt/model-org DBs/symbol/unknown).
+  - `fetch_proteome` — derive a protein FASTA whose headers *are*
+    `var_names` from Ensembl REST or NCBI Datasets v2. No new runtime
+    deps (stdlib `urllib`).
+  - `match_fasta` — score a header-transform cascade against `var_names`,
+    pick the best, emit a renamed FASTA + `names[]` array. Optional GTF
+    transcript→gene mapping.
+  - `gnnm_from_pairs` / `homology_from_eggnog` — build the
+    `(gnnm, gns, gns_dict)` tuple for `SAMAP(gnnm=...)` from any
+    ortholog table or eggNOG-mapper OG co-membership.
+  - `run_blast` — Python port of `map_genes.sh`: all N-choose-2
+    reciprocal alignments, DIAMOND-first with BLAST+ fallback.
+  - `save_gnnm` / `load_gnnm` — `.npz` cache for the homology graph.
+- **`samap` CLI** (`detect-ids`, `fetch-proteome`, `match-fasta`,
+  `blast`) via `[project.scripts]`.
+- `SAMAP.__init__` now logs the per-species `var_names ↔ homology graph`
+  overlap fraction and **warns with example IDs from each side** when
+  overlap < 30 % (`HOMOLOGY_OVERLAP_WARN_THRESHOLD`).
+- `network` pytest marker for tests that hit external services.
+
 ## [3.0.1]
 
 ### Fixed

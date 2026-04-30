@@ -42,11 +42,33 @@ Or download binaries directly from [NCBI](https://ftp.ncbi.nlm.nih.gov/blast/exe
 
 *Installation time should take no more than 10 minutes.*
 
-## Running BLAST
+## Preparing inputs / running BLAST
 
-The BLAST mapping script can be run from the `SAMap_vignette.ipynb` Jupyter notebook.
+See [`docs/io.md`](docs/io.md) for the full input-preparation workflow.
+In brief:
 
-Depending on the number of cores available on your machine and the size/type of the input fasta files, this step may take up to around 4 hours.
+```bash
+# 1. find out what your gene IDs are
+samap detect-ids species1.h5ad
+
+# 2a. Ensembl / NCBI GeneID → fetch a FASTA whose headers ARE var_names
+samap fetch-proteome species1.h5ad -o sp1.fa
+
+# 2b. own FASTA → reconcile headers against var_names
+samap match-fasta species1.h5ad transcriptome.fa --gtf ann.gtf -o sp1.fa
+
+# 3. all reciprocal alignments (DIAMOND-first), one command
+samap blast --species sp1 sp1.fa prot --species sp2 sp2.fa prot \
+    --maps maps/ --threads 16 --cache maps/gnnm.npz
+```
+
+You can also skip BLAST entirely and feed `SAMAP(gnnm=...)` a homology
+graph built from eggNOG-mapper output or a BioMart ortholog export — see
+`samap.io.homology_from_eggnog` / `samap.io.gnnm_from_pairs`.
+
+Depending on the number of cores and the size/type of the input FASTAs,
+the alignment step may take up to a few hours with NCBI BLAST+; DIAMOND
+on protein inputs is typically minutes.
 
 ## Running SAMap
 
