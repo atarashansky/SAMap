@@ -128,6 +128,13 @@ known-first-party = ["samap"]
 "tests/**/*.py" = [
     "S101",   # assert statements are fine in tests
 ]
+# The tests/io package name shadows stdlib `io` in isort's first-party
+# detection (because `tests` is in `src`), so any `from io import ...`
+# in these files is misclassified. Harmless; suppress here rather than
+# rename the test package.
+"tests/io/**/*.py" = [
+    "I001",
+]
 
 [tool.mypy]
 python_version = "3.11"
@@ -153,6 +160,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "e2e: marks tests as end-to-end tests",
+    "network: marks tests that hit external services (deselect with '-m \"not network\"')",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
