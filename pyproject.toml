@@ -73,6 +73,9 @@ gpu = [
 ]
 all = ["samap[dev,viz]"]
 
+[project.scripts]
+samap = "samap.__main__:main"
+
 [project.urls]
 Homepage = "https://github.com/atarashansky/SAMap"
 Documentation = "https://github.com/atarashansky/SAMap"
