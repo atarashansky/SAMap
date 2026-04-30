@@ -11,6 +11,7 @@ fetch
 from __future__ import annotations
 
 from samap.io.fetch import FetchReport, fetch_proteome
+from samap.io.homology import gnnm_from_pairs, homology_from_eggnog
 from samap.io.ids import FLAVOR_PATTERNS, IdFlavorReport, detect_id_flavor
 from samap.io.match import MatchReport, match_fasta
 from samap.utils import load_samap, save_samap
@@ -22,6 +23,8 @@ __all__ = [
     "MatchReport",
     "detect_id_flavor",
     "fetch_proteome",
+    "gnnm_from_pairs",
+    "homology_from_eggnog",
     "load_samap",
     "match_fasta",
     "save_samap",
