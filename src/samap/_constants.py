@@ -5,6 +5,10 @@ from __future__ import annotations
 # BLAST graph filtering
 DEFAULT_EVAL_THRESHOLD: float = 1e-6
 DEFAULT_FILTER_THRESHOLD: float = 0.25
+# Warn during SAMAP init if fewer than this fraction of a species' var_names
+# overlap the BLAST homology graph — almost always a FASTA-header / var_names
+# namespace mismatch (transcript vs gene IDs, version suffixes, etc.).
+HOMOLOGY_OVERLAP_WARN_THRESHOLD: float = 0.30
 
 # UMAP parameters
 UMAP_MIN_DIST: float = 0.1

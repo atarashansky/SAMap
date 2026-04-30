@@ -26,6 +26,7 @@ from samap._constants import (
     DEFAULT_NUM_ITERATIONS,
     DEFAULT_THRESH_HIGH,
     DEFAULT_THRESH_LOW,
+    HOMOLOGY_OVERLAP_WARN_THRESHOLD,
     UMAP_MAXITER_LARGE,
     UMAP_MAXITER_SMALL,
     UMAP_MIN_DIST,
@@ -194,8 +195,43 @@ class SAMAP:
             prepend_var_prefix(sams[sid], sid)
             ge = _q(sams[sid].adata.var_names)
             gn = gns_dict[sid]
-            gns_list.append(gn[np.isin(gn, ge)])
+            in_both = np.isin(gn, ge)
+            matched = gn[in_both]
+            gns_list.append(matched)
             ges_list.append(ge)
+
+            # Diagnostic: var_names ↔ BLAST-header overlap. A low fraction here
+            # almost always means the FASTA headers used for BLAST do not match
+            # the h5ad var_names (e.g. transcript IDs vs gene IDs, version
+            # suffixes, namespace mismatch). Surface it loudly with examples.
+            n_var = ge.size
+            n_blast = gn.size
+            n_match = matched.size
+            frac_var = n_match / n_var if n_var else 0.0
+            logger.info(
+                "'%s': %d/%d var_names (%.1f%%) matched the homology graph "
+                "(%d/%d BLAST IDs used).",
+                sid, n_match, n_var, 100 * frac_var, n_match, n_blast,
+            )
+            if frac_var < HOMOLOGY_OVERLAP_WARN_THRESHOLD:
+                # prepend_var_prefix above guarantees a '<sid>_' prefix on both
+                # sides; strip it so the user sees the raw IDs they actually
+                # control (var_names / FASTA headers).
+                prefix = sid + "_"
+                unmatched_var = ge[~np.isin(ge, gn)]
+                unmatched_blast = gn[~in_both]
+                ex_var = [x.removeprefix(prefix) for x in unmatched_var[:5].tolist()]
+                ex_blast = [x.removeprefix(prefix) for x in unmatched_blast[:5].tolist()]
+                logger.warning(
+                    "Only %.1f%% of '%s' var_names matched the homology graph. "
+                    "This usually means the FASTA headers used for BLAST do not "
+                    "match adata.var_names. "
+                    "Example unmatched var_names: %s. "
+                    "Example unmatched BLAST IDs: %s. "
+                    "See the `names=` argument or `samap.io.match_fasta` to "
+                    "reconcile transcript/gene ID namespaces.",
+                    100 * frac_var, sid, ex_var, ex_blast,
+                )
 
         f = np.isin(gns, np.concatenate(gns_list))
         gns = gns[f]
@@ -210,11 +246,6 @@ class SAMAP:
         gns_dict = {}
         for i, sid in enumerate(ids):
             gns_dict[sid] = ges[np.isin(ges, gns_list[i])]
-            logger.info(
-                "%d '%s' gene symbols match between the datasets and the BLAST graph.",
-                gns_dict[sid].size,
-                sid,
-            )
 
         for sid in sams:
             if not sp.sparse.issparse(sams[sid].adata.X):
