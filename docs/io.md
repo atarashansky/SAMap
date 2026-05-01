@@ -96,8 +96,21 @@ g = _calculate_blast_graph(["hu", "mm"], f_maps="maps/", reciprocate=True)
 save_gnnm(g, "maps/gnnm.npz")
 ```
 
-DIAMOND is used wherever it has a mode (blastp/blastx); NCBI BLAST+ handles
-tblastn/tblastx. `--outfmt 6` matches what `_calculate_blast_graph` reads.
+**Engines** (`--engine auto` policy): DIAMOND for protein-DB targets
+(fastest CPU prot↔prot), MMseqs2 for nucleotide-DB targets (only fast
+option for translated nucl↔nucl; adds `--gpu 1` automatically when an
+NVIDIA GPU is detected), NCBI BLAST+ as last resort. All three emit the
+12-column `-outfmt 6` table that `_calculate_blast_graph` reads.
+
+Install all three from bioconda:
+
+```bash
+conda install -c bioconda diamond mmseqs2 blast
+```
+
+In practice you only need one of `diamond` or `mmseqs2` — MMseqs2 alone
+covers every mode; DIAMOND alone leaves the nucleotide quadrants on
+BLAST+.
 
 ## 3b. Skip BLAST entirely
 

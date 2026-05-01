@@ -84,6 +84,7 @@ def _cmd_blast(ns: argparse.Namespace) -> int:
         threads=ns.threads,
         evalue=ns.evalue,
         sensitivity=ns.sensitivity,
+        gpu=(True if ns.gpu else False if ns.no_gpu else None),
         overwrite=ns.overwrite,
     )
     print(f"maps written under {out}")
@@ -152,10 +153,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Repeat per species: --species hu hu.fa prot --species mm mm.fa prot",
     )
     s.add_argument("--maps", default="maps/", help="Output maps directory.")
-    s.add_argument("--engine", choices=["auto", "diamond", "blast"], default="auto")
+    s.add_argument(
+        "--engine",
+        choices=["auto", "diamond", "mmseqs", "blast"],
+        default="auto",
+        help=(
+            "auto: DIAMOND for protein DBs, MMseqs2 for nucleotide DBs, "
+            "BLAST+ last resort. Install with "
+            "`conda install -c bioconda diamond mmseqs2 blast`."
+        ),
+    )
     s.add_argument("--threads", type=int, default=8)
     s.add_argument("--evalue", type=float, default=1e-6)
-    s.add_argument("--sensitivity", default="very-sensitive")
+    s.add_argument(
+        "--sensitivity",
+        choices=["sensitive", "very-sensitive", "ultra-sensitive"],
+        default="very-sensitive",
+    )
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--gpu", action="store_true", help="Force MMseqs2 --gpu 1.")
+    g.add_argument("--no-gpu", action="store_true", help="Disable MMseqs2 GPU even if detected.")
     s.add_argument("--overwrite", action="store_true")
     s.add_argument("--cache", default=None, help="Also write gnnm.npz cache here.")
     s.set_defaults(func=_cmd_blast)

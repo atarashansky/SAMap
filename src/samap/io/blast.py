@@ -6,9 +6,17 @@ Two concerns live here:
    N-choose-2 reciprocal alignments for a set of FASTAs and writes
    ``maps/{a}{b}/{a}_to_{b}.txt`` tables in the BLAST ``-outfmt 6``
    layout that :func:`samap.core.homology._calculate_blast_graph`
-   already consumes. DIAMOND is the default engine (orders of magnitude
-   faster on protein-vs-protein); NCBI BLAST+ is the fallback and the
-   only option for nucleotide queries (``tblastx``).
+   already consumes. Three engines:
+
+   - **DIAMOND** — fastest CPU prot↔prot/nucl↔prot. Default for
+     protein databases.
+   - **MMseqs2** — covers *all four* modes including translated
+     nucl↔nucl (tblastx-equivalent), and adds ``--gpu`` on CUDA
+     hardware. Default for nucleotide databases.
+   - **NCBI BLAST+** — reference; last-resort fallback.
+
+   All three emit the same 12-column ``-outfmt 6`` table. Install with
+   ``conda install -c bioconda diamond mmseqs2 blast``.
 
 2. :func:`save_gnnm` / :func:`load_gnnm` — serialize the
    ``(gnnm, gns, gns_dict)`` tuple to a single ``.npz``. The 3-species
@@ -49,7 +57,9 @@ __all__ = ["load_gnnm", "run_blast", "save_gnnm"]
 
 GnnmTuple = tuple[sp.csr_matrix, np.ndarray, dict[str, np.ndarray]]
 SeqType = Literal["prot", "nucl"]
-Engine = Literal["auto", "diamond", "blast"]
+Engine = Literal["auto", "diamond", "mmseqs", "blast"]
+
+CONDA_INSTALL_HINT = "conda install -c bioconda diamond mmseqs2 blast"
 
 
 # ---------------------------------------------------------------------------
@@ -103,13 +113,28 @@ def load_gnnm(path: str | PathLike[str]) -> GnnmTuple:
 # run_blast — port of map_genes.sh
 # ---------------------------------------------------------------------------
 
-# Dispatch table: (query_type, db_type) → (blast_exe, diamond_subcmd_or_None).
-# DIAMOND covers blastp and blastx; tblastn/tblastx need NCBI BLAST+.
-_DISPATCH: dict[tuple[SeqType, SeqType], tuple[str, str | None]] = {
-    ("prot", "prot"): ("blastp", "blastp"),
-    ("nucl", "prot"): ("blastx", "blastx"),
-    ("prot", "nucl"): ("tblastn", None),
-    ("nucl", "nucl"): ("tblastx", None),
+# Dispatch table: (query_type, db_type) → per-engine subcommand/args. ``None``
+# means the engine has no mode for that direction.
+#
+#   diamond:  blastp/blastx only (protein DB).
+#   mmseqs:   easy-search covers all four; nucl query is auto-6-frame
+#             translated; ``--search-type 2`` forces translated–translated
+#             (tblastx-equivalent) for nucl↔nucl.
+#   blast:    reference exe per direction.
+#
+_DISPATCH: dict[tuple[SeqType, SeqType], dict[str, str | tuple[str, ...] | None]] = {
+    ("prot", "prot"): {"blast": "blastp",  "diamond": "blastp", "mmseqs": ()},
+    ("nucl", "prot"): {"blast": "blastx",  "diamond": "blastx", "mmseqs": ()},
+    ("prot", "nucl"): {"blast": "tblastn", "diamond": None,     "mmseqs": ()},
+    ("nucl", "nucl"): {"blast": "tblastx", "diamond": None,
+                       "mmseqs": ("--search-type", "2")},
+}
+
+# ``auto`` preference: DIAMOND for protein DBs (fastest CPU prot↔prot),
+# MMseqs2 otherwise (only fast option for translated nucl), BLAST+ last.
+_AUTO_PREFERENCE: dict[SeqType, tuple[str, ...]] = {
+    "prot": ("diamond", "mmseqs", "blast"),
+    "nucl": ("mmseqs", "blast"),
 }
 
 
@@ -117,23 +142,53 @@ def _which(exe: str) -> str | None:
     return shutil.which(exe)
 
 
+def _has_cuda() -> bool:
+    """Best-effort check for an NVIDIA GPU (so MMseqs2 ``--gpu 1`` is added)."""
+    import os
+
+    if os.environ.get("CUDA_VISIBLE_DEVICES") == "":
+        return False
+    return _which("nvidia-smi") is not None
+
+
+def _engine_available(eng: str, qtype: SeqType, dbtype: SeqType) -> bool:
+    row = _DISPATCH[(qtype, dbtype)]
+    if eng == "diamond":
+        return row["diamond"] is not None and _which("diamond") is not None
+    if eng == "mmseqs":
+        return _which("mmseqs") is not None
+    if eng == "blast":
+        return _which(row["blast"]) is not None and _which("makeblastdb") is not None
+    raise ValueError(f"unknown engine: {eng!r}")
+
+
 def _resolve_engine(engine: Engine, qtype: SeqType, dbtype: SeqType) -> str:
     """Pick concrete engine for one direction; raise if unavailable."""
-    blast_exe, diamond_sub = _DISPATCH[(qtype, dbtype)]
-    if engine in ("auto", "diamond") and diamond_sub and _which("diamond"):
-        return "diamond"
-    if engine == "diamond" and not diamond_sub:
+    row = _DISPATCH[(qtype, dbtype)]
+    if engine == "auto":
+        for cand in _AUTO_PREFERENCE[dbtype]:
+            if _engine_available(cand, qtype, dbtype):
+                return cand
+        raise RuntimeError(
+            f"No aligner found on PATH for {qtype} query vs {dbtype} db "
+            f"(tried {', '.join(_AUTO_PREFERENCE[dbtype])}). Install with "
+            f"`{CONDA_INSTALL_HINT}`."
+        )
+    # Explicit engine: honour if possible, else fall back loudly.
+    if _engine_available(engine, qtype, dbtype):
+        return engine
+    blast_exe = row["blast"]
+    if engine == "diamond" and row["diamond"] is None:
         logger.warning(
-            "DIAMOND has no %s mode (%s vs %s); falling back to NCBI BLAST+.",
+            "DIAMOND has no %s mode (%s vs %s); falling back via auto.",
             blast_exe, qtype, dbtype,
         )
-    if _which(blast_exe) and _which("makeblastdb"):
-        return "blast"
-    raise RuntimeError(
-        f"Neither DIAMOND nor NCBI BLAST+ ({blast_exe}/makeblastdb) found on "
-        f"PATH for {qtype} query vs {dbtype} db. Install with e.g. "
-        f"`conda install -c bioconda diamond blast`."
-    )
+    else:
+        logger.warning(
+            "engine=%r not found on PATH for %s vs %s; falling back via auto.",
+            engine, qtype, dbtype,
+        )
+    return _resolve_engine("auto", qtype, dbtype)
 
 
 def run_blast(
@@ -144,6 +199,7 @@ def run_blast(
     threads: int = 8,
     evalue: float = 1e-6,
     sensitivity: str = "very-sensitive",
+    gpu: bool | None = None,
     overwrite: bool = False,
     _runner: callable = subprocess.run,  # test seam
 ) -> Path:
@@ -165,16 +221,22 @@ def run_blast(
     f_maps
         Output directory.
     engine
-        ``"auto"`` (DIAMOND if available and applicable, else BLAST+),
-        ``"diamond"`` (force DIAMOND, falls back per-direction where it
-        has no mode), or ``"blast"`` (force NCBI BLAST+).
+        - ``"auto"`` (default): DIAMOND for protein-DB targets, MMseqs2
+          for nucleotide-DB targets, NCBI BLAST+ as last resort.
+        - ``"diamond"`` / ``"mmseqs"`` / ``"blast"``: force one engine
+          (falls back via ``auto`` per-direction if it has no mode or
+          isn't on PATH).
     threads
         Per-process thread count.
     evalue
         E-value cutoff (passed to the aligner).
     sensitivity
-        DIAMOND sensitivity flag (e.g. ``"sensitive"``,
-        ``"very-sensitive"``, ``"ultra-sensitive"``). Ignored for BLAST+.
+        DIAMOND sensitivity flag (``"sensitive"`` / ``"very-sensitive"``
+        / ``"ultra-sensitive"``). For MMseqs2 this maps to ``-s``
+        (5.7 / 7.5 / 8.5 respectively). Ignored for BLAST+.
+    gpu
+        MMseqs2 only. ``None`` (default) auto-detects via
+        ``nvidia-smi``; ``True``/``False`` forces. Ignored otherwise.
     overwrite
         If False (default), skip a direction whose output table already
         exists and is non-empty.
@@ -186,8 +248,9 @@ def run_blast(
 
     Notes
     -----
-    DIAMOND ``-outfmt 6`` matches BLAST's tab layout column-for-column,
-    so ``_calculate_blast_graph`` consumes either without changes.
+    All three engines emit the 12-column BLAST ``-outfmt 6`` table, so
+    ``_calculate_blast_graph`` consumes any of them without changes.
+    Install with ``conda install -c bioconda diamond mmseqs2 blast``.
     """
     if len(fastas) < 2:
         raise ValueError("need at least two species in `fastas`")
@@ -199,35 +262,46 @@ def run_blast(
 
     out_root = Path(f_maps)
     out_root.mkdir(parents=True, exist_ok=True)
-
-    # Build per-species DBs once.
     dbdir = out_root / "_db"
     dbdir.mkdir(exist_ok=True)
-    dbs: dict[str, dict[str, Path]] = {}
-    for sid, (fa, t) in fastas.items():
-        dbs[sid] = {}
-        # DIAMOND db (protein only — diamond makedb wants AA)
-        if t == "prot" and _which("diamond"):
-            dpath = dbdir / f"{sid}.dmnd"
-            if overwrite or not dpath.exists():
-                logger.info("diamond makedb: %s → %s", fa, dpath)
-                _runner(
-                    ["diamond", "makedb", "--in", str(fa), "-d", str(dpath),
-                     "--threads", str(threads)],
-                    check=True,
-                )
-            dbs[sid]["diamond"] = dpath
-        # NCBI BLAST db
-        if _which("makeblastdb"):
-            bpath = dbdir / sid
+    tmpdir = out_root / "_tmp"
+
+    use_gpu = _has_cuda() if gpu is None else bool(gpu)
+    mmseqs_s = {"sensitive": "5.7", "very-sensitive": "7.5",
+                "ultra-sensitive": "8.5"}.get(sensitivity, "7.5")
+
+    # DBs are built lazily per (species, engine) the first time they're needed.
+    dbs: dict[tuple[str, str], Path] = {}
+
+    def _ensure_db(sid: str, eng: str) -> Path:
+        key = (sid, eng)
+        if key in dbs:
+            return dbs[key]
+        fa, t = fastas[sid]
+        if eng == "diamond":
+            p = dbdir / f"{sid}.dmnd"
+            if overwrite or not p.exists():
+                logger.info("diamond makedb: %s → %s", fa, p)
+                _runner(["diamond", "makedb", "--in", str(fa), "-d", str(p),
+                         "--threads", str(threads)], check=True)
+        elif eng == "mmseqs":
+            p = dbdir / f"mm_{sid}"
+            sentinel = dbdir / f"mm_{sid}.dbtype"
+            if overwrite or not sentinel.exists():
+                logger.info("mmseqs createdb: %s (%s) → %s", fa, t, p)
+                _runner(["mmseqs", "createdb", str(fa), str(p),
+                         "--dbtype", "1" if t == "prot" else "2"], check=True)
+        elif eng == "blast":
+            p = dbdir / sid
             sentinel = dbdir / f"{sid}.{'phr' if t == 'prot' else 'nhr'}"
             if overwrite or not sentinel.exists():
-                logger.info("makeblastdb: %s (%s) → %s", fa, t, bpath)
-                _runner(
-                    ["makeblastdb", "-in", str(fa), "-dbtype", t, "-out", str(bpath)],
-                    check=True,
-                )
-            dbs[sid]["blast"] = bpath
+                logger.info("makeblastdb: %s (%s) → %s", fa, t, p)
+                _runner(["makeblastdb", "-in", str(fa), "-dbtype", t,
+                         "-out", str(p)], check=True)
+        else:  # pragma: no cover — guarded by _resolve_engine
+            raise ValueError(eng)
+        dbs[key] = p
+        return p
 
     # All ordered (query, db) pairs across distinct species.
     for a, b in combinations(fastas, 2):
@@ -241,25 +315,37 @@ def run_blast(
                 logger.info("skip (exists): %s", out)
                 continue
             eng = _resolve_engine(engine, qtype, dtype)
-            blast_exe, diamond_sub = _DISPATCH[(qtype, dtype)]
+            row = _DISPATCH[(qtype, dtype)]
             if eng == "diamond":
+                db = _ensure_db(d, "diamond")
                 cmd = [
-                    "diamond", diamond_sub,
-                    "-q", str(qfa),
-                    "-d", str(dbs[d]["diamond"]),
-                    "-o", str(out),
+                    "diamond", row["diamond"],
+                    "-q", str(qfa), "-d", str(db), "-o", str(out),
                     "--outfmt", "6",
                     "--evalue", str(evalue),
                     "--max-hsps", "1",
                     "--threads", str(threads),
                     f"--{sensitivity}",
                 ]
-            else:
+            elif eng == "mmseqs":
+                db = _ensure_db(d, "mmseqs")
+                tmpdir.mkdir(exist_ok=True)
                 cmd = [
-                    blast_exe,
-                    "-query", str(qfa),
-                    "-db", str(dbs[d]["blast"]),
-                    "-out", str(out),
+                    "mmseqs", "easy-search",
+                    str(qfa), str(db), str(out), str(tmpdir),
+                    "-e", str(evalue),
+                    "-s", mmseqs_s,
+                    "--threads", str(threads),
+                    "--format-mode", "0",
+                    *row["mmseqs"],
+                ]
+                if use_gpu:
+                    cmd += ["--gpu", "1"]
+            else:  # blast
+                db = _ensure_db(d, "blast")
+                cmd = [
+                    row["blast"],
+                    "-query", str(qfa), "-db", str(db), "-out", str(out),
                     "-outfmt", "6",
                     "-evalue", str(evalue),
                     "-max_hsps", "1",

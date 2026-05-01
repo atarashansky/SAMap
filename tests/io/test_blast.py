@@ -55,19 +55,47 @@ def test_load_gnnm_feeds_SAMAP(tmp_path: Path, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_engine_diamond_preferred(monkeypatch) -> None:
-    monkeypatch.setattr(blast_mod, "_which", lambda exe: f"/bin/{exe}")
+def _patch_path(monkeypatch, present: set[str]) -> None:
+    monkeypatch.setattr(
+        blast_mod, "_which", lambda exe: f"/bin/{exe}" if exe in present else None
+    )
+
+
+def test_resolve_engine_auto_preference(monkeypatch) -> None:
+    # All available: prot DB → diamond, nucl DB → mmseqs.
+    _patch_path(monkeypatch, {"diamond", "mmseqs", "blastp", "blastx",
+                              "tblastn", "tblastx", "makeblastdb"})
     assert _resolve_engine("auto", "prot", "prot") == "diamond"
     assert _resolve_engine("auto", "nucl", "prot") == "diamond"  # blastx
-    # tblastx → no diamond mode → blast
-    assert _resolve_engine("auto", "nucl", "nucl") == "blast"
+    assert _resolve_engine("auto", "prot", "nucl") == "mmseqs"
+    assert _resolve_engine("auto", "nucl", "nucl") == "mmseqs"
+    # Explicit engines respected.
+    assert _resolve_engine("mmseqs", "prot", "prot") == "mmseqs"
     assert _resolve_engine("blast", "prot", "prot") == "blast"
 
 
+def test_resolve_engine_auto_skips_missing(monkeypatch) -> None:
+    _patch_path(monkeypatch, {"mmseqs"})
+    # diamond not on PATH → mmseqs picked even for prot DB
+    assert _resolve_engine("auto", "prot", "prot") == "mmseqs"
+    _patch_path(monkeypatch, {"tblastx", "makeblastdb"})
+    # only blast+ → blast for nucl↔nucl
+    assert _resolve_engine("auto", "nucl", "nucl") == "blast"
+
+
+def test_resolve_engine_diamond_nucl_fallback(monkeypatch) -> None:
+    _patch_path(monkeypatch, {"diamond", "mmseqs"})
+    # diamond has no tblastx → falls back via auto → mmseqs
+    assert _resolve_engine("diamond", "nucl", "nucl") == "mmseqs"
+
+
 def test_resolve_engine_missing_raises(monkeypatch) -> None:
-    monkeypatch.setattr(blast_mod, "_which", lambda exe: None)
-    with pytest.raises(RuntimeError, match="Neither DIAMOND nor NCBI BLAST"):
+    _patch_path(monkeypatch, set())
+    with pytest.raises(RuntimeError, match="No aligner found"):
         _resolve_engine("auto", "prot", "prot")
+    # Explicit-but-missing → falls back to auto → still nothing → raise
+    with pytest.raises(RuntimeError, match="No aligner found"):
+        _resolve_engine("mmseqs", "prot", "prot")
 
 
 # ---------------------------------------------------------------------------
@@ -84,49 +112,88 @@ def two_fastas(tmp_path: Path) -> dict[str, tuple[Path, str]]:
     return {"aa": (a, "prot"), "bb": (b, "prot")}
 
 
-def test_run_blast_diamond_commands(tmp_path: Path, two_fastas, monkeypatch) -> None:
-    monkeypatch.setattr(blast_mod, "_which", lambda exe: f"/bin/{exe}")
-    calls: list[list[str]] = []
-
-    def fake_run(cmd, check):
+def _record_runner(calls: list[list[str]]):
+    """Fake subprocess.run that records calls and touches output files."""
+    def _run(cmd, check):
         calls.append(list(cmd))
-        # touch output files so skip-existing logic can be exercised
         for i, tok in enumerate(cmd):
             if tok in ("-o", "-out", "-d") and i + 1 < len(cmd):
                 Path(cmd[i + 1]).touch()
-        return None
+        if cmd[:2] == ["mmseqs", "easy-search"]:
+            Path(cmd[4]).touch()  # positional out.m8
+        if cmd[:2] == ["mmseqs", "createdb"]:
+            Path(cmd[3] + ".dbtype").touch()
+        if cmd[0] == "makeblastdb":
+            outp = cmd[cmd.index("-out") + 1]
+            ext = ".phr" if cmd[cmd.index("-dbtype") + 1] == "prot" else ".nhr"
+            Path(outp + ext).touch()
+    return _run
 
-    out = run_blast(two_fastas, f_maps=tmp_path / "maps", _runner=fake_run)
+
+def test_run_blast_diamond_commands(tmp_path: Path, two_fastas, monkeypatch) -> None:
+    _patch_path(monkeypatch, {"diamond", "mmseqs"})
+    calls: list[list[str]] = []
+    out = run_blast(two_fastas, f_maps=tmp_path / "maps", _runner=_record_runner(calls))
     assert (out / "aabb").is_dir()
-    # 2 makedb + 2 alignments (aa→bb, bb→aa)
-    kinds = [c[0:2] for c in calls]
+    kinds = [c[:2] for c in calls]
+    # Lazy DB build: only DBs actually used as targets get built (aa & bb).
     assert kinds.count(["diamond", "makedb"]) == 2
     assert kinds.count(["diamond", "blastp"]) == 2
-    # outfmt 6, max-hsps 1, sensitivity flag present
+    # No mmseqs calls for prot↔prot under auto.
+    assert not any(c[0] == "mmseqs" for c in calls)
     align = next(c for c in calls if c[:2] == ["diamond", "blastp"])
-    assert "--outfmt" in align and align[align.index("--outfmt") + 1] == "6"
+    assert align[align.index("--outfmt") + 1] == "6"
     assert "--max-hsps" in align
     assert "--very-sensitive" in align
-    # output files named correctly
     assert (out / "aabb" / "aa_to_bb.txt").exists()
     assert (out / "aabb" / "bb_to_aa.txt").exists()
 
 
 def test_run_blast_skips_existing(tmp_path: Path, two_fastas, monkeypatch) -> None:
-    monkeypatch.setattr(blast_mod, "_which", lambda exe: f"/bin/{exe}")
+    _patch_path(monkeypatch, {"diamond", "mmseqs", "blastp", "makeblastdb"})
     pair = tmp_path / "maps" / "aabb"
     pair.mkdir(parents=True)
     (pair / "aa_to_bb.txt").write_text("x\n")
     (pair / "bb_to_aa.txt").write_text("x\n")
     calls: list[list[str]] = []
-    run_blast(
-        two_fastas,
-        f_maps=tmp_path / "maps",
-        _runner=lambda c, check: calls.append(list(c)),
-    )
-    # DBs may still be built; alignments must be skipped.
-    assert not any(c[:2] == ["diamond", "blastp"] for c in calls), calls
-    assert not any(c[0] in {"blastp", "blastx", "tblastn", "tblastx"} for c in calls)
+    run_blast(two_fastas, f_maps=tmp_path / "maps", _runner=_record_runner(calls))
+    # Lazy DB build → nothing at all should run.
+    assert calls == []
+
+
+def test_run_blast_mmseqs_nucl(tmp_path: Path, monkeypatch) -> None:
+    a = tmp_path / "a.fa"
+    b = tmp_path / "b.fa"
+    a.write_text(">g\nACGTACGT\n")
+    b.write_text(">h\nACGTACGT\n")
+    fastas = {"aa": (a, "nucl"), "bb": (b, "nucl")}
+
+    _patch_path(monkeypatch, {"diamond", "mmseqs"})
+    monkeypatch.setattr(blast_mod, "_has_cuda", lambda: False)
+    calls: list[list[str]] = []
+    out = run_blast(fastas, f_maps=tmp_path / "maps",
+                    sensitivity="ultra-sensitive", _runner=_record_runner(calls))
+    kinds = [c[:2] for c in calls]
+    assert kinds.count(["mmseqs", "createdb"]) == 2
+    assert kinds.count(["mmseqs", "easy-search"]) == 2
+    es = next(c for c in calls if c[:2] == ["mmseqs", "easy-search"])
+    assert es[es.index("--format-mode") + 1] == "0"
+    assert es[es.index("-s") + 1] == "8.5"  # ultra-sensitive mapping
+    assert "--search-type" in es and es[es.index("--search-type") + 1] == "2"
+    assert "--gpu" not in es
+    assert (out / "aabb" / "aa_to_bb.txt").exists()
+
+
+def test_run_blast_mmseqs_gpu_flag(tmp_path: Path, two_fastas, monkeypatch) -> None:
+    _patch_path(monkeypatch, {"mmseqs"})
+    monkeypatch.setattr(blast_mod, "_has_cuda", lambda: True)
+    calls: list[list[str]] = []
+    run_blast(two_fastas, f_maps=tmp_path / "maps", engine="mmseqs",
+              _runner=_record_runner(calls))
+    es = next(c for c in calls if c[:2] == ["mmseqs", "easy-search"])
+    assert "--gpu" in es and es[es.index("--gpu") + 1] == "1"
+    # prot↔prot → no --search-type
+    assert "--search-type" not in es
 
 
 def test_run_blast_ncbi_tblastx(tmp_path: Path, monkeypatch) -> None:
@@ -135,22 +202,10 @@ def test_run_blast_ncbi_tblastx(tmp_path: Path, monkeypatch) -> None:
     a.write_text(">g\nACGTACGT\n")
     b.write_text(">h\nACGTACGT\n")
     fastas = {"aa": (a, "nucl"), "bb": (b, "nucl")}
-
-    monkeypatch.setattr(
-        blast_mod, "_which", lambda exe: None if exe == "diamond" else f"/bin/{exe}"
-    )
+    # Only BLAST+ available.
+    _patch_path(monkeypatch, {"tblastx", "makeblastdb"})
     calls: list[list[str]] = []
-
-    def fake_run(cmd, check):
-        calls.append(list(cmd))
-        for i, tok in enumerate(cmd):
-            if tok in ("-out", "-o") and i + 1 < len(cmd):
-                Path(cmd[i + 1]).touch()
-        if cmd[0] == "makeblastdb":
-            outp = cmd[cmd.index("-out") + 1]
-            Path(outp + ".nhr").touch()
-
-    run_blast(fastas, f_maps=tmp_path / "maps", _runner=fake_run)
+    run_blast(fastas, f_maps=tmp_path / "maps", _runner=_record_runner(calls))
     assert any(c[0] == "makeblastdb" and "-dbtype" in c for c in calls)
     assert any(c[0] == "tblastx" for c in calls)
 
