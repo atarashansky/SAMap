@@ -156,9 +156,6 @@ def module_factored_scores(
         modules = gene_modules(sm, resolution=resolution)
 
     _, MT = get_mapping_scores(sm, keys)
-    ar = [r for r in MT.index if r.startswith(f"{a}_")]
-    bc = [c for c in MT.columns if c.startswith(f"{b}_")]
-    A = MT.loc[ar, bc]
 
     gpf = GenePairFinder(sm, keys=keys)
     gp = gpf.find_all(align_thr=align_thr)
@@ -168,9 +165,17 @@ def module_factored_scores(
         if "_pval" in col or ";" not in col:
             continue
         ta_full, tb_full = col.split(";", 1)
-        ta = ta_full[len(a) + 1 :]
-        tb = tb_full[len(b) + 1 :]
-        score = float(A.loc[f"{a}_{ta}", f"{b}_{tb}"])
+        # GenePairFinder.find_all lexically sorts each (ct1, ct2) pair by full
+        # species-prefixed label, so the (ta_full, tb_full) species order need
+        # not match (a, b). Detect from prefix and swap if needed.
+        sp1 = ta_full.split("_", 1)[0]
+        if sp1 == a:
+            ta = ta_full.split("_", 1)[1]
+            tb = tb_full.split("_", 1)[1]
+        else:
+            ta = tb_full.split("_", 1)[1]
+            tb = ta_full.split("_", 1)[1]
+        score = float(MT.loc[f"{a}_{ta}", f"{b}_{tb}"])
         pairs = gp[col].dropna()
         mods = []
         for cell in pairs:
