@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`samap.analysis` interpretation helpers** (driven by a 105-pair
+  pan-metazoan benchmark sweep):
+  - `get_mapping_scores(..., which_iter=0|'final')` — score against the
+    iter-0 (raw-BLAST-homology) manifold as well as the converged one.
+    `SAMAP.run` now stores `obsp['connectivities_iter0']` and
+    `sm.nnm_per_iter[]` so the "find" vs "measure" axes are separable.
+  - `permutation_null_scores` — label-permutation null for mapping
+    scores (no manifold rerun; cheap empirical p-values per pair).
+  - `homology_graph_delta` / `find_paralog_substitutions` — per-edge
+    sequence-similarity vs expression-correlation residuals; ranked
+    paralog-substitution candidates without an external orthology DB.
+  - `gene_modules` / `module_factored_scores` — Leiden-partition the
+    homology graph and decompose each cell-type alignment by how many
+    independent gene modules support it (`n_modules`, `top_module_frac`,
+    `module_entropy`).
+  - `cluster_to_k` / `mapping_degeneracy` — leiden-to-target-k for
+    granularity-matched comparison; reciprocal-best fraction, entropy,
+    and effective-rank summaries of the score matrix.
+  - `SAMAP.run(..., joint_weights=True)` — *experimental*: recompute SAM
+    gene weights on the joint manifold after iteration 1 so iterations
+    2..N project through cross-species-informative genes (down-weights
+    pan-conserved RNA-processing genes that dominate enriched-pair
+    lists). Off by default; no behaviour change.
+
+### Fixed
+
+- Tests: hoisted `NUMBA_NUM_THREADS` pinning from
+  `tests/regression/test_golden_output.py` to the root `tests/conftest.py`
+  so it applies before any test module imports numba (the previous
+  location was collected after `tests/integration/`, causing a
+  `RuntimeError: Cannot set NUMBA_NUM_THREADS to a different value once
+  the threads have been launched` whenever the full suite was run on a
+  >1-CPU host without the env var pre-set).
+
+### Added
+
 - **`samap.io` onboarding helpers** (see `docs/io.md`):
   - `detect_id_flavor` — regex classifier for `var_names` namespace
     (Ensembl/RefSeq/NCBI GeneID/UniProt/model-org DBs/symbol/unknown).
