@@ -19,11 +19,12 @@ import types
 from pathlib import Path
 from typing import Any
 
-# Nudge thread counts toward determinism. These must be set before numpy/
-# numba import, but since conftest.py imports numpy first there's no hard
-# guarantee. The numba-parallel functions in SAMap write to distinct array
-# indices (no reductions), so thread count there is benign — these env vars
-# are belt-and-suspenders.
+# Thread-count env pinning lives in the root ``tests/conftest.py`` so it
+# runs before *any* test module (including tests/integration/) is collected.
+# Setting NUMBA_NUM_THREADS here was too late — numba had already
+# initialised its thread layer by the time this file was collected, and any
+# subsequent JIT compile re-read the env and raised. (Kept for back-compat
+# in case this file is run in isolation.)
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
