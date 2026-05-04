@@ -72,6 +72,32 @@ class TestPersistAndRescore:
         assert S.loc[ar, bc].values.max() < 0.6
         assert S.loc[ar, bc].values.min() >= 0.0
 
+    def test_handles_make_unique_suffix(self, persisted, tiny_samap):
+        """SAMAP's combined adata calls ``obs_names_make_unique`` which appends
+        ``-N`` to colliding obs-names; ``score_from_connectivities`` must accept
+        labels indexed by the *original* per-species names."""
+        prefix, _, _sm = persisted
+        obs = pd.read_parquet(f"{prefix}_obs.parquet")
+        # Simulate a collision: rewrite the first 5 bb obs-names with a -1 suffix.
+        bb_mask = obs["species"] == "bb"
+        bb_idx = np.where(bb_mask)[0][:5]
+        orig = obs.copy()
+        obs.iloc[bb_idx, obs.columns.get_loc("obs_name")] = (
+            obs.iloc[bb_idx]["obs_name"].astype(str) + "-1"
+        )
+        obs.to_parquet(f"{prefix}_obs.parquet")
+        try:
+            labels = {
+                "aa": tiny_samap.sams["aa"].adata.obs["cell_type"],
+                "bb": tiny_samap.sams["bb"].adata.obs["cell_type"],
+            }
+            # Should NOT raise — suffix is stripped on miss-then-retry.
+            S = score_from_connectivities(prefix, labels)
+            assert S.shape[0] == S.shape[1]
+            assert (S.values.diagonal() == 0).all()
+        finally:
+            orig.to_parquet(f"{prefix}_obs.parquet")
+
 
 class TestUnionGraph:
     def test_build_and_cluster(self, persisted, tmp_path):
