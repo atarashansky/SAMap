@@ -33,6 +33,7 @@ Typical usage::
 from __future__ import annotations
 
 import os
+import re
 from itertools import combinations
 from typing import TYPE_CHECKING
 
@@ -198,15 +199,34 @@ def score_from_connectivities(
                 )
 
     # Per-species cell index + label vector + indicator matrix.
+    #
+    # SAMAP concatenates per-species AnnDatas and calls
+    # ``obs_names_make_unique()``, which appends ``-1``, ``-2``, … to any
+    # obs-name that collides across species (common when two 10x datasets
+    # share raw barcodes). The label Series users supply is indexed by the
+    # *original* per-species obs-names, so a direct reindex against the
+    # persisted (suffixed) names misses those cells. We therefore retry the
+    # reindex with the trailing ``-N`` stripped — but only for cells that
+    # missed on the direct lookup, so a barcode that legitimately ends in
+    # ``-1`` is not perturbed.
+    suffix_re = re.compile(r"-\d+$")
     blocks: dict[str, dict] = {}
     for s in species:
         idx = np.where(sp_of == s)[0]
-        lab = labels[s].reindex(obs["obs_name"].values[idx]).astype(str).values
+        names = obs["obs_name"].values[idx]
+        lab_s = labels[s].reindex(names)
+        miss = lab_s.isna()
+        if miss.any():
+            stripped = pd.Index(names)[miss].map(lambda x: suffix_re.sub("", x))
+            retry = labels[s].reindex(stripped)
+            lab_s.values[np.where(miss)[0]] = retry.values
+        lab = lab_s.astype(str).values
         if pd.isna(lab).any() or (lab == "nan").any():
             missing = int((lab == "nan").sum() + pd.isna(lab).sum())
             raise ValueError(
                 f"{missing} cells of species {s!r} have no label — "
-                "label index must cover every persisted obs_name."
+                "label index must cover every persisted obs_name "
+                "(after stripping any obs_names_make_unique '-N' suffix)."
             )
         uniq = np.unique(lab)
         ind = sp.csr_matrix(
