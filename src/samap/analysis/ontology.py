@@ -337,6 +337,112 @@ def build_union_graph(
     return pd.DataFrame(edges, columns=["src", "dst", "score", "rbh"])
 
 
+def family_phylogenetic_signal(
+    edges: pd.DataFrame,
+    families: pd.DataFrame,
+    divergence: dict[tuple[str, str], float],
+    *,
+    min_species: int = 8,
+    min_pairs: int = 8,
+    exclude_pairs: set[str] | None = None,
+) -> pd.DataFrame:
+    """Per-family Spearman correlation of within-family score with divergence.
+
+    For each cell-type family (as returned by :func:`cluster_families`),
+    take the per-species-pair *maximum* alignment score over within-family
+    edges and correlate it against phylogenetic divergence. A family whose
+    internal scores decay with divergence (negative ρ) behaves like a
+    conserved cell-type lineage; one whose scores are flat or *increase*
+    with divergence (positive ρ) is a generic-program bin — any cell type
+    expressing the program lands there regardless of lineage, and at deep
+    divergence the program match is the only signal left.
+
+    The ``exclude_pairs`` control matters: a tight same-study clade (e.g.
+    four placozoans from one paper) will dominate the rank correlation for
+    every family it anchors. Passing those pair names here gives the
+    clade-independent ρ.
+
+    Parameters
+    ----------
+    edges : pandas.DataFrame
+        Output of :func:`build_union_graph` (columns ``src``, ``dst``,
+        ``score``; species-prefixed node names).
+    families : pandas.DataFrame
+        Output of :func:`cluster_families` (columns ``node``, ``family``).
+    divergence : dict[tuple[str, str], float]
+        Species-pair → divergence (any symmetric scalar, e.g. Mya). Either
+        key order is looked up.
+    min_species : int, optional
+        Only test families spanning at least this many species. Default 8.
+    min_pairs : int, optional
+        Minimum within-family species-pairs to compute ρ. Default 8.
+    exclude_pairs : set[str], optional
+        Species-pair names (concatenated codes, e.g. ``"tahh"``) to drop
+        before computing ρ_ex — typically same-study pairs.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per family with columns ``family``, ``n_species``,
+        ``n_pairs``, ``rho``, ``p``, ``rho_ex``, ``p_ex``, ``classification``
+        (``"lineage"`` if ρ_ex < −0.15 and p_ex < 0.05; ``"program"`` if
+        ρ_ex > +0.15 and p_ex < 0.05; else ``"ambiguous"``).
+    """
+    from scipy.stats import spearmanr
+
+    fam_of = dict(zip(families["node"], families["family"]))
+    e = edges.copy()
+    e["src_sp"] = e["src"].str.split("_", n=1).str[0]
+    e["dst_sp"] = e["dst"].str.split("_", n=1).str[0]
+    e["src_fam"] = e["src"].map(fam_of)
+    e["dst_fam"] = e["dst"].map(fam_of)
+    e["pair"] = [
+        a + b if (a, b) in divergence or (a + b) in (exclude_pairs or set()) else b + a
+        for a, b in zip(e["src_sp"], e["dst_sp"])
+    ]
+
+    def _div(a: str, b: str) -> float | None:
+        return divergence.get((a, b), divergence.get((b, a)))
+
+    fam_nsp = families.groupby("family")["species"].nunique()
+    excl = exclude_pairs or set()
+    rows = []
+    for fam, nsp in fam_nsp.items():
+        if nsp < min_species:
+            continue
+        sub = e[(e["src_fam"] == fam) & (e["dst_fam"] == fam)]
+        pp = sub.groupby(["src_sp", "dst_sp", "pair"])["score"].max().reset_index()
+        pp["div"] = [_div(a, b) for a, b in zip(pp["src_sp"], pp["dst_sp"])]
+        pp = pp.dropna(subset=["div"])
+        if len(pp) < min_pairs:
+            continue
+        rho, p = spearmanr(pp["div"], pp["score"])
+        pp_ex = pp[~pp["pair"].isin(excl)]
+        if len(pp_ex) >= min_pairs:
+            rho_ex, p_ex = spearmanr(pp_ex["div"], pp_ex["score"])
+        else:
+            rho_ex, p_ex = float("nan"), float("nan")
+        if p_ex < 0.05 and rho_ex < -0.15:
+            cls = "lineage"
+        elif p_ex < 0.05 and rho_ex > 0.15:
+            cls = "program"
+        else:
+            cls = "ambiguous"
+        rows.append(
+            {
+                "family": fam,
+                "n_species": int(nsp),
+                "n_pairs": len(pp),
+                "rho": float(rho),
+                "p": float(p),
+                "rho_ex": float(rho_ex),
+                "p_ex": float(p_ex),
+                "classification": cls,
+            }
+        )
+    return pd.DataFrame(rows).sort_values("rho_ex").reset_index(drop=True)
+
+
 def cluster_families(
     edges: pd.DataFrame,
     *,

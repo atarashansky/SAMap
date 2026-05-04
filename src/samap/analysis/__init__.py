@@ -11,6 +11,7 @@ from samap.analysis.null import permutation_null_scores
 from samap.analysis.ontology import (
     build_union_graph,
     cluster_families,
+    family_phylogenetic_signal,
     persist_pair,
     score_from_connectivities,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "cluster_families",
     "cluster_to_k",
     "convert_eggnog_to_homologs",
+    "family_phylogenetic_signal",
     "find_cluster_markers",
     "find_paralog_substitutions",
     "gene_modules",

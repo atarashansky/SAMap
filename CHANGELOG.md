@@ -28,11 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     granularity-matched comparison; reciprocal-best fraction, entropy,
     and effective-rank summaries of the score matrix.
   - `persist_pair` / `score_from_connectivities` / `build_union_graph` /
-    `cluster_families` (`samap.analysis.ontology`) — disk-based
-    re-scoring of persisted `obsp['connectivities']` against arbitrary
-    per-species label sets without instantiating SAM/SAMAP objects
-    (~0.2s/pair); union-graph assembly and Leiden community detection
-    for many-species cell-type-family discovery.
+    `cluster_families` / `family_phylogenetic_signal`
+    (`samap.analysis.ontology`) — disk-based re-scoring of persisted
+    `obsp['connectivities']` against arbitrary per-species label sets
+    without instantiating SAM/SAMAP objects (~0.2s/pair); union-graph
+    assembly and Leiden community detection for many-species cell-type-
+    family discovery; per-family lineage-vs-program classification via
+    within-family score–divergence correlation with same-study-clade
+    exclusion control.
   - `SAMAP.run(..., joint_weights=True)` — *experimental*: recompute SAM
     gene weights on the joint manifold after iteration 1 so iterations
     2..N project through cross-species-informative genes (down-weights

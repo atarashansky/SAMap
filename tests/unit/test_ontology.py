@@ -10,6 +10,7 @@ from samap.analysis import get_mapping_scores
 from samap.analysis.ontology import (
     build_union_graph,
     cluster_families,
+    family_phylogenetic_signal,
     persist_pair,
     score_from_connectivities,
 )
@@ -97,6 +98,68 @@ class TestPersistAndRescore:
             assert (S.values.diagonal() == 0).all()
         finally:
             orig.to_parquet(f"{prefix}_obs.parquet")
+
+
+class TestFamilyPhylogeneticSignal:
+    def test_lineage_vs_program_classification(self):
+        """A family whose within-family score decays with divergence is
+        classified ``lineage``; one whose score is flat/increasing is
+        ``program``. Uses a synthetic 5-species edge set so the test is
+        independent of the tiny_samap fixture."""
+        sp = ["s0", "s1", "s2", "s3", "s4"]
+        # divergence: s0..s4 on a ladder, 100 Mya per step
+        div = {(sp[i], sp[j]): (j - i) * 100.0 for i in range(5) for j in range(i + 1, 5)}
+        # Family A (lineage-like): score = 1 - 0.002·div, all 10 pairs
+        # Family B (program-bin): score = 0.3 + 0.001·div
+        edges = []
+        fams = []
+        for f, nA, fn in [
+            ("A", "0", lambda d: 1.0 - 0.002 * d),
+            ("B", "1", lambda d: 0.3 + 0.001 * d),
+        ]:
+            for s in sp:
+                fams.append({"node": f"{s}_{nA}", "species": s, "label": nA, "family": f})
+            for i in range(5):
+                for j in range(i + 1, 5):
+                    d = div[(sp[i], sp[j])]
+                    edges.append(
+                        {
+                            "src": f"{sp[i]}_{nA}",
+                            "dst": f"{sp[j]}_{nA}",
+                            "score": fn(d),
+                            "rbh": True,
+                        }
+                    )
+        E = pd.DataFrame(edges)
+        F = pd.DataFrame(fams)
+        out = family_phylogenetic_signal(E, F, div, min_species=5, min_pairs=8)
+        out = out.set_index("family")
+        assert out.loc["A", "rho"] < -0.9
+        assert out.loc["A", "classification"] == "lineage"
+        assert out.loc["B", "rho"] > 0.9
+        assert out.loc["B", "classification"] == "program"
+
+    def test_exclude_pairs_control(self):
+        """A family whose apparent signal comes only from a tight same-study
+        clade collapses to ambiguous after ``exclude_pairs``."""
+        sp = ["s0", "s1", "s2", "s3", "s4"]
+        div = {(sp[i], sp[j]): (j - i) * 100.0 for i in range(5) for j in range(i + 1, 5)}
+        # Flat score 0.4 everywhere EXCEPT s0-s1 (the close pair) at 0.95.
+        edges, fams = [], []
+        for s in sp:
+            fams.append({"node": f"{s}_0", "species": s, "label": "0", "family": "X"})
+        for i in range(5):
+            for j in range(i + 1, 5):
+                sc = 0.95 if (i, j) == (0, 1) else 0.4
+                edges.append({"src": f"{sp[i]}_0", "dst": f"{sp[j]}_0", "score": sc, "rbh": True})
+        E, F = pd.DataFrame(edges), pd.DataFrame(fams)
+        out_all = family_phylogenetic_signal(E, F, div, min_species=5, min_pairs=8)
+        out_ex = family_phylogenetic_signal(
+            E, F, div, min_species=5, min_pairs=8, exclude_pairs={"s0s1"}
+        )
+        assert out_all.iloc[0]["rho"] < -0.3
+        assert abs(out_ex.iloc[0]["rho_ex"]) < 0.2 or np.isnan(out_ex.iloc[0]["rho_ex"])
+        assert out_ex.iloc[0]["classification"] == "ambiguous"
 
 
 class TestUnionGraph:
