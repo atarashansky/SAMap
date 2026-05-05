@@ -9,8 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`samap.analysis` interpretation helpers** (driven by a 105-pair
-  pan-metazoan benchmark sweep):
+- **`docs/analysis.md`** — onboarding guide for `samap.analysis` mirroring
+  `docs/io.md`: workflow diagram, per-function rationale, and a quick-
+  reference table covering iter-0 vs converged scores, permutation null,
+  degeneracy/tile-ability, module-factored decomposition, paralog
+  substitutions, disk-based re-scoring, and lineage-vs-program family
+  classification.
+- **`samap.analysis` interpretation helpers** (driven by a 210-pair
+  21-species pan-metazoan benchmark sweep):
   - `get_mapping_scores(..., which_iter=0|'final')` — score against the
     iter-0 (raw-BLAST-homology) manifold as well as the converged one.
     `SAMAP.run` now stores `obsp['connectivities_iter0']` and
