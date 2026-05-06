@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
+from samap.analysis.degeneracy import cluster_to_k, mapping_degeneracy
 from samap.analysis.enrichment import GOEA, FunctionalEnrichment
 from samap.analysis.gene_pairs import GenePairFinder, find_cluster_markers
+from samap.analysis.homology_delta import find_paralog_substitutions, homology_graph_delta
+from samap.analysis.modules import gene_modules, module_factored_scores
+from samap.analysis.null import permutation_null_scores
+from samap.analysis.ontology import (
+    build_union_graph,
+    cluster_families,
+    family_phylogenetic_signal,
+    persist_pair,
+    score_from_connectivities,
+)
 from samap.analysis.plotting import sankey_plot
 from samap.analysis.scores import (
     CellTypeTriangles,
@@ -20,8 +31,20 @@ __all__ = [
     "GenePairFinder",
     "GeneTriangles",
     "ParalogSubstitutions",
+    "build_union_graph",
+    "cluster_families",
+    "cluster_to_k",
     "convert_eggnog_to_homologs",
+    "family_phylogenetic_signal",
     "find_cluster_markers",
+    "find_paralog_substitutions",
+    "gene_modules",
     "get_mapping_scores",
+    "homology_graph_delta",
+    "mapping_degeneracy",
+    "module_factored_scores",
+    "permutation_null_scores",
+    "persist_pair",
     "sankey_plot",
+    "score_from_connectivities",
 ]

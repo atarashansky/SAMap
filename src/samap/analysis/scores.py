@@ -98,6 +98,7 @@ def get_mapping_scores(
     sm: SAMAP,
     keys: dict[str, str],
     n_top: int = 0,
+    which_iter: int | str = "final",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Calculate mapping scores between cell types.
 
@@ -109,6 +110,13 @@ def get_mapping_scores(
         Annotation vector keys for species.
     n_top : int, optional
         Number of top cells for averaging. Default 0.
+    which_iter : int or 'final', optional
+        Which iteration's cell-cell connectivity graph to score against.
+        ``'final'`` (default) uses the converged manifold (current behaviour).
+        An integer ``i`` scores against the manifold after iteration ``i``
+        (0-indexed; ``0`` = the initial alignment built from the raw BLAST
+        homology graph, before any expression-based reweighting). Requires
+        ``sm.run()`` to have been called so ``sm.nnm_per_iter`` is populated.
 
     Returns
     -------
@@ -133,7 +141,30 @@ def get_mapping_scores(
     label = "{}_mapping_scores".format(";".join([keys[sid] for sid in skeys]))
     samap.adata.obs[label] = pd.Categorical(cl)
 
-    CSIMth, clu = _compute_csim(samap, label, n_top=n_top, prepend=False)
+    X = None
+    if which_iter != "final":
+        if not hasattr(sm, "nnm_per_iter") or not sm.nnm_per_iter:
+            raise ValueError(
+                "which_iter requires sm.nnm_per_iter — call sm.run() first "
+                "(per-iteration connectivities are only stored at run time)."
+            )
+        try:
+            X = sm.nnm_per_iter[int(which_iter)]
+        except (IndexError, ValueError, TypeError) as e:
+            raise ValueError(
+                f"which_iter={which_iter!r} out of range (have {len(sm.nnm_per_iter)} iterations)"
+            ) from e
+        # _compute_csim will subset by species mask via splabels which is read
+        # from samap.adata.obs — the per-iter nnm has the same row order as
+        # the final samap object (both come from the concatenated SAM), so the
+        # full matrix is passed and the species filter applies inside.
+        if len(list(keys.keys())) < len(list(sm.sams.keys())):
+            # The species-subset SAM built above has fewer rows than nnm_per_iter;
+            # slice X to those rows to keep indices aligned.
+            mask = np.isin(sm.samap.adata.obs["species"], list(keys.keys()))
+            X = X[mask, :][:, mask]
+
+    CSIMth, clu = _compute_csim(samap, label, X=X, n_top=n_top, prepend=False)
 
     A = pd.DataFrame(data=CSIMth, index=clu, columns=clu)
     i = np.argsort(-A.values.max(0).flatten())

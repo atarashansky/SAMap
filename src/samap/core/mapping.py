@@ -26,6 +26,7 @@ from samap._constants import (
     DEFAULT_NUM_ITERATIONS,
     DEFAULT_THRESH_HIGH,
     DEFAULT_THRESH_LOW,
+    HOMOLOGY_OVERLAP_WARN_THRESHOLD,
     UMAP_MAXITER_LARGE,
     UMAP_MAXITER_SMALL,
     UMAP_MIN_DIST,
@@ -194,8 +195,50 @@ class SAMAP:
             prepend_var_prefix(sams[sid], sid)
             ge = _q(sams[sid].adata.var_names)
             gn = gns_dict[sid]
-            gns_list.append(gn[np.isin(gn, ge)])
+            in_both = np.isin(gn, ge)
+            matched = gn[in_both]
+            gns_list.append(matched)
             ges_list.append(ge)
+
+            # Diagnostic: var_names ↔ BLAST-header overlap. A low fraction here
+            # almost always means the FASTA headers used for BLAST do not match
+            # the h5ad var_names (e.g. transcript IDs vs gene IDs, version
+            # suffixes, namespace mismatch). Surface it loudly with examples.
+            n_var = ge.size
+            n_blast = gn.size
+            n_match = matched.size
+            frac_var = n_match / n_var if n_var else 0.0
+            logger.info(
+                "'%s': %d/%d var_names (%.1f%%) matched the homology graph (%d/%d BLAST IDs used).",
+                sid,
+                n_match,
+                n_var,
+                100 * frac_var,
+                n_match,
+                n_blast,
+            )
+            if frac_var < HOMOLOGY_OVERLAP_WARN_THRESHOLD:
+                # prepend_var_prefix above guarantees a '<sid>_' prefix on both
+                # sides; strip it so the user sees the raw IDs they actually
+                # control (var_names / FASTA headers).
+                prefix = sid + "_"
+                unmatched_var = ge[~np.isin(ge, gn)]
+                unmatched_blast = gn[~in_both]
+                ex_var = [x.removeprefix(prefix) for x in unmatched_var[:5].tolist()]
+                ex_blast = [x.removeprefix(prefix) for x in unmatched_blast[:5].tolist()]
+                logger.warning(
+                    "Only %.1f%% of '%s' var_names matched the homology graph. "
+                    "This usually means the FASTA headers used for BLAST do not "
+                    "match adata.var_names. "
+                    "Example unmatched var_names: %s. "
+                    "Example unmatched BLAST IDs: %s. "
+                    "See the `names=` argument or `samap.io.match_fasta` to "
+                    "reconcile transcript/gene ID namespaces.",
+                    100 * frac_var,
+                    sid,
+                    ex_var,
+                    ex_blast,
+                )
 
         f = np.isin(gns, np.concatenate(gns_list))
         gns = gns[f]
@@ -210,11 +253,6 @@ class SAMAP:
         gns_dict = {}
         for i, sid in enumerate(ids):
             gns_dict[sid] = ges[np.isin(ges, gns_list[i])]
-            logger.info(
-                "%d '%s' gene symbols match between the datasets and the BLAST graph.",
-                gns_dict[sid].size,
-                sid,
-            )
 
         for sid in sams:
             if not sp.sparse.issparse(sams[sid].adata.X):
@@ -241,6 +279,7 @@ class SAMAP:
         scale_edges_by_corr: bool = True,
         neigh_from_keys: dict[str, bool] | None = None,
         pairwise: bool = True,
+        joint_weights: bool = False,
         # Deprecated parameter aliases
         NUMITERS: int | None = None,
         NHS: dict[str, int] | None = None,
@@ -273,6 +312,14 @@ class SAMAP:
             Whether to use clustering for neighborhoods per species.
         pairwise : bool, optional
             If True, compute neighborhoods pairwise. Default True.
+        joint_weights : bool, optional
+            If True, after the first SAMap iteration recompute SAM gene
+            weights on the *joint* manifold (using the cross-species
+            connectivity graph) and use those for subsequent iterations.
+            This down-weights genes that are informative within a species
+            but not across species (e.g., ultra-conserved RNA-processing
+            genes that dominate enriched-gene-pair lists). Default False —
+            no behaviour change.
 
         Returns
         -------
@@ -339,10 +386,22 @@ class SAMAP:
             scale_edges_by_corr=scale_edges_by_corr,
             neigh_from_keys=neigh_from_keys,
             pairwise=pairwise,
+            joint_weights=joint_weights,
         )
         samap = smap.final_sam
         self.samap = samap
         self.ITER_DATA = smap.ITER_DATA
+
+        # Expose per-iteration cell-cell connectivities so downstream analysis
+        # can compare the unrefined (iter-0, raw-BLAST-homology) manifold to the
+        # final one. ``GNNMS_nnm`` already accumulates these; here we pin
+        # iter-0 to obsp and stash the full list for ``get_mapping_scores(...,
+        # which_iter=...)``.
+        nnm_iters = list(smap.GNNMS_nnm)
+        self.nnm_per_iter = nnm_iters
+        if nnm_iters:
+            samap.adata.obsp["connectivities_iter0"] = nnm_iters[0]
+        samap.adata.uns["n_iterations"] = len(nnm_iters)
 
         if umap:
             logger.info("Running UMAP on the stitched manifolds.")
@@ -792,6 +851,7 @@ class _Samap_Iter:
         neigh_from_keys: dict[str, bool] | None = None,
         pairwise: bool = True,
         ncpus: int | None = None,
+        joint_weights: bool = False,
     ) -> None:
         """Run the SAMap iterations."""
         if ncpus is None:
@@ -842,6 +902,32 @@ class _Samap_Iter:
             sam4.adata.uns["mapping_K"] = K
             self.samap = sam4
             self.GNNMS_nnm.append(sam4.adata.obsp["connectivities"])
+
+            if joint_weights and i == 0 and NUMITERS > 1:
+                # Recompute SAM dispersion weights on the *joint* manifold so
+                # iterations 2..N project through cross-species-informative
+                # genes rather than per-species ones. dispersion_ranking_NN
+                # writes adata.var['weights'] as a side effect; we copy the
+                # per-species blocks back onto each input SAM's var (where
+                # _projection_precompute reads them) and rebuild the cache.
+                logger.info(
+                    "joint_weights=True: recomputing gene weights on the joint "
+                    "manifold for iterations 2..%d.",
+                    NUMITERS,
+                )
+                W_joint = sam4.dispersion_ranking_NN(nnm=sam4.adata.obsp["connectivities"])
+                joint_names = _q(sam4.adata.var_names)
+                W_series = pd.Series(W_joint, index=joint_names)
+                for sid in sams:
+                    vn = _q(sams[sid].adata.var_names)
+                    block = W_series.reindex(vn)
+                    # Genes absent from the joint adata keep their original
+                    # per-species weight.
+                    orig = sams[sid].adata.var["weights"].values
+                    sams[sid].adata.var["weights"] = np.where(
+                        block.isna().values, orig, block.values
+                    ).astype(np.float64)
+                self._proj_cache = _projection_precompute(sams, self._gns, self._bk)
 
             logger.info("Iteration %d complete.", i + 1)
             logger.info("Alignment scores:\n%s", _avg_as(sam4))

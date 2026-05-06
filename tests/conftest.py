@@ -2,6 +2,21 @@
 
 from __future__ import annotations
 
+# Thread-count pinning MUST happen before numpy/numba are first imported
+# anywhere in the test session. pytest loads the root conftest before any
+# test module is collected, so this is the only safe place. Previously these
+# lived at the top of ``tests/regression/test_golden_output.py``, which
+# pytest collects *after* ``tests/integration`` (alphabetical), so numba had
+# already cached NUMBA_NUM_THREADS=<ncpu> by the time the setdefault("1")
+# fired, and any subsequent JIT re-read raised "Cannot set NUMBA_NUM_THREADS
+# to a different value once the threads have been launched".
+import os
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMBA_NUM_THREADS", "1")
+
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -49,6 +64,14 @@ def sample_gene_pairs() -> NDArray[np.str_]:
             ["hu_NANOG", "ms_Nanog"],
         ]
     )
+
+
+@pytest.fixture(scope="module")
+def tiny_samap():
+    """Two-species synthetic SAMAP with planted 1:1 cluster structure (~15s)."""
+    from tests.fixtures.tiny_samap import build_tiny_samap
+
+    return build_tiny_samap(seed=0, run=True)
 
 
 @pytest.fixture

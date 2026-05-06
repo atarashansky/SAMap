@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`docs/analysis.md`** — onboarding guide for `samap.analysis` mirroring
+  `docs/io.md`: workflow diagram, per-function rationale, and a quick-
+  reference table covering iter-0 vs converged scores, permutation null,
+  degeneracy/tile-ability, module-factored decomposition, paralog
+  substitutions, disk-based re-scoring, and lineage-vs-program family
+  classification.
+- **`samap.analysis` interpretation helpers** (driven by a 210-pair
+  21-species pan-metazoan benchmark sweep):
+  - `get_mapping_scores(..., which_iter=0|'final')` — score against the
+    iter-0 (raw-BLAST-homology) manifold as well as the converged one.
+    `SAMAP.run` now stores `obsp['connectivities_iter0']` and
+    `sm.nnm_per_iter[]` so the "find" vs "measure" axes are separable.
+  - `permutation_null_scores` — label-permutation null for mapping
+    scores (no manifold rerun; cheap empirical p-values per pair).
+  - `homology_graph_delta` / `find_paralog_substitutions` — per-edge
+    sequence-similarity vs expression-correlation residuals; ranked
+    paralog-substitution candidates without an external orthology DB.
+  - `gene_modules` / `module_factored_scores` — Leiden-partition the
+    homology graph and decompose each cell-type alignment by how many
+    independent gene modules support it (`n_modules`, `top_module_frac`,
+    `module_entropy`).
+  - `cluster_to_k` / `mapping_degeneracy` — leiden-to-target-k for
+    granularity-matched comparison; reciprocal-best fraction, entropy,
+    and effective-rank summaries of the score matrix.
+  - `persist_pair` / `score_from_connectivities` / `build_union_graph` /
+    `cluster_families` / `family_phylogenetic_signal`
+    (`samap.analysis.ontology`) — disk-based re-scoring of persisted
+    `obsp['connectivities']` against arbitrary per-species label sets
+    without instantiating SAM/SAMAP objects (~0.2s/pair); union-graph
+    assembly and Leiden community detection for many-species cell-type-
+    family discovery; per-family lineage-vs-program classification via
+    within-family score–divergence correlation with same-study-clade
+    exclusion control.
+  - `SAMAP.run(..., joint_weights=True)` — *experimental*: recompute SAM
+    gene weights on the joint manifold after iteration 1 so iterations
+    2..N project through cross-species-informative genes (down-weights
+    pan-conserved RNA-processing genes that dominate enriched-pair
+    lists). Off by default; no behaviour change.
+
+### Fixed
+
+- Tests: hoisted `NUMBA_NUM_THREADS` pinning from
+  `tests/regression/test_golden_output.py` to the root `tests/conftest.py`
+  so it applies before any test module imports numba (the previous
+  location was collected after `tests/integration/`, causing a
+  `RuntimeError: Cannot set NUMBA_NUM_THREADS to a different value once
+  the threads have been launched` whenever the full suite was run on a
+  >1-CPU host without the env var pre-set).
+
+### Added
+
+- **`samap.io` onboarding helpers** (see `docs/io.md`):
+  - `detect_id_flavor` — regex classifier for `var_names` namespace
+    (Ensembl/RefSeq/NCBI GeneID/UniProt/model-org DBs/symbol/unknown).
+  - `fetch_proteome` — derive a protein FASTA whose headers *are*
+    `var_names` from Ensembl REST or NCBI Datasets v2. No new runtime
+    deps (stdlib `urllib`).
+  - `match_fasta` — score a header-transform cascade against `var_names`,
+    pick the best, emit a renamed FASTA + `names[]` array. Optional GTF
+    transcript→gene mapping.
+  - `gnnm_from_pairs` / `homology_from_eggnog` — build the
+    `(gnnm, gns, gns_dict)` tuple for `SAMAP(gnnm=...)` from any
+    ortholog table or eggNOG-mapper OG co-membership.
+  - `run_blast` — Python port of `map_genes.sh`: all N-choose-2
+    reciprocal alignments, DIAMOND-first with BLAST+ fallback.
+  - `save_gnnm` / `load_gnnm` — `.npz` cache for the homology graph.
+- **`samap` CLI** (`detect-ids`, `fetch-proteome`, `match-fasta`,
+  `blast`) via `[project.scripts]`.
+- `SAMAP.__init__` now logs the per-species `var_names ↔ homology graph`
+  overlap fraction and **warns with example IDs from each side** when
+  overlap < 30 % (`HOMOLOGY_OVERLAP_WARN_THRESHOLD`).
+- `network` pytest marker for tests that hit external services.
+
 ## [3.0.1]
 
 ### Fixed
