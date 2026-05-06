@@ -109,9 +109,14 @@ mf = module_factored_scores(sm, keys, modules=mods)
 ```
 
 `with_coexpression` is load-bearing: the BLAST homology graph alone fragments
-into ~3,000 size-2 components; bridging it with within-species gene–gene
-correlation kNN produces interpretable modules (sarcomere, ciliome, ECM,
-neural, lysosomal, …). `top_module_frac > 0.7` flags single-program edges.
+into thousands of disconnected components — e.g. 6,697 components for a
+3-species mouse–human–zebrafish graph of 58k genes, including 1,295 singleton
+genes, ~3,000 of size 2–3, and one giant component of ~20k genes — so a
+direct Leiden partition is dominated by trivial size-2/3 modules and a single
+unstructured giant. Bridging it with within-species gene–gene correlation kNN
+consolidates these into interpretable program-sized modules (sarcomere,
+ciliome, ECM, neural, lysosomal, …). `top_module_frac > 0.7` flags
+single-program edges.
 
 ## 5. Homology-graph delta and paralog substitutions
 
