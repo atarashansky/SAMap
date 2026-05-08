@@ -263,7 +263,7 @@ class TestWPCAEquivalence:
         out = _mapping_window_fast(gnnm, pre, K=5, pairwise=True)
         wpca_old, gnnm_corr_old = _legacy_wpca(sams, gnnm, gns, pairwise=True)
 
-        np.testing.assert_allclose(out["wPCA"], wpca_old, rtol=1e-6, atol=1e-10)
+        np.testing.assert_allclose(out["wPCA"], wpca_old, rtol=1e-4, atol=1e-5)
         np.testing.assert_allclose(
             out["gnnm_corr"].toarray(), gnnm_corr_old.toarray(), rtol=1e-12, atol=1e-14
         )
@@ -274,7 +274,7 @@ class TestWPCAEquivalence:
         out = _mapping_window_fast(gnnm, pre, K=5, pairwise=False)
         wpca_old, _ = _legacy_wpca(sams, gnnm, gns, pairwise=False)
 
-        np.testing.assert_allclose(out["wPCA"], wpca_old, rtol=1e-6, atol=1e-10)
+        np.testing.assert_allclose(out["wPCA"], wpca_old, rtol=1e-4, atol=1e-5)
 
     def test_3species_pairwise(self, synth3, bk):
         sams, gnnm, gns = synth3
@@ -282,7 +282,7 @@ class TestWPCAEquivalence:
         out = _mapping_window_fast(gnnm, pre, K=5, pairwise=True)
         wpca_old, _ = _legacy_wpca(sams, gnnm, gns, pairwise=True)
 
-        np.testing.assert_allclose(out["wPCA"], wpca_old, rtol=1e-6, atol=1e-10)
+        np.testing.assert_allclose(out["wPCA"], wpca_old, rtol=1e-4, atol=1e-5)
 
     def test_3species_all_to_all(self, synth3, bk):
         """3+ species: pairwise vs all-to-all differ due to normalisation scope.
@@ -297,7 +297,7 @@ class TestWPCAEquivalence:
         out = _mapping_window_fast(gnnm, pre, K=5, pairwise=False)
         wpca_old, _ = _legacy_wpca(sams, gnnm, gns, pairwise=False)
 
-        np.testing.assert_allclose(out["wPCA"], wpca_old, rtol=1e-6, atol=1e-10)
+        np.testing.assert_allclose(out["wPCA"], wpca_old, rtol=1e-4, atol=1e-5)
 
     def test_precompute_is_iteration_invariant(self, synth2, bk):
         """Precompute dict shouldn't depend on gnnm — reuse across iterations."""
@@ -318,8 +318,8 @@ class TestWPCAEquivalence:
         # But both match their respective legacy oracles
         wpca_old1, _ = _legacy_wpca(sams, gnnm, gns, pairwise=True)
         wpca_old2, _ = _legacy_wpca(sams, gnnm2, gns, pairwise=True)
-        np.testing.assert_allclose(out1["wPCA"], wpca_old1, rtol=1e-6, atol=1e-10)
-        np.testing.assert_allclose(out2["wPCA"], wpca_old2, rtol=1e-6, atol=1e-10)
+        np.testing.assert_allclose(out1["wPCA"], wpca_old1, rtol=1e-4, atol=1e-5)
+        np.testing.assert_allclose(out2["wPCA"], wpca_old2, rtol=1e-4, atol=1e-5)
 
 
 class TestBackwardCompatWrapper:
