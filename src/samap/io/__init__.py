@@ -15,6 +15,7 @@ from samap.io.fetch import FetchReport, fetch_proteome
 from samap.io.homology import gnnm_from_pairs, homology_from_eggnog
 from samap.io.ids import FLAVOR_PATTERNS, IdFlavorReport, detect_id_flavor
 from samap.io.match import MatchReport, match_fasta
+from samap.io.precompute import load_precompute, precompute_species
 from samap.utils import load_samap, save_samap
 
 __all__ = [
@@ -27,8 +28,10 @@ __all__ = [
     "gnnm_from_pairs",
     "homology_from_eggnog",
     "load_gnnm",
+    "load_precompute",
     "load_samap",
     "match_fasta",
+    "precompute_species",
     "run_blast",
     "save_gnnm",
     "save_samap",

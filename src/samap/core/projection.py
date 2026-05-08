@@ -189,6 +189,7 @@ def _projection_precompute(
     sams: dict[str, SAM],
     gns: NDArray[Any],
     bk: Backend | None = None,
+    precomputed: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the iteration-invariant state for :func:`_mapping_window_fast`.
 
@@ -208,6 +209,12 @@ def _projection_precompute(
         so that species blocks are contiguous.
     bk : Backend or None
         Array backend for device placement. Default: CPU.
+    precomputed : dict[str, dict] or None
+        Optional per-species cache loaded by :func:`samap.io.load_precompute`.
+        When an entry for ``sid`` is present its full-gene ``XtX`` is sliced
+        to ``gs[sid]`` instead of recomputing the SpGEMM. The cached
+        ``PCs_SAMap`` is expected to have already been placed into
+        ``sams[sid].adata.varm`` by the caller.
 
     Returns
     -------
@@ -218,6 +225,8 @@ def _projection_precompute(
     """
     if bk is None:
         bk = Backend("cpu")
+    if precomputed is None:
+        precomputed = {}
 
     std = StandardScaler(with_mean=False)
 
@@ -229,9 +238,14 @@ def _projection_precompute(
     n_cells: dict[str, int] = {}
     species_indexer: list[NDArray[Any]] = []
     genes_indexer: list[NDArray[Any]] = []
+    gs_ix: dict[str, NDArray[Any]] = {}
 
     for sid in sids:
-        gs[sid] = gns[np.isin(gns, _q(sams[sid].adata.var_names))]
+        var_names = _q(sams[sid].adata.var_names)
+        gs[sid] = gns[np.isin(gns, var_names)]
+        # positional indices of gs[sid] in the species' var_names — used to
+        # slice the full-gene cached XtX
+        gs_ix[sid] = pd.Index(var_names).get_indexer(gs[sid])
         sub = sams[sid].adata[:, gs[sid]]
         W[sid] = bk.to_device(bk.xp.asarray(sub.var["weights"].values))
         # StandardScaler runs on host; move result to device after
@@ -250,7 +264,22 @@ def _projection_precompute(
     XtX: dict[str, Any] = {}
     mu_ss: dict[str, Any] = {}
     for sid in sids:
-        XtX[sid] = (ss[sid].T @ ss[sid]).tocsr()
+        cached = precomputed.get(sid)
+        if cached is not None:
+            # Slice the cached full-gene Gram to this run's homology-connected
+            # genes. XtX over a column subset equals the row+column slice of
+            # the full Gram (XᵀX is bilinear in column selection).
+            ix = gs_ix[sid]
+            XtX_full = cached["XtX"]
+            XtX[sid] = bk.to_device(XtX_full[ix, :][:, ix].tocsr())
+            logger.info(
+                "_projection_precompute[%s]: using cached XtX (sliced %d→%d genes).",
+                sid,
+                XtX_full.shape[0],
+                ix.size,
+            )
+        else:
+            XtX[sid] = (ss[sid].T @ ss[sid]).tocsr()
         mu_ss[sid] = bk.xp.asarray(ss[sid].mean(0)).flatten()
 
     # Own-species PC projection — fully iteration-invariant
