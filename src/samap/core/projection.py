@@ -41,7 +41,7 @@ from sklearn.preprocessing import StandardScaler
 
 from samap._logging import logger
 from samap.core._backend import Backend
-from samap.core.knn import approximate_knn
+from samap.core.knn import _hnswlib_build, _hnswlib_query, approximate_knn
 from samap.utils import q as _q
 
 from .homology import _tanh_scale
@@ -278,6 +278,144 @@ def _projection_precompute(
 
 
 # --------------------------------------------------------------------------- #
+# Tiled wPCA (P0.2)                                                           #
+# --------------------------------------------------------------------------- #
+
+
+class _TiledWPCA:
+    """Lazy per-pair view of the joint embedding (P0.2).
+
+    The full joint embedding is conceptually ``wpca[N_total, S·npcs]`` —
+    the row-block for species ``i`` is ``hstack(row_blocks[i][s] for s)``
+    minus the per-species mean-correction ``M_blocks[i][s]``. At S=21,
+    npcs=300 that buffer is ~35 GB f64; at S=100 it is 840 GB. P0.2 never
+    allocates it. Instead this object stores the mean-corrected
+    ``row_blocks`` (each N_i × npcs_s, float32) and exposes:
+
+    * :meth:`pair_view` — for ``pairwise=True`` kNN: assembles
+      ``[row_blocks[i][i] | row_blocks[i][j]]`` (N_i × 2·npcs) and the
+      matching reference ``[row_blocks[j][i] | row_blocks[j][j]]``
+      (N_j × 2·npcs) on demand. Peak ~2·N_max·2·npcs f32 ≈ 0.24 GB at
+      S=21.
+    * :meth:`row_embedding` — returns species ``i``'s full-width
+      mean-corrected row block (N_i × S·npcs). Used by the
+      ``pairwise=False`` index-reuse path and as a compatibility fallback
+      for callers that need a global embedding.
+    * :meth:`materialise_full` — assembles the full N_total × S·npcs
+      matrix. Float32. Only called on the ``pairwise=False`` path, where
+      a single shared latent space is the algorithm's intent; still 2×
+      smaller than the legacy f64 buffer.
+
+    All blocks are stored mean-corrected and as float32 — hnswlib casts to
+    f32 anyway, so the f64 storage was pure waste.
+
+    Implements ``__getitem__`` over global cell indices so legacy callers
+    (``_replace`` in ``_scale_by_corr``) keep working when handed this
+    object in place of a dense ``wPCA`` array. Indexing materialises only
+    the requested rows.
+    """
+
+    def __init__(
+        self,
+        row_blocks: list[list[Any]],
+        species_indexer: list[NDArray[Any]],
+        npcs_blocks: list[int],
+        sids: list[str],
+    ) -> None:
+        self._rb = row_blocks  # row_blocks[i][s] : (N_i × npcs_s), mean-corrected, f32
+        self._spix = species_indexer
+        self._npcs = npcs_blocks
+        self._col_off = np.cumsum([0, *npcs_blocks])
+        self._sids = sids
+        self._n_species = len(sids)
+        self._N = int(species_indexer[-1][-1] + 1)
+        self.shape = (self._N, int(self._col_off[-1]))
+        # global cell index → (species_idx, local_idx)
+        self._sp_of = np.empty(self._N, dtype=np.int32)
+        self._loc_of = np.empty(self._N, dtype=np.int32)
+        for i, ix in enumerate(species_indexer):
+            self._sp_of[ix] = i
+            self._loc_of[ix] = np.arange(ix.size, dtype=np.int32)
+
+    # ---- pairwise kNN tiles -------------------------------------------- #
+    def pair_view(self, i: int, j: int) -> tuple[NDArray[Any], NDArray[Any]]:
+        """``(query, reference)`` for the directed (i→j) kNN at 2·npcs width.
+
+        ``query``     = species i's cells in [PCs_i | PCs_j]  (N_i × (npcs_i+npcs_j))
+        ``reference`` = species j's cells in [PCs_i | PCs_j]  (N_j × (npcs_i+npcs_j))
+
+        Both float32, C-contiguous. Allocated fresh per call (cheap — MB-scale).
+        """
+        q = np.ascontiguousarray(np.hstack((self._rb[i][i], self._rb[i][j])))
+        r = np.ascontiguousarray(np.hstack((self._rb[j][i], self._rb[j][j])))
+        return q, r
+
+    # ---- pairwise=False index reuse ------------------------------------ #
+    def row_embedding(self, i: int) -> NDArray[Any]:
+        """Species ``i``'s full-width row block (N_i × S·npcs, float32)."""
+        return np.ascontiguousarray(np.hstack(self._rb[i]))
+
+    def materialise_full(self, *, free: bool = False) -> NDArray[Any]:
+        """Assemble the full N_total × S·npcs float32 matrix.
+
+        Provided for ``pairwise=False`` and for downstream consumers that
+        still need a global embedding (e.g. UMAP on wPCA, if ever added).
+        Memory cost is half the legacy path (f32 vs f64).
+
+        With ``free=True``, releases each row-block tile immediately after
+        it's been copied into ``out``, so peak memory stays at
+        ~N_total × S·npcs × 4 bytes (one f32 copy of the data) instead of
+        2×. After a freeing materialise, :meth:`pair_view` /
+        :meth:`row_embedding` are no longer usable — call this last.
+        """
+        out = np.empty(self.shape, dtype=np.float32)
+        for i in range(self._n_species):
+            r0, r1 = self._spix[i][0], self._spix[i][-1] + 1
+            for s in range(self._n_species):
+                c0, c1 = self._col_off[s], self._col_off[s + 1]
+                out[r0:r1, c0:c1] = self._rb[i][s]
+                if free:
+                    self._rb[i][s] = None  # type: ignore[assignment]
+        if free:
+            self._rb = None  # type: ignore[assignment]
+        return out
+
+    # ---- _scale_by_corr per-pair correlation ---------------------------- #
+    def pair_corr_basis(self, i: int, j: int) -> tuple[NDArray[Any], NDArray[Any]]:
+        """Row sets for correlating cells of species i against species j.
+
+        Returns ``(A, B)`` where ``A`` is N_i × d and ``B`` is N_j × d, with
+        ``d = npcs_i + npcs_j``. Same tiles as :meth:`pair_view` — separate
+        method only to make the call site self-documenting.
+        """
+        return self.pair_view(i, j)
+
+    # ---- numpy interop -------------------------------------------------- #
+    def __array__(self, dtype: Any = None, copy: bool | None = None) -> NDArray[Any]:
+        a = self.materialise_full()
+        if dtype is not None:
+            a = a.astype(dtype, copy=False)
+        return a
+
+    # ---- legacy compatibility: fancy-index by global row ---------------- #
+    def __getitem__(self, rows: Any) -> NDArray[Any]:
+        rows = np.asarray(rows, dtype=np.int64)
+        out = np.empty((rows.size, self.shape[1]), dtype=np.float32)
+        # group by source species so each row_block is touched once
+        sp = self._sp_of[rows]
+        loc = self._loc_of[rows]
+        for i in range(self._n_species):
+            mask = sp == i
+            if not mask.any():
+                continue
+            li = loc[mask]
+            for s in range(self._n_species):
+                c0, c1 = self._col_off[s], self._col_off[s + 1]
+                out[mask, c0:c1] = self._rb[i][s][li]
+        return out
+
+
+# --------------------------------------------------------------------------- #
 # Fast per-iteration path                                                     #
 # --------------------------------------------------------------------------- #
 
@@ -397,65 +535,113 @@ def _mapping_window_fast(
     logger.info("Projecting data into joint latent space. %.2fs", time.time() - ttt)
     ttt = time.time()
 
-    # ---- Assemble wpca: row-block i = hstack of column-blocks, minus M --- #
-    N_total = sum(n_cells.values())
+    # ---- P0.2: never assemble full N_total × S·npcs wpca. Instead store ---
+    #  mean-corrected row_blocks (each N_i × npcs_s) as float32 and wrap them
+    #  in a _TiledWPCA that materialises per-pair tiles on demand.
     npcs_blocks = [PCs[sid].shape[1] for sid in sids]
-    npcs_total = sum(npcs_blocks)
-    wpca = bk.xp.zeros((N_total, npcs_total), dtype=bk.xp.float64)
-
-    col_offsets = np.cumsum([0, *npcs_blocks])
-    for i, sid_i in enumerate(sids):
-        r0, r1 = species_indexer[i][0], species_indexer[i][-1] + 1
-        M_i = bk.xp.concatenate(M_blocks[i])  # full-width correction vector for species i
+    for i in range(n_species):
         for s in range(n_species):
-            c0, c1 = col_offsets[s], col_offsets[s + 1]
             block = row_blocks[i][s]
-            # row_blocks may come out sparse (rare, e.g. all-zero G_is); coerce
             if hasattr(block, "toarray"):
                 block = block.toarray()
-            wpca[r0:r1, c0:c1] = block
-        wpca[r0:r1] -= M_i
+            # apply mean correction in-place at block granularity (was done as
+            # one wide subtraction on the full wpca before)
+            block = bk.to_host(block).astype(np.float32, copy=False)
+            block = block - bk.to_host(M_blocks[i][s]).astype(np.float32)
+            row_blocks[i][s] = np.ascontiguousarray(block)
+    # M_blocks no longer needed
+    del M_blocks
+    gc.collect()
+
+    wpca_tiled = _TiledWPCA(row_blocks, species_indexer, npcs_blocks, sids)
+    N_total = wpca_tiled.shape[0]
 
     logger.info("Correcting data with means. %.2fs", time.time() - ttt)
 
-    # ---- Cross-species kNN (hnswlib CPU or FAISS GPU via approximate_knn) #
-    wpca_host = bk.to_host(wpca)
+    # ---- Cross-species kNN ------------------------------------------------ #
     gnnm_corr_host = bk.to_host(gnnm_corr)
-
     k = K
-    ixg = np.arange(wpca_host.shape[0])
     Xs: list[Any] = []
     Ys: list[Any] = []
     Vs: list[Any] = []
-    for i in range(n_species):
-        ixq = species_indexer[i]
-        query = wpca_host[ixq]
+
+    def _emit(b_csr: Any, ixq: NDArray[Any], ixr: NDArray[Any]) -> None:
+        su = np.asarray(b_csr.sum(1))
+        su[su == 0] = 1
+        bn = b_csr.multiply(1 / su).tocsr()
+        x, y = bn.nonzero()
+        Xs.extend(ixq[x])
+        Ys.extend(ixr[y])
+        Vs.extend(bn.data)
+
+    if pairwise:
+        # P0.2+P0.3 (pairwise=True): each (i→j) search runs in 2·npcs dims
+        # using only the [PCs_i | PCs_j] columns. The other S−2 column blocks
+        # are species-i-projected-through-other-species — zero-mean noise
+        # w.r.t. the i↔j cosine. Dropping them is correctness-neutral up to
+        # the small norm perturbation those noise columns add to the cosine
+        # denominator. Per-pair index builds remain unavoidable (the
+        # reference for j depends on i via row_blocks[j][i]) but at 2·npcs
+        # not S·npcs — the 10.5× kNN win at S=21.
+        for i in range(n_species):
+            ixq = species_indexer[i]
+            for j in range(n_species):
+                if i == j:
+                    continue
+                ixr = species_indexer[j]
+                query, reference = wpca_tiled.pair_view(i, j)
+                b = _united_proj(query, reference, k=k, bk=bk)
+                _emit(b, ixq, ixr)
+    elif bk.gpu:
+        # GPU brute-force is exact and doesn't amortise across queries the
+        # way HNSW does — keep the existing per-pair _united_proj dispatch,
+        # but on the f32 full-width tiles (no f64 buffer).
+        for i in range(n_species):
+            ixq = species_indexer[i]
+            query = wpca_tiled.row_embedding(i)
+            for j in range(n_species):
+                if i == j:
+                    continue
+                ixr = species_indexer[j]
+                reference = wpca_tiled.row_embedding(j)
+                b = _united_proj(query, reference, k=k, bk=bk)
+                _emit(b, ixq, ixr)
+    else:
+        # P0.3 (pairwise=False, CPU): the reference embedding for species j
+        # in the joint space is shared across all queriers i. Build S HNSW
+        # indices once at full S·npcs width, query each from all S−1 others.
+        # 21× index-build saving at S=21 vs the legacy S(S−1) builds.
+        logger.info("pairwise=False: building %d shared HNSW indices.", n_species)
+        # Precompute each species' full-width embedding once.
+        embeds = [wpca_tiled.row_embedding(i) for i in range(n_species)]
         for j in range(n_species):
-            if i == j:
-                continue
             ixr = species_indexer[j]
-            reference = wpca_host[ixr]
+            index = _hnswlib_build(embeds[j], metric="cosine")
+            for i in range(n_species):
+                if i == j:
+                    continue
+                ixq = species_indexer[i]
+                idx, dist = _hnswlib_query(index, embeds[i], k=k)
+                # replicate _united_proj's similarity transform
+                d = 1 - dist
+                d[d < 1e-3] = 1e-3
+                d = d / d.max(1)[:, None]
+                d = _tanh_scale(d, scale=10, center=0.7)
+                rows = np.repeat(np.arange(idx.shape[0], dtype=np.int32), k)
+                b = sp.sparse.coo_matrix(
+                    (d.ravel(), (rows, idx.ravel().astype(np.int32))),
+                    shape=(idx.shape[0], embeds[j].shape[0]),
+                ).tocsr()
+                _emit(b, ixq, ixr)
+            del index
+        del embeds
+        gc.collect()
 
-            b = _united_proj(query, reference, k=k, bk=bk)
-
-            su = np.asarray(b.sum(1))
-            su[su == 0] = 1
-            b = b.multiply(1 / su).tocsr()
-
-            A = pd.Series(index=np.arange(b.shape[0]), data=ixq)
-            B = pd.Series(index=np.arange(b.shape[1]), data=ixr)
-
-            x, y = b.nonzero()
-            x, y = A[x].values, B[y].values
-            Xs.extend(x)
-            Ys.extend(y)
-            Vs.extend(b.data)
-
-    knn = sp.sparse.coo_matrix((Vs, (Xs, Ys)), shape=(ixg.size, ixg.size))
+    knn = sp.sparse.coo_matrix((Vs, (Xs, Ys)), shape=(N_total, N_total))
 
     return {
         "knn": knn.tocsr(),
-        "wPCA": wpca_host,
+        "wPCA": wpca_tiled,
         "gnnm_corr": gnnm_corr_host,
     }
 
