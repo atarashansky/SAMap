@@ -67,7 +67,7 @@ def _replace_pair(
 ) -> NDArray[np.float64]:
     """Per-edge Pearson with indexed access into two separate row stores.
 
-    Like :func:`_replace` but for the P0.2 per-pair tile case where the two
+    Like :func:`_replace` but for the per-pair tile case where the two
     endpoints of an edge live in *different* arrays (species-a's tile ``A``
     and species-b's tile ``B``). Indexes row-by-row inside the prange — no
     caller-side gather, so memory stays at O(d) per thread regardless of how
@@ -265,7 +265,7 @@ def _corr_kernel_pearson(
     data: NDArray[Any],
     n: int,
 ) -> NDArray[np.float64]:
-    """Register-only Pearson kernel — no per-pair allocation (P0.4).
+    """Register-only Pearson kernel — no per-pair allocation.
 
     For each gene pair ``(j1, j2)`` with species ``(a, b)``, computes the
     Pearson correlation over the row range ``[s1,s1+l1) ∪ [s2,s2+l2)`` of
@@ -497,7 +497,7 @@ def _compute_pair_corrs(
     ps1 = np.ascontiguousarray(ps_int[:, 0], dtype=np.int64)
     ps2 = np.ascontiguousarray(ps_int[:, 1], dtype=np.int64)
 
-    # P0.4: Pearson uses the register-only kernel (no per-pair np.zeros(n)
+    # Pearson uses the register-only kernel (no per-pair np.zeros(n)
     # allocation; O(1) per-thread workspace). Xi correlation needs sorting →
     # falls back to the legacy scatter-based kernel.
     kernel = _corr_kernel_pearson if pearson else _corr_kernel_xi

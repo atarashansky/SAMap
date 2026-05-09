@@ -307,18 +307,18 @@ def _projection_precompute(
 
 
 # --------------------------------------------------------------------------- #
-# Tiled wPCA (P0.2)                                                           #
+# Tiled wPCA                                                                  #
 # --------------------------------------------------------------------------- #
 
 
 class _TiledWPCA:
-    """Lazy per-pair view of the joint embedding (P0.2).
+    """Lazy per-pair view of the joint embedding.
 
     The full joint embedding is conceptually ``wpca[N_total, S·npcs]`` —
     the row-block for species ``i`` is ``hstack(row_blocks[i][s] for s)``
     minus the per-species mean-correction ``M_blocks[i][s]``. At S=21,
-    npcs=300 that buffer is ~35 GB f64; at S=100 it is 840 GB. P0.2 never
-    allocates it. Instead this object stores the mean-corrected
+    npcs=300 that buffer is ~35 GB f64; at S=100 it is 840 GB. This path
+    never allocates it. Instead this object stores the mean-corrected
     ``row_blocks`` (each N_i × npcs_s, float32) and exposes:
 
     * :meth:`pair_view` — for ``pairwise=True`` kNN: assembles
@@ -564,7 +564,7 @@ def _mapping_window_fast(
     logger.info("Projecting data into joint latent space. %.2fs", time.time() - ttt)
     ttt = time.time()
 
-    # ---- P0.2: never assemble full N_total × S·npcs wpca. Instead store ---
+    # ---- Never assemble full N_total × S·npcs wpca. Instead store --------
     #  mean-corrected row_blocks (each N_i × npcs_s) as float32 and wrap them
     #  in a _TiledWPCA that materialises per-pair tiles on demand.
     npcs_blocks = [PCs[sid].shape[1] for sid in sids]
@@ -604,7 +604,7 @@ def _mapping_window_fast(
         Vs.extend(bn.data)
 
     if pairwise:
-        # P0.2+P0.3 (pairwise=True): each (i→j) search runs in 2·npcs dims
+        # pairwise=True: each (i→j) search runs in 2·npcs dims
         # using only the [PCs_i | PCs_j] columns. The other S−2 column blocks
         # are species-i-projected-through-other-species — zero-mean noise
         # w.r.t. the i↔j cosine. Dropping them is correctness-neutral up to
@@ -636,7 +636,7 @@ def _mapping_window_fast(
                 b = _united_proj(query, reference, k=k, bk=bk)
                 _emit(b, ixq, ixr)
     else:
-        # P0.3 (pairwise=False, CPU): the reference embedding for species j
+        # pairwise=False (CPU): the reference embedding for species j
         # in the joint space is shared across all queriers i. Build S HNSW
         # indices once at full S·npcs width, query each from all S−1 others.
         # 21× index-build saving at S=21 vs the legacy S(S−1) builds.

@@ -123,7 +123,7 @@ def _hnswlib_build(
 ) -> Any:
     """Build (and return) an HNSW index over ``database`` without querying.
 
-    P0.3: lets callers reuse one index across many query batches when the
+    Lets callers reuse one index across many query batches when the
     database is shared. Returns the populated ``hnswlib.Index``.
     """
     db = np.ascontiguousarray(np.asarray(database, dtype=np.float32))

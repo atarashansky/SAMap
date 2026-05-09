@@ -78,7 +78,7 @@ def _scale_by_corr(
     the input and rescaled data — matches the original full-matrix path
     exactly.
 
-    P0.2: ``wPCA`` may be either a dense ``(N_total, S·npcs)`` array (legacy)
+    ``wPCA`` may be either a dense ``(N_total, S·npcs)`` array (legacy)
     or any object supporting fancy-indexing by row (``_TiledWPCA``). Rows for
     both endpoints are gathered up-front and the Pearson is computed on the
     gathered float32 blocks, so the inner numba kernel sees plain ndarrays
@@ -124,7 +124,7 @@ def _scale_by_corr_pair(
     B: NDArray[Any],
     local_rows: NDArray[np.int64],
 ) -> Any:
-    """Per-pair variant of :func:`_scale_by_corr` (P0.2 pairwise tiling).
+    """Per-pair variant of :func:`_scale_by_corr` (pairwise tiling).
 
     ``M_block`` is the (chunk_len × N_b) mutual-NN block for a single
     species pair (a, b). ``A`` is species a's cells in the per-pair
@@ -228,7 +228,7 @@ def _compute_mutual_graph(
     builder = COOBuilder(bk, shape=(N, N))
     pairwise_topk = pairwise and len(sids) > 2
 
-    # P0.2: when pairwise_topk and wPCA exposes per-pair tiles, the
+    # When pairwise_topk and wPCA exposes per-pair tiles, the
     # *correctness-preserving* path materialises one f32 N_total×S·npcs array
     # (releasing tiles in-place so peak ≈ 1×, half the legacy f64 buffer) and
     # runs the original full-width _scale_by_corr. The opt-in
@@ -281,7 +281,7 @@ def _compute_mutual_graph(
             for b in partners:
                 pre_right[b] = nnm_a.T.dot(B_baT[b])
 
-        # Per-pair correlation bases (P0.2) — assembled once per source species.
+        # Per-pair correlation bases — assembled once per source species.
         pair_A: dict[str, NDArray[Any]] = {}
         pair_B: dict[str, NDArray[Any]] = {}
         if tiled_pair_corr:
@@ -334,7 +334,7 @@ def _compute_mutual_graph(
                 Mb.data[:] = np.sqrt(Mb.data)
 
                 if tiled_pair_corr:
-                    # P0.2 fast path: scale + top-k this (a,b) block in its
+                    # Tiled fast path: scale + top-k this (a,b) block in its
                     # own [PCs_a|PCs_b] subspace, then emit directly. Never
                     # touches columns outside species b → no full-width wPCA.
                     Mb = _scale_by_corr_pair(Mb, pair_A[b], pair_B[b], local_rows)
