@@ -350,7 +350,14 @@ class SAMAP:
         hom_edge_thr : float, optional
             Minimum edge weight threshold in homology graph. Default 0.
         hom_edge_mode : str, optional
-            Correlation mode: 'pearson'. Default 'pearson'.
+            Correlation metric for homology-edge reweighting:
+            ``'pearson'`` (default) or ``'xi'`` (Chatterjee's rank
+            correlation). Use ``'xi'`` when one dataset has binary or
+            near-binary features (e.g. scATAC peaks) — it is rank-based,
+            handles ties, and detects monotone-non-linear dependence
+            (accessibility → expression saturates). After kNN smoothing
+            the ATAC side is fractional, so Pearson is not degenerate,
+            but Xi is more robust.
         scale_edges_by_corr : bool, optional
             Whether to scale edges by expression correlation. Default True.
         neigh_from_keys : dict, optional
