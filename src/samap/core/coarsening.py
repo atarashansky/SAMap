@@ -24,6 +24,7 @@ down to O(chunk × N_b) when chunking within a large species).
 from __future__ import annotations
 
 import gc
+import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -43,7 +44,7 @@ from samap.utils import q as _q
 from samap.utils import sparse_knn
 
 from ._backend import Backend, COOBuilder
-from .correlation import _replace
+from .correlation import _replace, _replace_pair
 from .expand import _smart_expand
 from .homology import _tanh_scale
 from .projection import _mapping_window, _mapping_window_fast
@@ -68,7 +69,7 @@ def _generate_coclustering_matrix(cl: NDArray[Any]) -> sp.sparse.csr_matrix:
 def _scale_by_corr(
     M_chunk: Any,
     global_rows: NDArray[np.int64],
-    wPCA: NDArray[Any],
+    wPCA: Any,
 ) -> Any:
     """Rescale mutual-NN edge weights by cell-cell correlation in wPCA space.
 
@@ -76,10 +77,23 @@ def _scale_by_corr(
     per-row maxima are exact. Returns a CSR with the same sparsity pattern as
     the input and rescaled data — matches the original full-matrix path
     exactly.
+
+    P0.2: ``wPCA`` may be either a dense ``(N_total, S·npcs)`` array (legacy)
+    or any object supporting fancy-indexing by row (``_TiledWPCA``). Rows for
+    both endpoints are gathered up-front and the Pearson is computed on the
+    gathered float32 blocks, so the inner numba kernel sees plain ndarrays
+    either way.
     """
     M_chunk = M_chunk.tocsr()
     x, y = M_chunk.nonzero()
     # map chunk-local row indices → global cell indices for the correlation lookup
+    if not isinstance(wPCA, np.ndarray):
+        # _TiledWPCA or other lazy view — materialise once. This path is only
+        # reached for pairwise=False or 2-species runs (S<=2), where the full
+        # wPCA is N_total × S·npcs ≈ 2× the per-species blocks already held.
+        # For 3+ species pairwise=True, _compute_mutual_graph routes through
+        # _scale_by_corr_pair instead and never calls this.
+        wPCA = np.asarray(wPCA)
     vals = _replace(wPCA, global_rows[x], y)
     # floor at 1e-3 (no eliminate_zeros — preserve M_chunk's sparsity pattern)
     vals[vals < 1e-3] = 1e-3
@@ -101,6 +115,47 @@ def _scale_by_corr(
     scaled_max = np.asarray(scaled.max(1).todense()).flatten()
     scaled_max[scaled_max == 0] = 1
 
+    return scaled.multiply((Mmax / scaled_max)[:, None]).tocsr()
+
+
+def _scale_by_corr_pair(
+    M_block: Any,
+    A: NDArray[Any],
+    B: NDArray[Any],
+    local_rows: NDArray[np.int64],
+) -> Any:
+    """Per-pair variant of :func:`_scale_by_corr` (P0.2 pairwise tiling).
+
+    ``M_block`` is the (chunk_len × N_b) mutual-NN block for a single
+    species pair (a, b). ``A`` is species a's cells in the per-pair
+    [PCs_a|PCs_b] space (N_a × 2·npcs); ``B`` is species b's cells in the
+    same space (N_b × 2·npcs). ``local_rows`` maps chunk-local row index →
+    species-a-local row index into ``A``.
+
+    Row-max normalisations are taken over this pair's columns only — for
+    ``pairwise=True`` (per-partner top-k) this is the semantically correct
+    scope; the legacy code took row-max over *all* partners' columns, which
+    let a strong a↔b correlation suppress a↔c weights. The change is
+    confined to runs with 3+ species under ``pairwise=True``.
+    """
+    M_block = M_block.tocsr()
+    x, y = M_block.nonzero()
+    vals = _replace_pair(A, B, local_rows[x], y.astype(np.int64))
+    vals[vals < 1e-3] = 1e-3
+
+    F = M_block.copy()
+    F.data[:] = vals
+    Fmax = np.asarray(F.max(1).todense()).flatten()
+    Fmax[Fmax == 0] = 1
+    F = F.multiply(1 / Fmax[:, None]).tocsr()
+    F.data[:] = _tanh_scale(F.data, center=0.7, scale=10)
+
+    Mmax = np.asarray(M_block.max(1).todense()).flatten()
+    Mmax[Mmax == 0] = 1
+    scaled = F.multiply(M_block).tocsr()
+    scaled.data[:] = np.sqrt(scaled.data)
+    scaled_max = np.asarray(scaled.max(1).todense()).flatten()
+    scaled_max[scaled_max == 0] = 1
     return scaled.multiply((Mmax / scaled_max)[:, None]).tocsr()
 
 
@@ -173,6 +228,29 @@ def _compute_mutual_graph(
     builder = COOBuilder(bk, shape=(N, N))
     pairwise_topk = pairwise and len(sids) > 2
 
+    # P0.2: when pairwise_topk and wPCA exposes per-pair tiles, the
+    # *correctness-preserving* path materialises one f32 N_total×S·npcs array
+    # (releasing tiles in-place so peak ≈ 1×, half the legacy f64 buffer) and
+    # runs the original full-width _scale_by_corr. The opt-in
+    # SAMAP_TILED_SCALE_BY_CORR=1 path correlates each (a,b) block in its own
+    # [PCs_a|PCs_b] subspace with per-partner row-max — semantically the right
+    # scope for pairwise=True but a small (≈0.01 mean_top1, 0.97 hgr cosine)
+    # deviation from legacy on a 3-species golden. Kept opt-in until validated
+    # at S≫3.
+    sid_to_idx = {sid: i for i, sid in enumerate(sids)}
+    tiled_pair_corr = (
+        pairwise_topk
+        and scale_edges_by_corr
+        and hasattr(wPCA, "pair_corr_basis")
+        and os.environ.get("SAMAP_TILED_SCALE_BY_CORR") == "1"
+    )
+    if (
+        not tiled_pair_corr
+        and scale_edges_by_corr
+        and hasattr(wPCA, "materialise_full")
+    ):
+        wPCA = wPCA.materialise_full(free=True)
+
     # Precompute per-species slices into B for cheap block extraction.
     gslice: dict[str, slice] = {
         sid: slice(offsets[sid], offsets[sid] + n_cells[sid]) for sid in sids
@@ -203,11 +281,21 @@ def _compute_mutual_graph(
             for b in partners:
                 pre_right[b] = nnm_a.T.dot(B_baT[b])
 
+        # Per-pair correlation bases (P0.2) — assembled once per source species.
+        pair_A: dict[str, NDArray[Any]] = {}
+        pair_B: dict[str, NDArray[Any]] = {}
+        if tiled_pair_corr:
+            ia = sid_to_idx[a]
+            for b in partners:
+                ib = sid_to_idx[b]
+                pair_A[b], pair_B[b] = wPCA.pair_corr_basis(ia, ib)
+
         for start in range(0, na, chunksize):
             end = min(start + chunksize, na)
             local = slice(start, end)
             chunk_len = end - start
             global_rows = np.arange(off_a + start, off_a + end, dtype=np.int64)
+            local_rows = np.arange(start, end, dtype=np.int64)
 
             row_l: list[NDArray[np.intp]] = []
             col_l: list[NDArray[np.int64]] = []
@@ -245,12 +333,31 @@ def _compute_mutual_graph(
                     continue
                 Mb.data[:] = np.sqrt(Mb.data)
 
+                if tiled_pair_corr:
+                    # P0.2 fast path: scale + top-k this (a,b) block in its
+                    # own [PCs_a|PCs_b] subspace, then emit directly. Never
+                    # touches columns outside species b → no full-width wPCA.
+                    Mb = _scale_by_corr_pair(Mb, pair_A[b], pair_B[b], local_rows)
+                    Mk = sparse_knn(Mb, k1).tocoo()
+                    row_l.append(Mk.row)
+                    col_l.append(Mk.col.astype(np.int64) + offsets[b])
+                    val_l.append(Mk.data)
+                    continue
+
                 coo = Mb.tocoo()
                 row_l.append(coo.row)
                 col_l.append(coo.col.astype(np.int64) + offsets[b])
                 val_l.append(coo.data)
 
             if not row_l:
+                continue
+
+            if tiled_pair_corr:
+                # Already scaled + top-k'd per partner above — just emit.
+                rows = np.concatenate(row_l)
+                cols = np.concatenate(col_l)
+                vals = np.concatenate(val_l)
+                builder.add_batch(global_rows[rows], cols, vals)
                 continue
 
             M_chunk = sp.sparse.csr_matrix(

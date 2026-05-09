@@ -113,6 +113,41 @@ _HNSW_EF: int = 200
 _HNSW_M: int = 48
 
 
+def _hnswlib_build(
+    database: Any,
+    metric: str = "cosine",
+    *,
+    ef: int = _HNSW_EF,
+    M: int = _HNSW_M,
+    num_threads: int = -1,
+) -> Any:
+    """Build (and return) an HNSW index over ``database`` without querying.
+
+    P0.3: lets callers reuse one index across many query batches when the
+    database is shared. Returns the populated ``hnswlib.Index``.
+    """
+    db = np.ascontiguousarray(np.asarray(database, dtype=np.float32))
+    n_d, dim = db.shape
+    labels = np.arange(n_d)
+    index = hnswlib.Index(space=metric, dim=dim)
+    index.init_index(max_elements=n_d, ef_construction=ef, M=M)
+    index.add_items(db, labels, num_threads=num_threads)
+    index.set_ef(ef)
+    return index
+
+
+def _hnswlib_query(
+    index: Any,
+    queries: Any,
+    k: int,
+    *,
+    num_threads: int = -1,
+) -> tuple[NDArray[Any], NDArray[Any]]:
+    """Query a prebuilt HNSW index. Returns ``(indices, distances)``."""
+    q = np.ascontiguousarray(np.asarray(queries, dtype=np.float32))
+    return index.knn_query(q, k=k, num_threads=num_threads)
+
+
 def _hnswlib_knn(
     queries: Any,
     database: Any,
