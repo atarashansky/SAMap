@@ -120,9 +120,21 @@ class SAMAP:
         save_processed: bool = True,
         eval_thr: float = DEFAULT_EVAL_THRESHOLD,
         backend: Literal["auto", "cpu", "cuda"] = "auto",
+        precompute_cache: str | None = None,
     ) -> None:
         self._bk = Backend(backend)
         logger.info("Using backend: %s", self._bk.device)
+
+        # Per-species precompute cache (PCs_SAMap + full-gene XtX). When the
+        # directory is given, hits are loaded and passed through to
+        # _projection_precompute; misses are computed and written back.
+        self._precompute_cache_dir = precompute_cache
+        self._precomputed: dict[str, Any] = {}
+        if precompute_cache is not None:
+            from samap.io.precompute import load_precompute, precompute_species
+
+            self._load_precompute = load_precompute
+            self._precompute_species = precompute_species
 
         for key, data in sams.items():
             if not (isinstance(data, str) or hasattr(data, "adata")):
@@ -170,7 +182,33 @@ class SAMAP:
             if key == "leiden_clusters":
                 sam.leiden_clustering(res=res)
 
-            if "PCs_SAMap" not in sam.adata.varm:
+            if self._precompute_cache_dir is not None:
+                cached = self._load_precompute(
+                    sid, self._precompute_cache_dir, sam=sam
+                )
+                if cached is not None:
+                    if "PCs_SAMap" not in sam.adata.varm:
+                        sam.adata.varm["PCs_SAMap"] = cached["PCs_SAMap"]
+                    self._precomputed[sid] = cached
+                    logger.info(
+                        "'%s': loaded precompute cache from %s "
+                        "(npcs=%d, XtX %d genes).",
+                        sid,
+                        cached["path"],
+                        cached["npcs"],
+                        cached["n_genes"],
+                    )
+                else:
+                    if "PCs_SAMap" not in sam.adata.varm:
+                        prepare_SAMap_loadings(sam)
+                    # Write-back so the next pair sharing this species hits.
+                    self._precompute_species(
+                        sam, sid, self._precompute_cache_dir
+                    )
+                    self._precomputed[sid] = self._load_precompute(
+                        sid, self._precompute_cache_dir, sam=sam
+                    )
+            elif "PCs_SAMap" not in sam.adata.varm:
                 prepare_SAMap_loadings(sam)
 
             if save_processed and isinstance(data, str):
@@ -258,7 +296,14 @@ class SAMAP:
             if not sp.sparse.issparse(sams[sid].adata.X):
                 sams[sid].adata.X = sp.sparse.csr_matrix(sams[sid].adata.X)
 
-        smap = _Samap_Iter(sams, gnnm_matrix, gns_dict, keys=keys, bk=self._bk)
+        smap = _Samap_Iter(
+            sams,
+            gnnm_matrix,
+            gns_dict,
+            keys=keys,
+            bk=self._bk,
+            precomputed=self._precomputed or None,
+        )
         self.sams = sams
         self.gnnm = gnnm_matrix
         self.gns_dict = gns_dict
@@ -780,6 +825,7 @@ class _Samap_Iter:
         gns_dict: dict[str, NDArray[Any]],
         keys: dict[str, str] | None = None,
         bk: Backend | None = None,
+        precomputed: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self._bk = bk if bk is not None else Backend("cpu")
         self.sams = sams
@@ -808,7 +854,10 @@ class _Samap_Iter:
         # own-species PC projection. Built once here, consumed every iteration
         # inside _mapper → _mapping_window_fast.
         self._gns = np.concatenate(list(gns_dict.values()))
-        self._proj_cache = _projection_precompute(sams, self._gns, self._bk)
+        self._precomputed = precomputed
+        self._proj_cache = _projection_precompute(
+            sams, self._gns, self._bk, precomputed=precomputed
+        )
 
     def refine_homology_graph(
         self,
@@ -927,6 +976,8 @@ class _Samap_Iter:
                     sams[sid].adata.var["weights"] = np.where(
                         block.isna().values, orig, block.values
                     ).astype(np.float64)
+                # joint_weights changes var['weights'], which invalidates the
+                # cached XtX (it is weight-scaled). Don't pass precomputed here.
                 self._proj_cache = _projection_precompute(sams, self._gns, self._bk)
 
             logger.info("Iteration %d complete.", i + 1)
