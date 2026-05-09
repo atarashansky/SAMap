@@ -501,8 +501,11 @@ def _mapping_window_fast(
 
     # ---- Global gnnm_corr preparation (tanh-scale + column-normalise) ---- #
     #  This normalised graph is also a pipeline output (output_dict['gnnm_corr']).
-    gnnm_corr = bk.to_device(gnnm.copy())
-    gnnm_corr.data[:] = _tanh_scale(bk.to_host(gnnm_corr.data))  # tanh is cheap; stay on host np
+    #  tanh is cheap — apply it on host (numpy) and upload once. Doing the
+    #  upload first and writing host data back into a cupy array via [:]
+    #  fails with "non-scalar numpy.ndarray cannot be used for fill".
+    gnnm_corr = gnnm.copy()
+    gnnm_corr.data[:] = _tanh_scale(gnnm_corr.data)
     gnnm_corr = bk.to_device(gnnm_corr)
     su = bk.xp.asarray(gnnm_corr.sum(0))
     su = bk.xp.where(su == 0, 1.0, su)
