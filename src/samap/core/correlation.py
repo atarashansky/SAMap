@@ -59,6 +59,30 @@ warnings.filterwarnings("ignore", category=NumbaWarning)
 
 
 @njit(parallel=True)
+def _replace_pair(
+    A: NDArray[Any],
+    B: NDArray[Any],
+    ai: NDArray[Any],
+    bi: NDArray[Any],
+) -> NDArray[np.float64]:
+    """Per-edge Pearson with indexed access into two separate row stores.
+
+    Like :func:`_replace` but for the P0.2 per-pair tile case where the two
+    endpoints of an edge live in *different* arrays (species-a's tile ``A``
+    and species-b's tile ``B``). Indexes row-by-row inside the prange — no
+    caller-side gather, so memory stays at O(d) per thread regardless of how
+    many edges there are.
+    """
+    n = ai.size
+    out = np.zeros(n)
+    for i in prange(n):
+        x = A[ai[i]]
+        y = B[bi[i]]
+        out[i] = ((x - x.mean()) * (y - y.mean()) / x.std() / y.std()).sum() / x.size
+    return out
+
+
+@njit(parallel=True)
 def _replace(X: NDArray[Any], xi: NDArray[Any], yi: NDArray[Any]) -> NDArray[np.float64]:
     """Per-pair Pearson over rows of a dense matrix (CPU fast path, numba).
 
@@ -229,6 +253,137 @@ def _xicorr(X: NDArray[Any], Y: NDArray[Any]) -> float:
 
 
 @njit(parallel=True)
+def _corr_kernel_pearson(
+    p1: NDArray[np.int64],
+    p2: NDArray[np.int64],
+    ps1: NDArray[np.int64],
+    ps2: NDArray[np.int64],
+    sp_starts: NDArray[np.int64],
+    sp_lens: NDArray[np.int64],
+    indptr: NDArray[Any],
+    indices: NDArray[Any],
+    data: NDArray[Any],
+    n: int,
+) -> NDArray[np.float64]:
+    """Register-only Pearson kernel — no per-pair allocation (P0.4).
+
+    For each gene pair ``(j1, j2)`` with species ``(a, b)``, computes the
+    Pearson correlation over the row range ``[s1,s1+l1) ∪ [s2,s2+l2)`` of
+    the CSC ``Xavg`` *without* densifying. Walks the two CSC columns'
+    nonzero lists once each for the linear sums (Σx, Σx², Σy, Σy²) and
+    once via a sorted-merge for the cross term Σxy, accumulating only
+    nonzeros whose row index falls in the species support. Rows in the
+    support that are zero in a column contribute 0 to all sums, so the
+    accumulators are correct without ever touching them.
+
+    Numerically identical to the legacy :func:`_corr_kernel` for
+    ``pearson=True`` (same five-sum Pearson identity). Per-thread workspace
+    is O(1) — six float64 accumulators + a handful of int64 cursors —
+    independent of ``n``. The legacy kernel allocates two ``np.zeros(n)``
+    per pair per thread; at joint scale (n = N_total ≈ 700k) that is
+    ~260 GB of memset over a full refinement. This kernel does none.
+
+    CSC ``indices`` within a column are sorted ascending (scipy invariant),
+    which the merge-walk for Σxy relies on. ``Xavg`` always comes from
+    ``.tocsc()`` so this holds.
+
+    The ``n`` parameter is unused (kept for signature parity with the xi
+    fallback so the two are dispatch-interchangeable).
+    """
+    res = np.zeros(p1.size)
+
+    for j in prange(len(p1)):
+        j1 = p1[j]
+        j2 = p2[j]
+        s1 = sp_starts[ps1[j]]
+        l1 = sp_lens[ps1[j]]
+        e1 = s1 + l1
+        s2 = sp_starts[ps2[j]]
+        l2 = sp_lens[ps2[j]]
+        e2 = s2 + l2
+        nn = np.float64(l1 + l2)
+
+        a0 = indptr[j1]
+        a1 = indptr[j1 + 1]
+        b0 = indptr[j2]
+        b1 = indptr[j2 + 1]
+
+        # ---- Linear sums for column j1 (gene x) over the support --------
+        Sx = 0.0
+        Sxx = 0.0
+        for k in range(a0, a1):
+            r = indices[k]
+            if (r >= s1 and r < e1) or (r >= s2 and r < e2):
+                v = data[k]
+                Sx += v
+                Sxx += v * v
+
+        # ---- Linear sums for column j2 (gene y) over the support --------
+        Sy = 0.0
+        Syy = 0.0
+        for k in range(b0, b1):
+            r = indices[k]
+            if (r >= s1 and r < e1) or (r >= s2 and r < e2):
+                v = data[k]
+                Sy += v
+                Syy += v * v
+
+        # ---- Cross term Σxy via sorted-merge of the two index lists -----
+        # Only rows where *both* columns are nonzero contribute (0·anything=0).
+        Sxy = 0.0
+        ka = a0
+        kb = b0
+        while ka < a1 and kb < b1:
+            ra = indices[ka]
+            rb = indices[kb]
+            if ra < rb:
+                ka += 1
+            elif ra > rb:
+                kb += 1
+            else:
+                if (ra >= s1 and ra < e1) or (ra >= s2 and ra < e2):
+                    Sxy += data[ka] * data[kb]
+                ka += 1
+                kb += 1
+
+        # ---- Pearson from the five sums --------------------------------
+        # cov = Σxy/n − μx·μy ;  varx = Σxx/n − μx² ;  r = cov / √(varx·vary)
+        # Equivalently: num = n·Σxy − Σx·Σy, den = √((n·Σxx−Σx²)(n·Σyy−Σy²)).
+        num = nn * Sxy - Sx * Sy
+        dx = nn * Sxx - Sx * Sx
+        dy = nn * Syy - Sy * Sy
+        if dx <= 0.0 or dy <= 0.0:
+            res[j] = 0.0
+        else:
+            res[j] = num / np.sqrt(dx * dy)
+
+    return res
+
+
+def _corr_kernel_xi(
+    p1: NDArray[np.int64],
+    p2: NDArray[np.int64],
+    ps1: NDArray[np.int64],
+    ps2: NDArray[np.int64],
+    sp_starts: NDArray[np.int64],
+    sp_lens: NDArray[np.int64],
+    indptr: NDArray[Any],
+    indices: NDArray[Any],
+    data: NDArray[Any],
+    n: int,
+) -> NDArray[np.float64]:
+    """Xi-correlation fallback — delegates to the legacy scatter kernel.
+
+    Xi correlation needs an argsort over the (l1+l2)-length slice, which has
+    no register-only formulation. Materialises the per-pair dense vectors as
+    before. Used only when ``corr_mode != 'pearson'``.
+    """
+    return _corr_kernel(
+        p1, p2, ps1, ps2, sp_starts, sp_lens, indptr, indices, data, n, False
+    )
+
+
+@njit(parallel=True)
 def _corr_kernel(
     p1: NDArray[np.int64],
     p2: NDArray[np.int64],
@@ -342,10 +497,16 @@ def _compute_pair_corrs(
     ps1 = np.ascontiguousarray(ps_int[:, 0], dtype=np.int64)
     ps2 = np.ascontiguousarray(ps_int[:, 1], dtype=np.int64)
 
+    # P0.4: Pearson uses the register-only kernel (no per-pair np.zeros(n)
+    # allocation; O(1) per-thread workspace). Xi correlation needs sorting →
+    # falls back to the legacy scatter-based kernel.
+    kernel = _corr_kernel_pearson if pearson else _corr_kernel_xi
+
     if batch_size is None:
         # --- Materialised path (golden-compatible) --------------------------
         Xavg = nnms.dot(Xs).tocsc()
-        return _corr_kernel(
+        Xavg.sort_indices()  # merge-walk in _corr_kernel_pearson requires sorted CSC indices
+        return kernel(
             p1,
             p2,
             ps1,
@@ -356,7 +517,6 @@ def _compute_pair_corrs(
             Xavg.indices,
             Xavg.data,
             n,
-            pearson,
         )
 
     # --- Streaming path -----------------------------------------------------
@@ -381,8 +541,9 @@ def _compute_pair_corrs(
 
         # One SpMM for just the needed columns, then CSC for kernel access.
         Xavg_batch = nnms.dot(Xs[:, needed]).tocsc()
+        Xavg_batch.sort_indices()
 
-        res[start:end] = _corr_kernel(
+        res[start:end] = kernel(
             p1_local,
             p2_local,
             np.ascontiguousarray(ps1[start:end]),
@@ -393,7 +554,6 @@ def _compute_pair_corrs(
             Xavg_batch.indices,
             Xavg_batch.data,
             n,
-            pearson,
         )
 
         del Xavg_batch
