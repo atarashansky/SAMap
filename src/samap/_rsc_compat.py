@@ -29,14 +29,26 @@ if TYPE_CHECKING:
 logger = get_logger("samap.rsc")
 
 # --- Optional import --------------------------------------------------------
+# rapids-singlecell pulls in cudf/cuml/cugraph at import time. On some hosts
+# their compiled extensions can crash the interpreter (SIGILL on a CPU that
+# lacks the instruction set the wheel was built for). SIGILL cannot be caught,
+# so SAMAP_DISABLE_RSC=1 lets callers skip the import entirely. Any other
+# import-time exception is downgraded to HAS_RSC=False with a warning.
 
-try:
-    import rapids_singlecell as rsc
+import os
 
-    HAS_RSC: bool = True
-except ImportError:
+if os.environ.get("SAMAP_DISABLE_RSC") == "1":
     rsc = None  # type: ignore[assignment]
-    HAS_RSC = False
+    HAS_RSC: bool = False
+else:
+    try:
+        import rapids_singlecell as rsc
+
+        HAS_RSC = True
+    except Exception as _e:  # noqa: BLE001 — anything here means "no GPU UMAP/Leiden"
+        rsc = None  # type: ignore[assignment]
+        HAS_RSC = False
+        logger.debug("rapids_singlecell unavailable: %r", _e)
 
 
 # --- Dispatch wrappers ------------------------------------------------------

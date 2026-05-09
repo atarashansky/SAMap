@@ -391,7 +391,10 @@ def _compute_mutual_graph(
 
             builder.add_batch(global_rows[rows], cols, vals)
 
-    return builder.finalize("csr")
+    # Everything downstream of this in _mapper assumes scipy: np.asarray on
+    # .sum(1), addition with a scipy CSR, .tolil(). On a CUDA backend
+    # COOBuilder.finalize() returns a cupyx CSR — bring it to host.
+    return bk.to_host(builder.finalize("csr"))
 
 
 def _mapper(

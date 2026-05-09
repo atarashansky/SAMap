@@ -221,8 +221,13 @@ def _faiss_gpu_knn(
         logger.warning("faiss_gpu_resources() returned None; falling back to hnswlib.")
         return _hnswlib_knn(queries, database, k, metric)
 
-    # FAISS insists on float32, C-contiguous. We upload to device first so
-    # normalisation runs on GPU, then hand device arrays to FAISS.
+    # FAISS's high-level Python wrapper (class_wrappers.replacement_add /
+    # replacement_search) calls ``np.ascontiguousarray(x)`` on its inputs and
+    # rejects cupy arrays with "Implicit conversion to a NumPy array is not
+    # allowed" — the CUDA-array-interface zero-copy path only exists at the
+    # SWIG level. So normalise on GPU (cheap), bring back to host float32, and
+    # let FAISS do its own H→D copy. The dominant cost is the GEMM, not the
+    # transfer.
     xp = bk.xp
     q_dev = xp.ascontiguousarray(bk.to_device(queries), dtype=xp.float32)
     db_dev = xp.ascontiguousarray(bk.to_device(database), dtype=xp.float32)
@@ -236,18 +241,18 @@ def _faiss_gpu_knn(
     db_norm = xp.where(db_norm == 0, 1.0, db_norm)
     db_dev /= db_norm
 
-    dim = int(db_dev.shape[1])
+    q = np.ascontiguousarray(bk.to_host(q_dev), dtype=np.float32)
+    db = np.ascontiguousarray(bk.to_host(db_dev), dtype=np.float32)
+    dim = int(db.shape[1])
 
     # Flat inner-product index — exact search, no training needed.
     cfg = _faiss.GpuIndexFlatConfig()
     cfg.device = 0  # TODO: multi-GPU device selection
     index = _faiss.GpuIndexFlatIP(res, dim, cfg)
-    index.add(db_dev)
+    index.add(db)
 
-    sims, idx = index.search(q_dev, k)
+    sims, idx = index.search(q, k)
     # sims is inner-product == cos(q,d) since inputs are unit-norm.
-    # Convert to cosine distance; bring to host for downstream CSR assembly
-    # which runs on CPU regardless of backend.
-    dists_host = 1.0 - bk.to_host(sims)
-    idx_host = bk.to_host(idx)
-    return idx_host, dists_host
+    # Convert to cosine distance; results are already host numpy.
+    dists_host = 1.0 - sims
+    return idx, dists_host
